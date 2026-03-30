@@ -1,0 +1,54 @@
+{
+  "schema_version": "2.0",
+  "name": "qqq-core-overlay-test",
+  "tradable_symbol": "QQQ",
+  "benchmark_symbol": "QQQ",
+  "reference_symbols": [],
+  "start_date": "2018-01-01",
+  "end_date": "2024-12-31",
+  "initial_capital": 100000,
+  "transaction_cost_bps": 5,
+  "allocation": {
+    "entry_mode": "percent_of_equity",
+    "entry_value": 1.0,
+    "max_position_pct": 1.0
+  },
+  "entry_rule": {
+    "kind": "sequence",
+    "window_bars": 15,
+    "steps": [
+      {
+        "kind": "atomic",
+        "type": "rsi_below",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 45
+      },
+      {
+        "kind": "atomic",
+        "type": "macd_bullish_cross",
+        "symbol": "QQQ"
+      }
+    ]
+  },
+  "exit_rule": {
+    "kind": "atomic",
+    "type": "macd_bearish_cross",
+    "symbol": "QQQ"
+  },
+  "risk": {
+    "stop_loss_pct": 0.08,
+    "take_profit_pct": null,
+    "partial_take_profit": null,
+    "cooldown_bars": 0
+  },
+  "position_management": {
+    "scale_in_fraction": 0.50,
+    "scale_out_fraction": 0.5,
+    "profit_reduce_threshold": 0.12
+  },
+  "core_overlay": {
+    "enabled": true,
+    "core_allocation_pct": 0.6
+  }
+}

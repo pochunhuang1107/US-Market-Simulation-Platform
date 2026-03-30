@@ -1,0 +1,27 @@
+{
+  "name": "qqq-rsi-mean-reversion",
+  "symbol": "QQQ",
+  "benchmark": "QQQ",
+  "start_date": "2017-01-01",
+  "end_date": "2025-12-31",
+  "initial_capital": 100000,
+  "transaction_cost_bps": 5,
+  "position_sizing": {
+    "type": "percent_of_equity",
+    "value": 1.0
+  },
+  "entry": {
+    "type": "rsi_below",
+    "lookback": 14,
+    "threshold": 30
+  },
+  "exit": {
+    "type": "rsi_above",
+    "lookback": 14,
+    "threshold": 70
+  },
+  "risk": {
+    "stop_loss_pct": null,
+    "take_profit_pct": null
+  }
+}

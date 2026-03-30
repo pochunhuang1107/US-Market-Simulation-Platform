@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+.venv/
+
+# Secrets
+.env
+config/app.yaml
+
+# Data
+data/local_artifacts/
+*.parquet
+
+# Build / metadata
+*.egg-info/
+
+# Mac
+.DS_Store
