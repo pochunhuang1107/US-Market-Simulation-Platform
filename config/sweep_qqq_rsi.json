@@ -1,0 +1,14 @@
+{
+  "base_strategy_path": "data/sample_strategies/qqq_engine_v2.json",
+  "search_space": {
+    "entry_rule.steps[0].lookback": [10, 14, 21],
+    "entry_rule.steps[0].threshold": [35, 40, 45],
+    "risk.stop_loss_pct": [0.05, 0.08, 0.1],
+    "position_management.profit_reduce_threshold": [0.08, 0.12, 0.15]
+  },
+  "ranking": {
+    "primary_metric": "sharpe_ratio",
+    "secondary_metric": "max_drawdown_pct",
+    "min_trade_count": 5
+  }
+}
