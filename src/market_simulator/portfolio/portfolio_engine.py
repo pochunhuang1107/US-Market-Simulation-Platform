@@ -61,6 +61,10 @@ def run_portfolio(portfolio_config, data_path=None, artifacts_dir=None):
     strategy_equity_cols = [c for c in merged.columns if c.startswith("weighted_equity__")]
     merged["portfolio_equity"] = merged[strategy_equity_cols].sum(axis=1)
 
+    for col in strategy_equity_cols:
+        contribution_col = col.replace("weighted_equity__", "contribution_pct__")
+        merged[contribution_col] = merged[col] / merged["portfolio_equity"] * 100.0
+
     portfolio_summary = build_portfolio_summary(merged)
     monthly_returns = build_portfolio_monthly_returns(merged)
 

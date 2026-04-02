@@ -5,14 +5,14 @@
   "initial_capital": 100000,
   "strategies": [
     {
-      "name": "rsi_mean_reversion",
+      "name": "qqq_base",
       "weight": 0.5,
       "strategy_path": "data/sample_strategies/qqq_engine_v2.json"
     },
     {
-      "name": "same_strategy_clone",
+      "name": "qqq_alt",
       "weight": 0.5,
-      "strategy_path": "data/sample_strategies/qqq_engine_v2.json"
+      "strategy_path": "data/sample_strategies/qqq_engine_v2_alt.json"
     }
   ]
 }
