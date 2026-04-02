@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pandas as pd
 
 from market_simulator.service import SimulationService
 from .allocation import normalize_weights
+from .reporting import build_portfolio_monthly_returns, build_portfolio_summary
 
 
 def run_portfolio(portfolio_config, data_path=None, artifacts_dir=None):
+    artifacts_root = Path(artifacts_dir or "data/local_artifacts/portfolios")
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+
+    portfolio_dir = artifacts_root / portfolio_config.name
+    portfolio_dir.mkdir(parents=True, exist_ok=True)
+
     service = SimulationService(
         market_data_path=data_path,
-        artifacts_dir=artifacts_dir,
+        artifacts_dir=str(portfolio_dir / "strategy_runs"),
     )
 
     strategies = normalize_weights(portfolio_config.strategies)
@@ -20,35 +30,59 @@ def run_portfolio(portfolio_config, data_path=None, artifacts_dir=None):
     for strat in strategies:
         result = service.run_from_file(strat.strategy_path)
 
-        timeline = pd.DataFrame(result.timeline)
-        timeline["weighted_equity"] = timeline["strategy_equity"] * strat.weight
+        timeline = pd.DataFrame(result.timeline).copy()
+        timeline["date"] = pd.to_datetime(timeline["date"])
+        timeline = timeline.sort_values("date").reset_index(drop=True)
 
-        equity_curves.append(timeline[["date", "weighted_equity"]])
+        first_equity = float(timeline["strategy_equity"].iloc[0])
+        allocated_initial = float(portfolio_config.initial_capital) * float(strat.weight)
+
+        timeline["weighted_equity"] = (
+            timeline["strategy_equity"] / first_equity
+        ) * allocated_initial
+
+        equity_curves.append(
+            timeline[["date", "weighted_equity"]].rename(
+                columns={"weighted_equity": f"weighted_equity__{strat.name}"}
+            )
+        )
 
         summary = dict(result.summary)
         summary["strategy_name"] = strat.name
         summary["weight"] = strat.weight
+        summary["artifact_dir"] = result.artifact_dir
         summaries.append(summary)
 
-    merged = equity_curves[0]
+    merged = equity_curves[0].copy()
 
     for df in equity_curves[1:]:
-        merged = merged.merge(df, on="date", how="inner", suffixes=("", "_other"))
-        merged["weighted_equity"] += merged.pop("weighted_equity_other")
+        merged = merged.merge(df, on="date", how="inner")
 
-    merged = merged.sort_values("date").reset_index(drop=True)
+    strategy_equity_cols = [c for c in merged.columns if c.startswith("weighted_equity__")]
+    merged["portfolio_equity"] = merged[strategy_equity_cols].sum(axis=1)
 
-    merged["portfolio_equity"] = merged["weighted_equity"]
+    portfolio_summary = build_portfolio_summary(merged)
+    monthly_returns = build_portfolio_monthly_returns(merged)
 
-    total_return = (
-        merged["portfolio_equity"].iloc[-1] / merged["portfolio_equity"].iloc[0] - 1
-    ) * 100
+    merged_out = merged.copy()
+    merged_out["date"] = merged_out["date"].dt.strftime("%Y-%m-%d")
+
+    merged_out.to_csv(portfolio_dir / "portfolio_timeline.csv", index=False)
+    monthly_returns.to_csv(portfolio_dir / "portfolio_monthly_returns.csv", index=False)
+
+    (portfolio_dir / "portfolio_summary.json").write_text(
+        json.dumps(portfolio_summary, indent=2),
+        encoding="utf-8",
+    )
+
+    (portfolio_dir / "strategy_summaries.json").write_text(
+        json.dumps(summaries, indent=2),
+        encoding="utf-8",
+    )
 
     return {
-        "timeline": merged,
-        "summary": {
-            "portfolio_total_return_pct": total_return,
-            "strategy_count": len(strategies),
-        },
+        "timeline": merged_out,
+        "summary": portfolio_summary,
         "strategy_summaries": summaries,
+        "artifact_dir": str(portfolio_dir),
     }
