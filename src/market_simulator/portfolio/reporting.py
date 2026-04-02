@@ -24,6 +24,9 @@ def build_portfolio_summary(timeline: pd.DataFrame) -> dict:
             "portfolio_sharpe_ratio": None,
             "start_equity": None,
             "end_equity": None,
+            "benchmark_end_equity": None,
+            "benchmark_return_pct": None,
+            "alpha_vs_benchmark_pct": None,
             "trading_days": 0,
         }
 
@@ -34,7 +37,17 @@ def build_portfolio_summary(timeline: pd.DataFrame) -> dict:
     end_equity = float(df["portfolio_equity"].iloc[-1])
     trading_days = int(len(df))
 
+    benchmark_end_equity = None
+    if "portfolio_benchmark_equity" in df.columns:
+        benchmark_end_equity = float(df["portfolio_benchmark_equity"].iloc[-1])
+
     total_return_pct = ((end_equity / start_equity) - 1.0) * 100.0
+
+    benchmark_return_pct = None
+    alpha_vs_benchmark_pct = None
+    if benchmark_end_equity is not None and start_equity > 0:
+        benchmark_return_pct = ((benchmark_end_equity / start_equity) - 1.0) * 100.0
+        alpha_vs_benchmark_pct = total_return_pct - benchmark_return_pct
 
     years = trading_days / 252.0
     cagr_pct = None
@@ -59,6 +72,9 @@ def build_portfolio_summary(timeline: pd.DataFrame) -> dict:
         "portfolio_sharpe_ratio": round(float(sharpe_ratio), 6) if sharpe_ratio is not None else None,
         "start_equity": round(start_equity, 6),
         "end_equity": round(end_equity, 6),
+        "benchmark_end_equity": round(benchmark_end_equity, 6) if benchmark_end_equity is not None else None,
+        "benchmark_return_pct": round(benchmark_return_pct, 6) if benchmark_return_pct is not None else None,
+        "alpha_vs_benchmark_pct": round(alpha_vs_benchmark_pct, 6) if alpha_vs_benchmark_pct is not None else None,
         "trading_days": trading_days,
     }
 

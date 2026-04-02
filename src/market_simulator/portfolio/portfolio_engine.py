@@ -31,6 +31,8 @@ def run_portfolio(portfolio_config, data_path=None, artifacts_dir=None):
         result = service.run_from_file(strat.strategy_path)
 
         timeline = pd.DataFrame(result.timeline).copy()
+        if "benchmark_equity" in timeline.columns and "benchmark_equity_base" not in locals():
+            benchmark_equity_base = timeline[["date", "benchmark_equity"]].copy()
         timeline["date"] = pd.to_datetime(timeline["date"])
         timeline = timeline.sort_values("date").reset_index(drop=True)
 
@@ -64,6 +66,22 @@ def run_portfolio(portfolio_config, data_path=None, artifacts_dir=None):
     for col in strategy_equity_cols:
         contribution_col = col.replace("weighted_equity__", "contribution_pct__")
         merged[contribution_col] = merged[col] / merged["portfolio_equity"] * 100.0
+
+    if "benchmark_equity_base" in locals():
+        benchmark_equity_base = benchmark_equity_base.copy()
+        benchmark_equity_base["date"] = pd.to_datetime(benchmark_equity_base["date"])
+        benchmark_equity_base = benchmark_equity_base.sort_values("date").reset_index(drop=True)
+
+        benchmark_first = float(benchmark_equity_base["benchmark_equity"].iloc[0])
+        benchmark_equity_base["portfolio_benchmark_equity"] = (
+            benchmark_equity_base["benchmark_equity"] / benchmark_first
+        ) * float(portfolio_config.initial_capital)
+
+        merged = merged.merge(
+            benchmark_equity_base[["date", "portfolio_benchmark_equity"]],
+            on="date",
+            how="left",
+        )
 
     portfolio_summary = build_portfolio_summary(merged)
     monthly_returns = build_portfolio_monthly_returns(merged)
