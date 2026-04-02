@@ -43,6 +43,21 @@ def run_sweep(
         result = service.run_from_config(config)
 
         row = dict(result.summary)
+        if hasattr(result, "report_bundle") and result.report_bundle:
+            ta = result.report_bundle["trade_analytics"]
+            tl = result.report_bundle["timeline_analytics"]
+
+            row["profit_factor"] = ta.get("profit_factor")
+            row["payoff_ratio"] = ta.get("payoff_ratio")
+            row["avg_win"] = ta.get("avg_win")
+            row["avg_loss"] = ta.get("avg_loss")
+            row["best_trade"] = ta.get("best_trade")
+            row["worst_trade"] = ta.get("worst_trade")
+            row["closed_trade_count"] = ta.get("closed_trade_count")
+
+            row["time_in_market_pct"] = tl.get("time_in_market_pct")
+            row["avg_exposure_pct"] = tl.get("avg_exposure_pct")
+            row["max_consecutive_days_in_market"] = tl.get("max_consecutive_days_in_market")
         row["run_id"] = run_hash
         row["strategy_name"] = config["name"]
         row["artifact_dir"] = result.artifact_dir
