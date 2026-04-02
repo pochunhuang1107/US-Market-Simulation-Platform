@@ -1,0 +1,18 @@
+{
+  "name": "qqq_multi_strategy",
+  "start_date": "2018-01-01",
+  "end_date": "2024-12-31",
+  "initial_capital": 100000,
+  "strategies": [
+    {
+      "name": "rsi_mean_reversion",
+      "weight": 0.5,
+      "strategy_path": "data/sample_strategies/qqq_engine_v2.json"
+    },
+    {
+      "name": "same_strategy_clone",
+      "weight": 0.5,
+      "strategy_path": "data/sample_strategies/qqq_engine_v2.json"
+    }
+  ]
+}
