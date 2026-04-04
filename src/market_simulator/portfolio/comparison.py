@@ -7,6 +7,7 @@ import pandas as pd
 
 from market_simulator.models.portfolio import PortfolioConfig
 from market_simulator.portfolio.portfolio_engine import run_portfolio
+from .leaderboard import build_leaderboard
 
 
 def run_portfolio_comparison(
@@ -94,6 +95,10 @@ def run_portfolio_comparison(
     merged_timeline = merged_timeline.sort_values("date").reset_index(drop=True)
 
     summary_df.to_csv(comparison_dir / "portfolio_comparison_summary.csv", index=False)
+
+    leaderboard_df = build_leaderboard(summary_df)
+    leaderboard_df.to_csv(comparison_dir / "portfolio_leaderboard.csv", index=False)
+    
     merged_timeline.to_csv(comparison_dir / "portfolio_comparison_timeline.csv", index=False)
 
     return {
