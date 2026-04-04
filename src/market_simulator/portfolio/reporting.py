@@ -27,6 +27,7 @@ def build_portfolio_summary(timeline: pd.DataFrame) -> dict:
             "benchmark_end_equity": None,
             "benchmark_return_pct": None,
             "alpha_vs_benchmark_pct": None,
+            "benchmark_max_drawdown_pct": None,
             "trading_days": 0,
         }
 
@@ -65,6 +66,14 @@ def build_portfolio_summary(timeline: pd.DataFrame) -> dict:
     df["drawdown_pct"] = (df["portfolio_equity"] / df["cummax"] - 1.0) * 100.0
     max_drawdown_pct = float(df["drawdown_pct"].min())
 
+    benchmark_max_drawdown_pct = None
+    if "portfolio_benchmark_equity" in df.columns:
+        df["benchmark_cummax"] = df["portfolio_benchmark_equity"].cummax()
+        df["benchmark_drawdown_pct"] = (
+            df["portfolio_benchmark_equity"] / df["benchmark_cummax"] - 1.0
+        ) * 100.0
+        benchmark_max_drawdown_pct = float(df["benchmark_drawdown_pct"].min())
+
     return {
         "portfolio_total_return_pct": round(total_return_pct, 6),
         "portfolio_cagr_pct": round(cagr_pct, 6) if cagr_pct is not None else None,
@@ -75,6 +84,7 @@ def build_portfolio_summary(timeline: pd.DataFrame) -> dict:
         "benchmark_end_equity": round(benchmark_end_equity, 6) if benchmark_end_equity is not None else None,
         "benchmark_return_pct": round(benchmark_return_pct, 6) if benchmark_return_pct is not None else None,
         "alpha_vs_benchmark_pct": round(alpha_vs_benchmark_pct, 6) if alpha_vs_benchmark_pct is not None else None,
+        "benchmark_max_drawdown_pct": round(benchmark_max_drawdown_pct, 6) if benchmark_max_drawdown_pct is not None else None,
         "trading_days": trading_days,
     }
 

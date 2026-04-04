@@ -83,6 +83,17 @@ def run_portfolio(portfolio_config, data_path=None, artifacts_dir=None):
             how="left",
         )
 
+    merged["portfolio_cummax"] = merged["portfolio_equity"].cummax()
+    merged["portfolio_drawdown_pct"] = (
+        merged["portfolio_equity"] / merged["portfolio_cummax"] - 1.0
+    ) * 100.0
+
+    if "portfolio_benchmark_equity" in merged.columns:
+        merged["benchmark_cummax"] = merged["portfolio_benchmark_equity"].cummax()
+        merged["benchmark_drawdown_pct"] = (
+            merged["portfolio_benchmark_equity"] / merged["benchmark_cummax"] - 1.0
+        ) * 100.0
+
     portfolio_summary = build_portfolio_summary(merged)
     monthly_returns = build_portfolio_monthly_returns(merged)
 
