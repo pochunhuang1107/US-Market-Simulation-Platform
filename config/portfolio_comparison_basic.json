@@ -1,0 +1,11 @@
+{
+  "name": "qqq_portfolio_comparison",
+  "portfolio_configs": [
+    {
+      "config_path": "config/portfolio_basic.json"
+    },
+    {
+      "config_path": "config/portfolio_alt.json"
+    }
+  ]
+}

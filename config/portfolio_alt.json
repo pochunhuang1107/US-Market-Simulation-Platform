@@ -1,0 +1,18 @@
+{
+  "name": "qqq_multi_strategy_alt",
+  "start_date": "2018-01-01",
+  "end_date": "2024-12-31",
+  "initial_capital": 100000,
+  "strategies": [
+    {
+      "name": "qqq_base",
+      "weight": 0.7,
+      "strategy_path": "data/sample_strategies/qqq_engine_v2.json"
+    },
+    {
+      "name": "qqq_alt",
+      "weight": 0.3,
+      "strategy_path": "data/sample_strategies/qqq_engine_v2_alt.json"
+    }
+  ]
+}
