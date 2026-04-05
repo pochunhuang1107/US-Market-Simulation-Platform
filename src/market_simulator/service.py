@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from market_simulator.data.repository import MarketDataRepository
@@ -22,15 +21,15 @@ class SimulationService:
             s3_region=settings.s3_region,
         )
 
-    def run_from_file(self, path: str | Path):
+    def run_from_file(self, path: str | Path, output_dir: str | Path | None = None):
         strategy = load_any_strategy(path)
-        return self.run_from_strategy(strategy)
+        return self.run_from_strategy(strategy, output_dir=output_dir)
 
-    def run_from_config(self, config: dict):
+    def run_from_config(self, config: dict, output_dir: str | Path | None = None):
         strategy = StrategyV2.model_validate(config)
-        return self.run_from_strategy(strategy)
+        return self.run_from_strategy(strategy, output_dir=output_dir)
 
-    def run_from_strategy(self, strategy):
+    def run_from_strategy(self, strategy, output_dir: str | Path | None = None):
         market_data = self.repo.get_market_data(
             tradable_symbol=strategy.tradable_symbol,
             reference_symbols=strategy.reference_symbols,
@@ -38,6 +37,8 @@ class SimulationService:
             end_date=str(strategy.end_date),
         )
         result = run_simulation(market_data, strategy)
-        artifact_dir = write_artifacts(result, self.artifacts_dir / strategy.name)
+
+        artifact_output_dir = Path(output_dir) if output_dir else (self.artifacts_dir / strategy.name)
+        artifact_dir = write_artifacts(result, artifact_output_dir)
         result.artifact_dir = str(artifact_dir)
         return result
