@@ -49,6 +49,11 @@ class ExecutorType(str, Enum):
     SWEEP_EXECUTOR = "SWEEP_EXECUTOR"
 
 
+class ArtifactStorageType(str, Enum):
+    LOCAL = "LOCAL"
+    S3 = "S3"
+
+
 class TrackingStatus(str, Enum):
     ACTIVE = "ACTIVE"
     PAUSED = "PAUSED"
