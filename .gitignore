@@ -13,6 +13,7 @@ config/app.yaml
 # Data
 data/local_artifacts/
 *.parquet
+*.zip
 
 # Build / metadata
 *.egg-info/

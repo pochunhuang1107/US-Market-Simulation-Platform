@@ -55,6 +55,14 @@ def get_run(db: Session, run_id):
     return db.query(Run).filter(Run.id == run_id).first()
 
 
+def get_run_for_user(db: Session, run_id, user_id):
+    return (
+        db.query(Run)
+        .filter(Run.id == run_id, Run.user_id == user_id)
+        .first()
+    )
+
+
 def list_runs(db: Session, user_id):
     return (
         db.query(Run)

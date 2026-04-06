@@ -3,12 +3,16 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from market_simulator.db.enums import RunStatus
-from market_simulator.repositories.runs import enqueue_run, get_run, mark_run_canceled
+from market_simulator.repositories.runs import (
+    enqueue_run,
+    get_run_for_user,
+    mark_run_canceled,
+)
 
 
 class RunDispatcherService:
-    def dispatch_run(self, db: Session, run_id: str) -> dict:
-        run = get_run(db, run_id)
+    def dispatch_run(self, db: Session, run_id: str, user_id: str) -> dict:
+        run = get_run_for_user(db, run_id, user_id)
         if run is None:
             raise ValueError(f"Run not found: {run_id}")
 
@@ -29,8 +33,8 @@ class RunDispatcherService:
             "message": "Run queued successfully",
         }
 
-    def cancel_run(self, db: Session, run_id: str) -> dict:
-        run = get_run(db, run_id)
+    def cancel_run(self, db: Session, run_id: str, user_id: str) -> dict:
+        run = get_run_for_user(db, run_id, user_id)
         if run is None:
             raise ValueError(f"Run not found: {run_id}")
 
