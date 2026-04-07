@@ -6,6 +6,31 @@ from market_simulator.db.enums import RunStatus
 from market_simulator.repositories.runs import create_run, mark_run_succeeded
 
 
+def _create_run_via_api(
+    client,
+    *,
+    strategy_id: str,
+    strategy_version_id: str,
+    run_type: str = "SIMULATION",
+    executor_type: str = "SIMULATION_EXECUTOR",
+    request_payload: dict | None = None,
+    max_attempts: int = 3,
+):
+    response = client.post(
+        "/runs",
+        json={
+            "strategy_id": strategy_id,
+            "strategy_version_id": strategy_version_id,
+            "run_type": run_type,
+            "executor_type": executor_type,
+            "request_payload": request_payload or {},
+            "max_attempts": max_attempts,
+        },
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
 def test_create_run_returns_pending(
     client,
     create_user,
@@ -41,7 +66,7 @@ def test_create_run_returns_pending(
     assert body["progress_message"] == "Run created"
 
 
-def test_list_runs_returns_items_wrapper(
+def test_list_runs_returns_paginated_wrapper(
     client,
     create_user,
     create_strategy_bundle,
@@ -53,26 +78,197 @@ def test_list_runs_returns_items_wrapper(
     )
     strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
 
-    create_resp = client.post(
-        "/runs",
-        json={
-            "strategy_id": str(strategy.id),
-            "strategy_version_id": str(version.id),
-            "run_type": "SIMULATION",
-            "executor_type": "SIMULATION_EXECUTOR",
-            "request_payload": {"note": "list test"},
-            "max_attempts": 3,
-        },
+    _create_run_via_api(
+        client,
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        request_payload={"note": "list test"},
     )
-    assert create_resp.status_code == 200
 
     response = client.get("/runs")
     assert response.status_code == 200
 
     body = response.json()
     assert "items" in body
+    assert body["total"] == 1
+    assert body["page"] == 1
+    assert body["page_size"] == 20
+    assert body["has_next"] is False
     assert len(body["items"]) == 1
     assert body["items"][0]["status"] == "PENDING"
+
+
+def test_list_runs_supports_pagination(
+    client,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+
+    for i in range(3):
+        _create_run_via_api(
+            client,
+            strategy_id=str(strategy.id),
+            strategy_version_id=str(version.id),
+            request_payload={"index": i},
+        )
+
+    page_1 = client.get("/runs?page=1&page_size=2")
+    assert page_1.status_code == 200
+    body_1 = page_1.json()
+
+    assert body_1["total"] == 3
+    assert body_1["page"] == 1
+    assert body_1["page_size"] == 2
+    assert body_1["has_next"] is True
+    assert len(body_1["items"]) == 2
+
+    page_2 = client.get("/runs?page=2&page_size=2")
+    assert page_2.status_code == 200
+    body_2 = page_2.json()
+
+    assert body_2["total"] == 3
+    assert body_2["page"] == 2
+    assert body_2["page_size"] == 2
+    assert body_2["has_next"] is False
+    assert len(body_2["items"]) == 1
+
+
+def test_list_runs_filters_by_status(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+
+    pending_run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "pending run"},
+        max_attempts=3,
+    )
+
+    succeeded_run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "succeeded run"},
+        max_attempts=3,
+    )
+    succeeded_run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(succeeded_run)
+
+    mark_run_succeeded(
+        db_session,
+        succeeded_run,
+        summary_json={"ok": True},
+        artifact_dir="data/local_artifacts/runs/test-run",
+        artifact_manifest_json={"summary": "data/local_artifacts/runs/test-run/summary.json"},
+    )
+
+    response = client.get("/runs?status=SUCCEEDED")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["id"] == str(succeeded_run.id)
+    assert body["items"][0]["status"] == "SUCCEEDED"
+    assert body["items"][0]["id"] != str(pending_run.id)
+
+
+def test_list_runs_filters_by_strategy_id(
+    client,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    strategy_a, version_a = create_strategy_bundle(user_id=current_user_ctx["id"])
+    strategy_b, version_b = create_strategy_bundle(user_id=current_user_ctx["id"])
+
+    _create_run_via_api(
+        client,
+        strategy_id=str(strategy_a.id),
+        strategy_version_id=str(version_a.id),
+        request_payload={"strategy": "a"},
+    )
+    _create_run_via_api(
+        client,
+        strategy_id=str(strategy_b.id),
+        strategy_version_id=str(version_b.id),
+        request_payload={"strategy": "b"},
+    )
+
+    response = client.get(f"/runs?strategy_id={strategy_a.id}")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["strategy_id"] == str(strategy_a.id)
+
+
+def test_list_runs_enforces_ownership(
+    client,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    owner_id = str(uuid.uuid4())
+    other_user_id = str(uuid.uuid4())
+
+    create_user(user_id=owner_id, email="owner@example.com")
+    create_user(user_id=other_user_id, email="other@example.com")
+
+    strategy, version = create_strategy_bundle(user_id=owner_id)
+
+    current_user_ctx["id"] = owner_id
+    _create_run_via_api(
+        client,
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        request_payload={"note": "owner run"},
+    )
+
+    current_user_ctx["id"] = other_user_id
+    response = client.get("/runs")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["total"] == 0
+    assert body["items"] == []
+    assert body["has_next"] is False
+
+
+def test_list_runs_rejects_invalid_pagination(
+    client,
+):
+    response = client.get("/runs?page=0&page_size=101")
+    assert response.status_code == 422
 
 
 def test_enqueue_then_cancel_run(

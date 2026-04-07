@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from market_simulator.db.enums import ArtifactStorageType, RunStatus
@@ -63,13 +63,80 @@ def get_run_for_user(db: Session, run_id, user_id):
     )
 
 
-def list_runs(db: Session, user_id):
+def _apply_run_filters(
+    query,
+    *,
+    user_id,
+    status: str | None = None,
+    executor_type: str | None = None,
+    run_type: str | None = None,
+    strategy_id: str | None = None,
+):
+    query = query.filter(Run.user_id == user_id)
+
+    if status is not None:
+        query = query.filter(Run.status == status)
+
+    if executor_type is not None:
+        query = query.filter(Run.executor_type == executor_type)
+
+    if run_type is not None:
+        query = query.filter(Run.run_type == run_type)
+
+    if strategy_id is not None:
+        query = query.filter(Run.strategy_id == strategy_id)
+
+    return query
+
+
+def list_runs(
+    db: Session,
+    user_id,
+    *,
+    status: str | None = None,
+    executor_type: str | None = None,
+    run_type: str | None = None,
+    strategy_id: str | None = None,
+    offset: int = 0,
+    limit: int = 20,
+):
+    query = db.query(Run)
+    query = _apply_run_filters(
+        query,
+        user_id=user_id,
+        status=status,
+        executor_type=executor_type,
+        run_type=run_type,
+        strategy_id=strategy_id,
+    )
+
     return (
-        db.query(Run)
-        .filter(Run.user_id == user_id)
-        .order_by(Run.created_at.desc())
+        query.order_by(Run.created_at.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
+
+
+def count_runs(
+    db: Session,
+    user_id,
+    *,
+    status: str | None = None,
+    executor_type: str | None = None,
+    run_type: str | None = None,
+    strategy_id: str | None = None,
+):
+    query = db.query(func.count(Run.id))
+    query = _apply_run_filters(
+        query,
+        user_id=user_id,
+        status=status,
+        executor_type=executor_type,
+        run_type=run_type,
+        strategy_id=strategy_id,
+    )
+    return query.scalar() or 0
 
 
 def enqueue_run(db: Session, run: Run):

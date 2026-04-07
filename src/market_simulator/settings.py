@@ -35,6 +35,11 @@ class Settings(BaseModel):
     artifacts_dir: Path = Path(
         os.getenv("ARTIFACTS_DIR", "./data/local_artifacts")
     )
+    artifact_storage_backend: str = os.getenv("ARTIFACT_STORAGE_BACKEND", "LOCAL")
+    artifact_s3_bucket: str | None = os.getenv("ARTIFACT_S3_BUCKET")
+    artifact_s3_prefix: str = os.getenv("ARTIFACT_S3_PREFIX", "artifacts")
+    artifact_s3_region: str = os.getenv("ARTIFACT_S3_REGION", os.getenv("S3_REGION", "us-west-2"))
+    artifact_presign_ttl_seconds: int = int(os.getenv("ARTIFACT_PRESIGN_TTL_SECONDS", "3600"))
 
     # ------------------------
     # Runtime flags (optional)

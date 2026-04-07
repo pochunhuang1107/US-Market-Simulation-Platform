@@ -21,7 +21,7 @@ from market_simulator.service import SimulationService
 
 from market_simulator.platform.services.artifact_store import (
     ArtifactStore,
-    LocalArtifactStore,
+    build_artifact_store,
 )
 from market_simulator.platform.services.run_failure_policy import classify_run_exception
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 class RunWorkerService:
     def __init__(self, artifact_store: ArtifactStore | None = None):
-        self.artifact_store = artifact_store or LocalArtifactStore()
+        self.artifact_store = artifact_store or build_artifact_store()
 
     def _log_info(self, message: str, **fields):
         logger.info("%s | %s", message, fields)
