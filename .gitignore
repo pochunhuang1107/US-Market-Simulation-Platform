@@ -1,22 +1,31 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
 
-# Virtual env
-venv/
+# Build / packaging
+*.egg-info/
+build/
+dist/
+
+# macOS
+.DS_Store
+__MACOSX/
+
+# Local env
 .venv/
-
-# Secrets
+venv/
 .env
 config/app.yaml
 
-# Data
+# Test / local outputs
+.pytest_cache/
 data/local_artifacts/
-*.parquet
+run_logs/
+
+# IDE
+.vscode/
+.idea/
+
+# Other
 *.zip
-
-# Build / metadata
-*.egg-info/
-
-# Mac
-.DS_Store

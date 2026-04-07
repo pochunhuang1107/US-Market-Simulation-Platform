@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 from urllib.parse import urlparse
+from functools import lru_cache
 
 import boto3
 
@@ -17,6 +18,7 @@ class RunChartService:
         self.settings = settings
         self.s3 = boto3.client("s3", region_name=settings.artifact_s3_region)
 
+    @lru_cache(maxsize=512)
     def _read_text(self, uri: str) -> str:
         if uri.startswith("s3://"):
             parsed = urlparse(uri)

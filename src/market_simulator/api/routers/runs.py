@@ -12,6 +12,7 @@ from market_simulator.api.schemas.runs import (
     RunDashboardListItem,
     RunDashboardListResponse,
     RunDashboardResponse,
+    RunDashboardQueryParams,
     RunListResponse,
     RunResponse,
 )
@@ -37,6 +38,17 @@ chart_service = RunChartService()
 comparison_service = RunComparisonService()
 
 
+def _build_run_response(run) -> RunResponse:
+    response = RunResponse.model_validate(run).enrich(
+        artifact_url_resolver=artifact_store.generate_download_url
+    )
+    response.strategy_name = run.strategy.name if run.strategy else None
+    response.strategy_version_number = (
+        run.strategy_version.version_number if run.strategy_version else None
+    )
+    return response
+
+
 @router.post("", response_model=RunResponse)
 def create_run_api(
     req: CreateRunRequest,
@@ -53,9 +65,7 @@ def create_run_api(
         req.request_payload,
         max_attempts=req.max_attempts,
     )
-    return RunResponse.model_validate(run).enrich(
-        artifact_url_resolver=artifact_store.generate_download_url
-    )
+    return _build_run_response(run)
 
 
 @router.get("", response_model=RunListResponse)
@@ -92,12 +102,7 @@ def list_runs_api(
     )
 
     return RunListResponse(
-        items=[
-            RunResponse.model_validate(run).enrich(
-                artifact_url_resolver=artifact_store.generate_download_url
-            )
-            for run in runs
-        ],
+        items=[_build_run_response(run) for run in runs],
         total=total,
         page=page,
         page_size=page_size,
@@ -113,29 +118,43 @@ def list_runs_dashboard_api(
     strategy_id: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    offset = (page - 1) * page_size
 
-    total = count_runs(
-        db,
-        user["id"],
+    params = RunDashboardQueryParams(
         status=status,
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+
+    total = count_runs(
+        db,
+        user["id"],
+        status=params.status,
+        executor_type=params.executor_type,
+        run_type=params.run_type,
+        strategy_id=params.strategy_id,
     )
 
     runs = list_runs(
         db,
         user["id"],
-        status=status,
-        executor_type=executor_type,
-        run_type=run_type,
-        strategy_id=strategy_id,
-        offset=offset,
-        limit=page_size,
+        status=params.status,
+        executor_type=params.executor_type,
+        run_type=params.run_type,
+        strategy_id=params.strategy_id,
+        offset=(params.page - 1) * params.page_size,
+        limit=params.page_size,
+        sort_by=params.sort_by,
+        sort_order=params.sort_order,
     )
 
     items = []
@@ -147,6 +166,10 @@ def list_runs_dashboard_api(
                 run_id=str(run.id),
                 strategy_id=str(run.strategy_id) if run.strategy_id else None,
                 strategy_version_id=str(run.strategy_version_id) if run.strategy_version_id else None,
+                strategy_name=run.strategy.name if run.strategy else None,
+                strategy_version_number=(
+                    run.strategy_version.version_number if run.strategy_version else None
+                ),
                 status=str(run.status),
                 run_type=str(run.run_type),
                 executor_type=str(run.executor_type),
@@ -170,9 +193,9 @@ def list_runs_dashboard_api(
     return RunDashboardListResponse(
         items=items,
         total=total,
-        page=page,
-        page_size=page_size,
-        has_next=(offset + len(runs)) < total,
+        page=params.page,
+        page_size=params.page_size,
+        has_next=(params.page * params.page_size) < total,
     )
 
 
@@ -198,7 +221,6 @@ def compare_runs_api(
     comparison = comparison_service.build_comparison(runs)
     return RunComparisonResponse(
         runs=comparison["runs"],
-        monthly_returns=comparison["monthly_returns"],
     )
 
 
@@ -209,6 +231,9 @@ def compare_runs_chart_api(
     user=Depends(get_current_user),
 ):
     parsed_run_ids = [r.strip() for r in run_ids.split(",") if r.strip()]
+
+    if len(parsed_run_ids) < 2:
+        raise HTTPException(status_code=400, detail="At least two run IDs are required")
 
     runs = []
     for run_id in parsed_run_ids:
@@ -221,7 +246,12 @@ def compare_runs_chart_api(
 
     result = comparison_service.build_equity_curves(runs)
 
-    return RunComparisonChartResponse(curves=result["curves"])
+    return RunComparisonChartResponse(
+        strategy_curves=result["strategy_curves"],
+        benchmark_curves=result["benchmark_curves"],
+        strategy_drawdown_curves=result["strategy_drawdown_curves"],
+        benchmark_drawdown_curves=result["benchmark_drawdown_curves"],
+    )
 
 
 @router.get("/{run_id}", response_model=RunResponse)
@@ -233,9 +263,7 @@ def get_run_api(
     run = get_run_for_user(db, run_id, user["id"])
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
-    return RunResponse.model_validate(run).enrich(
-        artifact_url_resolver=artifact_store.generate_download_url
-    )
+    return _build_run_response(run)
 
 
 @router.get("/{run_id}/dashboard", response_model=RunDashboardResponse)
@@ -248,9 +276,7 @@ def get_run_dashboard_api(
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    run_response = RunResponse.model_validate(run).enrich(
-        artifact_url_resolver=artifact_store.generate_download_url
-    )
+    run_response = _build_run_response(run)
 
     if run.status != "SUCCEEDED":
         raise HTTPException(status_code=400, detail="Dashboard is only available for succeeded runs")

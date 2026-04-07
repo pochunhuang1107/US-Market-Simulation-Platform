@@ -61,3 +61,20 @@ def get_strategy_version(db: Session, strategy_version_id):
         .filter(StrategyVersion.id == strategy_version_id)
         .first()
     )
+
+
+def get_strategy_for_user(db: Session, strategy_id, user_id):
+    return (
+        db.query(Strategy)
+        .filter(Strategy.id == strategy_id, Strategy.user_id == user_id)
+        .first()
+    )
+
+
+def list_strategy_versions(db: Session, strategy_id):
+    return (
+        db.query(StrategyVersion)
+        .filter(StrategyVersion.strategy_id == strategy_id)
+        .order_by(StrategyVersion.version_number.desc())
+        .all()
+    )

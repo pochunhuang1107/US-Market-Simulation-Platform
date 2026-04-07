@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict, field_serializer
@@ -23,6 +23,17 @@ class RunListQueryParams(BaseModel):
     strategy_id: str | None = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
+
+
+class RunDashboardQueryParams(BaseModel):
+    status: str | None = None
+    executor_type: str | None = None
+    run_type: str | None = None
+    strategy_id: str | None = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
+    sort_by: Literal["created_at", "finished_at", "status"] = "created_at"
+    sort_order: Literal["asc", "desc"] = "desc"
 
 
 class RunExecutionSummary(BaseModel):
@@ -49,6 +60,8 @@ class RunResponse(BaseModel):
     user_id: UUID
     strategy_id: UUID | None
     strategy_version_id: UUID | None
+    strategy_name: str | None = None
+    strategy_version_number: int | None = None
 
     run_type: str
     executor_type: str
@@ -220,6 +233,8 @@ class RunComparisonSummary(BaseModel):
     run_id: str
     strategy_id: str | None = None
     strategy_version_id: str | None = None
+    strategy_name: str | None = None
+    strategy_version_number: int | None = None
     status: str
     total_return_pct: float | None = None
     benchmark_return_pct: float | None = None
@@ -232,28 +247,26 @@ class RunComparisonSummary(BaseModel):
     win_rate_pct: float | None = None
 
 
-class RunComparisonMonthlyPoint(BaseModel):
-    month: str
-    values: dict[str, float | None]
-
-
 class RunComparisonResponse(BaseModel):
     runs: list[RunComparisonSummary]
-    monthly_returns: list[RunComparisonMonthlyPoint]
 
 
 class RunComparisonCurvePoint(BaseModel):
     date: str
-    equity: float
+    value: float
 
 
 class RunComparisonCurve(BaseModel):
     run_id: str
+    label: str | None = None
     points: list[RunComparisonCurvePoint]
 
 
 class RunComparisonChartResponse(BaseModel):
-    curves: list[RunComparisonCurve]
+    strategy_curves: list[RunComparisonCurve]
+    benchmark_curves: list[RunComparisonCurve]
+    strategy_drawdown_curves: list[RunComparisonCurve]
+    benchmark_drawdown_curves: list[RunComparisonCurve]
 
 
 class RunDashboardResponse(BaseModel):
@@ -265,6 +278,8 @@ class RunDashboardListItem(BaseModel):
     run_id: str
     strategy_id: str | None = None
     strategy_version_id: str | None = None
+    strategy_name: str | None = None
+    strategy_version_number: int | None = None
     status: str
     run_type: str
     executor_type: str

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from market_simulator.db.enums import ArtifactStorageType, RunStatus
 from market_simulator.db.models.run import Run
@@ -58,6 +58,10 @@ def get_run(db: Session, run_id):
 def get_run_for_user(db: Session, run_id, user_id):
     return (
         db.query(Run)
+        .options(
+            joinedload(Run.strategy),
+            joinedload(Run.strategy_version),
+        )
         .filter(Run.id == run_id, Run.user_id == user_id)
         .first()
     )
@@ -99,8 +103,13 @@ def list_runs(
     strategy_id: str | None = None,
     offset: int = 0,
     limit: int = 20,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
 ):
-    query = db.query(Run)
+    query = db.query(Run).options(
+        joinedload(Run.strategy),
+        joinedload(Run.strategy_version),
+    )
     query = _apply_run_filters(
         query,
         user_id=user_id,
@@ -110,12 +119,18 @@ def list_runs(
         strategy_id=strategy_id,
     )
 
-    return (
-        query.order_by(Run.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    sort_column = {
+        "created_at": Run.created_at,
+        "finished_at": Run.finished_at,
+        "status": Run.status,
+    }.get(sort_by, Run.created_at)
+
+    if sort_order == "asc":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    return query.offset(offset).limit(limit).all()
 
 
 def count_runs(
