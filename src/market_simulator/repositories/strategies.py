@@ -37,12 +37,12 @@ def create_strategy_version(db: Session, strategy_id, config_json, config_hash, 
     )
 
     db.add(version)
-    db.commit()
-    db.refresh(version)
 
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     strategy.current_version_id = version.id
+
     db.commit()
+    db.refresh(version)
 
     return version
 
