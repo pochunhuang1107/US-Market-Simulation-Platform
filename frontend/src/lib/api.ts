@@ -2,6 +2,8 @@ import type {
   CreateRunRequest,
   CreateStrategyRequest,
   CreateStrategyResponse,
+  CreateStrategyVersionRequest,
+  CreateStrategyVersionResponse,
   RunActionResponse,
   RunComparisonChartResponse,
   RunComparisonResponse,
@@ -87,6 +89,16 @@ export async function createRun(payload: CreateRunRequest): Promise<RunResponse>
 
 export async function createStrategy(payload: CreateStrategyRequest): Promise<CreateStrategyResponse> {
   return request<CreateStrategyResponse>('/api/strategies', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function createStrategyVersion(
+  strategyId: string,
+  payload: CreateStrategyVersionRequest
+): Promise<CreateStrategyVersionResponse> {
+  return request<CreateStrategyVersionResponse>(`/api/strategies/${strategyId}/versions`, {
     method: 'POST',
     body: JSON.stringify(payload)
   });

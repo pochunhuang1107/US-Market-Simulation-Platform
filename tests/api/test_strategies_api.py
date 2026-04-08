@@ -142,3 +142,82 @@ def test_get_strategy_dashboard_enforces_ownership(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Strategy not found"
+
+
+def test_create_strategy_version_api_creates_new_version_and_updates_current_version(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, version_1 = create_strategy_bundle(user_id=current_user_ctx["id"])
+
+    response = client.post(
+        f"/strategies/{strategy.id}/versions",
+        json={
+            "config": {
+                "name": "qqq-rsi-v2",
+                "tradable_symbol": "QQQ",
+                "benchmark_symbol": "QQQ",
+                "start_date": "2018-01-02",
+                "end_date": "2024-12-31",
+                "initial_capital": 100000,
+            },
+            "change_note": "Adjusted entry thresholds",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["strategy_id"] == str(strategy.id)
+    assert body["version_id"] != str(version_1.id)
+
+    dashboard_response = client.get(f"/strategies/{strategy.id}/dashboard")
+    assert dashboard_response.status_code == 200
+
+    dashboard = dashboard_response.json()
+    assert dashboard["strategy"]["current_version_id"] == body["version_id"]
+    assert len(dashboard["versions"]) == 2
+    assert dashboard["versions"][0]["id"] == body["version_id"]
+    assert dashboard["versions"][0]["version_number"] == 2
+    assert dashboard["versions"][0]["change_note"] == "Adjusted entry thresholds"
+    assert dashboard["versions"][0]["is_current"] is True
+    assert dashboard["versions"][1]["id"] == str(version_1.id)
+    assert dashboard["versions"][1]["is_current"] is False
+
+
+def test_create_strategy_version_api_enforces_ownership(
+    client,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    owner_id = str(uuid.uuid4())
+    other_user_id = str(uuid.uuid4())
+
+    create_user(user_id=owner_id, email="owner@example.com")
+    create_user(user_id=other_user_id, email="other@example.com")
+
+    strategy, _ = create_strategy_bundle(user_id=owner_id)
+
+    current_user_ctx["id"] = other_user_id
+
+    response = client.post(
+        f"/strategies/{strategy.id}/versions",
+        json={
+            "config": {
+                "name": "unauthorized-version",
+                "tradable_symbol": "QQQ",
+            },
+            "change_note": "should fail",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Strategy not found"

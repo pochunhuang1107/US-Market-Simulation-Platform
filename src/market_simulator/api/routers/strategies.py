@@ -23,7 +23,6 @@ from market_simulator.repositories.strategies import (
     list_strategy_versions,
 )
 
-
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 
 
@@ -33,7 +32,11 @@ def hash_config(config):
 
 
 @router.post("")
-def create_strategy_api(req: CreateStrategyRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_strategy_api(
+    req: CreateStrategyRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     strategy = create_strategy(
         db,
         user["id"],
@@ -48,9 +51,36 @@ def create_strategy_api(req: CreateStrategyRequest, db: Session = Depends(get_db
         req.config,
         hash_config(req.config),
         user["id"],
+        change_note=None,
     )
 
     return {"strategy_id": strategy.id, "version_id": version.id}
+
+
+@router.post("/{strategy_id}/versions")
+def create_strategy_version_api(
+    strategy_id: str,
+    req: CreateStrategyVersionRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    strategy = get_strategy_for_user(db, strategy_id, user["id"])
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    version = create_strategy_version(
+        db,
+        strategy.id,
+        req.config,
+        hash_config(req.config),
+        user["id"],
+        change_note=req.change_note,
+    )
+
+    return {
+        "strategy_id": str(strategy.id),
+        "version_id": str(version.id),
+    }
 
 
 @router.get("")

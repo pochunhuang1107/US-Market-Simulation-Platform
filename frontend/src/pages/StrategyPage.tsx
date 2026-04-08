@@ -81,17 +81,20 @@ export function StrategyPage() {
         title={data.strategy.name}
         description={data.strategy.description ?? 'No strategy description was provided.'}
         actions={
-          <>
-            <Link to="/runs" className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300">
-              Back to runs
-            </Link>
+          <div className="flex items-center gap-3">
             <Link
-              to={`/runs/new?strategyId=${data.strategy.id}${data.strategy.current_version_id ? `&versionId=${data.strategy.current_version_id}` : ''}`}
+              to={`/strategies/${data.strategy.id}/versions/new`}
               className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
             >
-              Create run
+              New Version
             </Link>
-          </>
+            <Link
+              to="/runs"
+              className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300"
+            >
+              Back to runs
+            </Link>
+          </div>
         }
       />
 

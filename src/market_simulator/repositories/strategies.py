@@ -1,5 +1,7 @@
 import uuid
+
 from sqlalchemy.orm import Session
+
 from market_simulator.db.models.strategy import Strategy, StrategyVersion
 
 
@@ -17,7 +19,14 @@ def create_strategy(db: Session, user_id, name, description, strategy_type):
     return strategy
 
 
-def create_strategy_version(db: Session, strategy_id, config_json, config_hash, user_id):
+def create_strategy_version(
+    db: Session,
+    strategy_id,
+    config_json,
+    config_hash,
+    user_id,
+    change_note=None,
+):
     latest = (
         db.query(StrategyVersion)
         .filter(StrategyVersion.strategy_id == strategy_id)
@@ -33,6 +42,7 @@ def create_strategy_version(db: Session, strategy_id, config_json, config_hash, 
         version_number=next_version,
         config_json=config_json,
         config_hash=config_hash,
+        change_note=change_note,
         created_by_user_id=user_id,
     )
 

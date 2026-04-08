@@ -272,3 +272,13 @@ export interface CreateStrategyResponse {
   strategy_id: string;
   version_id: string;
 }
+
+export interface CreateStrategyVersionRequest {
+  config: Record<string, unknown>;
+  change_note?: string | null;
+}
+
+export interface CreateStrategyVersionResponse {
+  strategy_id: string;
+  version_id: string;
+}
