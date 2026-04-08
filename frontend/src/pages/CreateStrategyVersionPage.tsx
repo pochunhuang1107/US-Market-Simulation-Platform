@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { createStrategyVersion, fetchStrategyDashboard } from '../lib/api';
 import type {
@@ -7,6 +7,13 @@ import type {
   StrategyDashboardResponse,
   StrategyVersionSummary
 } from '../types/api';
+
+type CreateStrategyVersionLocationState = {
+  builderDraft?: {
+    configText?: string;
+    changeNote?: string;
+  };
+};
 
 function normalizeError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -38,15 +45,19 @@ function Field({
   );
 }
 
-export default function CreateStrategyVersionPage() {
+export function CreateStrategyVersionPage() {
   const { strategyId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const builderDraft =
+    (location.state as CreateStrategyVersionLocationState | null)?.builderDraft ?? null;
 
   const [strategyDashboard, setStrategyDashboard] = useState<StrategyDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [changeNote, setChangeNote] = useState('');
+  const [changeNote, setChangeNote] = useState(builderDraft?.changeNote ?? '');
   const [configText, setConfigText] = useState('{}');
 
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -79,7 +90,11 @@ export default function CreateStrategyVersionPage() {
         const currentVersion =
           response.versions.find((version) => version.is_current) ?? response.versions[0] ?? null;
 
-        setConfigText(prettifyJson(currentVersion?.config_json ?? {}));
+        setConfigText(
+          builderDraft?.configText
+            ? prettifyJson(builderDraft.configText)
+            : prettifyJson(currentVersion?.config_json ?? {})
+        );
       } catch (error) {
         if (!active) return;
         setLoadError(normalizeError(error));
@@ -95,7 +110,7 @@ export default function CreateStrategyVersionPage() {
     return () => {
       active = false;
     };
-  }, [strategyId]);
+  }, [builderDraft?.configText, strategyId]);
 
   const currentVersion = useMemo<StrategyVersionSummary | null>(() => {
     if (!strategyDashboard) return null;
@@ -186,6 +201,12 @@ export default function CreateStrategyVersionPage() {
         </div>
       </div>
 
+      {builderDraft && (
+        <div className="mb-6 rounded-2xl border border-cyan-900/60 bg-cyan-950/30 px-4 py-3 text-sm text-cyan-100">
+          Prefilled from Strategy Builder. Review the draft and create the version when ready.
+        </div>
+      )}
+
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
         <form
           onSubmit={handleSubmit}
@@ -236,10 +257,16 @@ export default function CreateStrategyVersionPage() {
 
             <button
               type="button"
-              onClick={() => setConfigText(prettifyJson(currentVersion?.config_json ?? {}))}
+              onClick={() =>
+                setConfigText(
+                  builderDraft?.configText
+                    ? prettifyJson(builderDraft.configText)
+                    : prettifyJson(currentVersion?.config_json ?? {})
+                )
+              }
               className="rounded-2xl border border-slate-800 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900"
             >
-              Reset to Current Version
+              {builderDraft ? 'Reset to Builder Draft' : 'Reset to Current Version'}
             </button>
           </div>
         </form>

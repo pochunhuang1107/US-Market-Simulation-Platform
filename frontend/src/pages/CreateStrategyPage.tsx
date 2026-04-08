@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { createStrategy } from '../lib/api';
 import type { CreateStrategyRequest } from '../types/api';
@@ -41,6 +41,15 @@ const STRATEGY_TYPE_OPTIONS = [
   { value: 'PARAMETER_SWEEP', label: 'PARAMETER_SWEEP' }
 ] as const;
 
+type CreateStrategyLocationState = {
+  builderDraft?: {
+    name?: string;
+    description?: string;
+    strategyType?: string;
+    configText?: string;
+  };
+};
+
 function normalizeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return 'Something went wrong.';
@@ -71,13 +80,18 @@ function Field({
   );
 }
 
-export default function CreateStrategyPage() {
+export function CreateStrategyPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [strategyType, setStrategyType] = useState('SIMULATION');
-  const [configText, setConfigText] = useState(DEFAULT_CONFIG);
+  const builderDraft = useMemo(() => {
+    return (location.state as CreateStrategyLocationState | null)?.builderDraft ?? null;
+  }, [location.state]);
+
+  const [name, setName] = useState(builderDraft?.name ?? '');
+  const [description, setDescription] = useState(builderDraft?.description ?? '');
+  const [strategyType, setStrategyType] = useState(builderDraft?.strategyType ?? 'SIMULATION');
+  const [configText, setConfigText] = useState(builderDraft?.configText ?? DEFAULT_CONFIG);
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -147,6 +161,12 @@ export default function CreateStrategyPage() {
           </Link>
         </div>
       </div>
+
+      {builderDraft && (
+        <div className="mb-6 rounded-2xl border border-cyan-900/60 bg-cyan-950/30 px-4 py-3 text-sm text-cyan-100">
+          Prefilled from Strategy Builder. Review the draft and save when ready.
+        </div>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.85fr)]">
         <form
@@ -225,10 +245,10 @@ export default function CreateStrategyPage() {
 
             <button
               type="button"
-              onClick={() => setConfigText(prettifyJson(DEFAULT_CONFIG))}
+              onClick={() => setConfigText(prettifyJson(builderDraft?.configText ?? DEFAULT_CONFIG))}
               className="rounded-2xl border border-slate-800 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900"
             >
-              Reset Config
+              {builderDraft ? 'Reset to Builder Draft' : 'Reset Config'}
             </button>
           </div>
         </form>

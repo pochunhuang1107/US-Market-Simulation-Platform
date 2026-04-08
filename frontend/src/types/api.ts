@@ -282,3 +282,22 @@ export interface CreateStrategyVersionResponse {
   strategy_id: string;
   version_id: string;
 }
+
+export interface StrategyBuilderContext {
+  strategy_id?: string | null;
+  base_version_id?: string | null;
+  mode?: string | null;
+  current_config?: Record<string, unknown> | null;
+}
+
+export interface StrategyBuilderGenerateRequest {
+  prompt: string;
+  context?: StrategyBuilderContext | null;
+}
+
+export interface StrategyBuilderGenerateResponse {
+  config: Record<string, unknown>;
+  summary: string;
+  warnings: string[];
+  assumptions: string[];
+}

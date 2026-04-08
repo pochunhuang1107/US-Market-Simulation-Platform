@@ -11,6 +11,8 @@ import type {
   RunDashboardResponse,
   RunResponse,
   RunsDashboardQuery,
+  StrategyBuilderGenerateRequest,
+  StrategyBuilderGenerateResponse,
   StrategyDashboardResponse,
   StrategyListItem
 } from '../types/api';
@@ -99,6 +101,15 @@ export async function createStrategyVersion(
   payload: CreateStrategyVersionRequest
 ): Promise<CreateStrategyVersionResponse> {
   return request<CreateStrategyVersionResponse>(`/api/strategies/${strategyId}/versions`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function generateStrategyDraft(
+  payload: StrategyBuilderGenerateRequest
+): Promise<StrategyBuilderGenerateResponse> {
+  return request<StrategyBuilderGenerateResponse>('/api/strategy-builder/generate', {
     method: 'POST',
     body: JSON.stringify(payload)
   });

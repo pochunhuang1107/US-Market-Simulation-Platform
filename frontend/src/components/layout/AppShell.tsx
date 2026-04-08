@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 
 const navItems = [
   { to: '/runs', label: 'Runs', end: true },
+  { to: '/strategy-builder', label: 'Builder', end: true },
   { to: '/strategies/new', label: 'Strategy', end: true },
   { to: '/runs/new', label: 'Simulation', end: true },
   { to: '/compare', label: 'Compare', end: true }
