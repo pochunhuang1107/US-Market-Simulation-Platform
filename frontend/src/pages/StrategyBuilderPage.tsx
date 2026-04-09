@@ -108,6 +108,7 @@ export function StrategyBuilderPage() {
   const [prompt, setPrompt] = useState('');
   const [existingStrategyId, setExistingStrategyId] = useState( builderContext?.strategyId ?? '');
   const [draftResponse, setDraftResponse] = useState<StrategyBuilderGenerateResponse | null>(null);
+  const [draftChanges, setDraftChanges] = useState<string[]>([]);
   const [configText, setConfigText] = useState( builderContext?.currentConfig ? prettifyJson(builderContext.currentConfig) : '{}' );
 
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -156,9 +157,21 @@ export function StrategyBuilderPage() {
 
       setDraftResponse(response);
       setConfigText(prettifyJson(response.config));
+
+      const newChanges = response.changes ?? [];
+      setDraftChanges((prev) => {
+        const merged = [...prev];
+        for (const item of newChanges) {
+          if (!merged.includes(item)) {
+            merged.push(item);
+          }
+        }
+        return merged;
+      });
     } catch (error) {
       setLoadError(normalizeError(error));
       setDraftResponse(null);
+      setDraftChanges([]);
       setConfigText('{}');
     } finally {
       setGenerating(false);
@@ -209,9 +222,9 @@ export function StrategyBuilderPage() {
       builderDraft: {
         configText: prettifyJson(parsedConfig),
         changeNote:
-          draftResponse?.changes?.length
-            ? draftResponse.changes.join(' ')
-            : 'Generated from Strategy Builder'
+        draftChanges.length
+          ? draftChanges.join(' ')
+          : 'Generated from Strategy Builder'
       }
     };
 
@@ -333,6 +346,7 @@ export function StrategyBuilderPage() {
                 setPrompt('');
                 setExistingStrategyId('');
                 setDraftResponse(null);
+                setDraftChanges([]);
                 setConfigText(
                   builderContext?.currentConfig
                     ? prettifyJson(builderContext.currentConfig)
@@ -371,13 +385,12 @@ export function StrategyBuilderPage() {
             </div>
 
             <div className="mt-5 space-y-4">
-              <ListBlock title="Changes" items={draftResponse?.changes ?? []} />
+              <ListBlock title="Changes" items={draftChanges} />
               <ListBlock
                 title="Warnings"
                 items={draftResponse?.warnings ?? []}
                 tone="warning"
               />
-              <ListBlock title="Changes" items={draftResponse?.changes ?? []} />
             </div>
           </section>
         </div>

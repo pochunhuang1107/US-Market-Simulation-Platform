@@ -16,6 +16,21 @@ type CreateStrategyVersionLocationState = {
 };
 
 function normalizeError(error: unknown): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'response' in error
+  ) {
+    const response = (error as {
+      response?: { data?: { detail?: unknown } };
+    }).response;
+
+    const detail = response?.data?.detail;
+
+    if (typeof detail === 'string') return detail;
+    if (detail !== undefined) return JSON.stringify(detail);
+  }
+
   if (error instanceof Error) return error.message;
   return 'Something went wrong.';
 }
@@ -91,9 +106,7 @@ export function CreateStrategyVersionPage() {
           response.versions.find((version) => version.is_current) ?? response.versions[0] ?? null;
 
         setConfigText(
-          builderDraft?.configText
-            ? prettifyJson(builderDraft.configText)
-            : prettifyJson(currentVersion?.config_json ?? {})
+          builderDraft?.configText ?? prettifyJson(currentVersion?.config_json ?? {})
         );
       } catch (error) {
         if (!active) return;
@@ -132,7 +145,14 @@ export function CreateStrategyVersionPage() {
 
     let parsedConfig: Record<string, unknown>;
     try {
-      parsedConfig = JSON.parse(configText) as Record<string, unknown>;
+      const parsed = JSON.parse(configText);
+
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setSubmitError('Config must be a JSON object.');
+        return;
+      }
+
+      parsedConfig = parsed as Record<string, unknown>;
     } catch {
       setSubmitError('Config must be valid JSON.');
       return;
@@ -259,9 +279,7 @@ export function CreateStrategyVersionPage() {
               type="button"
               onClick={() =>
                 setConfigText(
-                  builderDraft?.configText
-                    ? prettifyJson(builderDraft.configText)
-                    : prettifyJson(currentVersion?.config_json ?? {})
+                  builderDraft?.configText ?? prettifyJson(currentVersion?.config_json ?? {})
                 )
               }
               className="rounded-2xl border border-slate-800 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900"
