@@ -299,5 +299,5 @@ export interface StrategyBuilderGenerateResponse {
   config: Record<string, unknown>;
   summary: string;
   warnings: string[];
-  assumptions: string[];
+  changes: string[];
 }

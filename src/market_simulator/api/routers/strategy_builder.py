@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends
 
@@ -72,6 +73,7 @@ def _extract_benchmark_symbol(text: str, default_symbol: str) -> tuple[str, list
         r"using\s+([A-Z]{2,5})\s+as\s+benchmark",
         r"with\s+([A-Z]{2,5})\s+as\s+benchmark",
         r"set\s+benchmark\s+to\s+([A-Z]{2,5})",
+        r"change\s+benchmark\s+to\s+([A-Z]{2,5})",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -133,14 +135,9 @@ def _extract_initial_capital(text: str) -> tuple[float, list[str]]:
 def _extract_allocation_value(text: str) -> tuple[float, list[str]]:
     assumptions: list[str] = []
 
-    match = re.search(
-        r"(\d+(?:\.\d+)?)%\s+of\s+equity",
-        text,
-        flags=re.IGNORECASE,
-    )
-    if match:
-        value = float(match.group(1)) / 100.0
-        return min(max(value, 0.01), 1.0), assumptions
+    explicit_value = _extract_allocation_value_edit(text)
+    if explicit_value is not None:
+        return explicit_value, assumptions
 
     if re.search(
         r"all\s+capital|full\s+allocation|100%\s+of\s+equity",
@@ -266,9 +263,142 @@ def _merge_dict(base: dict, updates: dict) -> dict:
     return result
 
 
+def _extract_allocation_value_edit(text: str) -> float | None:
+    patterns = [
+        r"change\s+allocation\s+to\s+(\d+(?:\.\d+)?)%",
+        r"set\s+allocation\s+to\s+(\d+(?:\.\d+)?)%",
+        r"allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+        r"allocate\s+(\d+(?:\.\d+)?)%",
+        r"(\d+(?:\.\d+)?)%\s+of\s+equity",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            value = float(match.group(1)) / 100.0
+            return min(max(value, 0.01), 1.0)
+    return None
+
+
+def _has_stop_loss_removal(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:remove|clear|delete|disable|no)\s+stop\s+loss|without\s+stop\s+loss",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _has_take_profit_removal(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:remove|clear|delete|disable|no)\s+take\s+profit|without\s+take\s+profit",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _extract_cooldown_edit(text: str) -> int | None:
+    return _extract_int(
+        text,
+        [
+            r"change\s+cooldown\s+to\s+(\d+)\s+bars?",
+            r"set\s+cooldown\s+to\s+(\d+)\s+bars?",
+            r"cooldown\s+(\d+)\s+bars?",
+        ],
+    )
+
+
+def _has_cooldown_removal(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:remove|clear|delete|disable|no)\s+cooldown|without\s+cooldown",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _format_pct(value: Any) -> str:
+    if value is None:
+        return "none"
+    return f"{float(value) * 100:.1f}%"
+
+
+def _record_change(changes: list[str], before: Any, after: Any, label: str, formatter=str) -> None:
+    if before == after:
+        return
+    changes.append(f"Updated {label} from {formatter(before)} to {formatter(after)}.")
+
+
+def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> list[str]:
+    changes: list[str] = []
+
+    if not base_config:
+        return changes
+
+    base_risk = base_config.get("risk", {}) or {}
+    final_risk = config.get("risk", {}) or {}
+    base_allocation = base_config.get("allocation", {}) or {}
+    final_allocation = config.get("allocation", {}) or {}
+    base_entry = base_config.get("entry_rule", {}) or {}
+    final_entry = config.get("entry_rule", {}) or {}
+    base_exit = base_config.get("exit_rule", {}) or {}
+    final_exit = config.get("exit_rule", {}) or {}
+
+    _record_change(
+        changes,
+        base_risk.get("stop_loss_pct"),
+        final_risk.get("stop_loss_pct"),
+        "stop loss",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_risk.get("take_profit_pct"),
+        final_risk.get("take_profit_pct"),
+        "take profit",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_allocation.get("entry_value"),
+        final_allocation.get("entry_value"),
+        "allocation",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_config.get("benchmark_symbol"),
+        config.get("benchmark_symbol"),
+        "benchmark",
+    )
+    _record_change(
+        changes,
+        base_risk.get("cooldown_bars", 0),
+        final_risk.get("cooldown_bars", 0),
+        "cooldown bars",
+    )
+    _record_change(
+        changes,
+        base_entry.get("threshold"),
+        final_entry.get("threshold"),
+        "entry threshold",
+    )
+    _record_change(
+        changes,
+        base_exit.get("threshold"),
+        final_exit.get("threshold"),
+        "exit threshold",
+    )
+
+    return changes
+
+
 def _generate_strategy_draft(
     req: StrategyBuilderGenerateRequest,
-) -> tuple[dict, str, list[str], list[str]]:
+) -> tuple[dict, str, list[str], list[str], list[str]]:
     prompt = req.prompt.strip()
     prompt_lower = prompt.lower()
 
@@ -306,30 +436,35 @@ def _generate_strategy_draft(
     initial_capital, capital_assumptions = _extract_initial_capital(prompt)
     assumptions.extend(capital_assumptions)
 
+    allocation_edit_value = _extract_allocation_value_edit(prompt)
     allocation_value, allocation_assumptions = _extract_allocation_value(prompt)
     assumptions.extend(allocation_assumptions)
 
-    stop_loss_pct = _extract_percent(
+    stop_loss_removed = _has_stop_loss_removal(prompt)
+    stop_loss_pct = None if stop_loss_removed else _extract_percent(
         prompt,
         [
             r"stop\s+loss\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
             r"(\d+(?:\.\d+)?)%\s+stop\s+loss",
         ],
     )
-    if stop_loss_pct is None:
+    if stop_loss_pct is None and not stop_loss_removed:
         assumptions.append("No stop loss was specified.")
 
-    take_profit_pct = _extract_percent(
+    take_profit_removed = _has_take_profit_removal(prompt)
+    take_profit_pct = None if take_profit_removed else _extract_percent(
         prompt,
         [
             r"take\s+profit\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
             r"(\d+(?:\.\d+)?)%\s+take\s+profit",
         ],
     )
-    if take_profit_pct is None:
+    if take_profit_pct is None and not take_profit_removed:
         assumptions.append("No take profit was specified.")
 
-    cooldown_bars = _extract_int(prompt, [r"cooldown\s+(\d+)\s+bars?"])
+    cooldown_removed = _has_cooldown_removal(prompt)
+    cooldown_edit = _extract_cooldown_edit(prompt)
+    cooldown_bars = 0 if cooldown_removed else cooldown_edit
     if cooldown_bars is None:
         cooldown_bars = 0
         assumptions.append("Used cooldown of 0 bars by default.")
@@ -465,25 +600,26 @@ def _generate_strategy_draft(
         }
         default_config["position_management"] = None
     else:
-        # --- ensure required base structure exists ---
         default_config.setdefault("schema_version", "2.0")
         default_config.setdefault("transaction_cost_bps", 5)
         default_config.setdefault("reference_symbols", [])
         default_config.setdefault("core_overlay", {"enabled": False, "core_allocation_pct": 0.0})
         default_config.setdefault("position_management", None)
 
-        # REQUIRED fields fallback if missing
         default_config.setdefault("tradable_symbol", tradable_symbol)
         default_config.setdefault("benchmark_symbol", benchmark_symbol)
         default_config.setdefault("start_date", start_date.isoformat())
         default_config.setdefault("end_date", end_date.isoformat())
         default_config.setdefault("initial_capital", initial_capital)
 
-        default_config.setdefault("allocation", {
-            "entry_mode": "percent_of_equity",
-            "entry_value": allocation_value,
-            "max_position_pct": 1.0,
-        })
+        default_config.setdefault(
+            "allocation",
+            {
+                "entry_mode": "percent_of_equity",
+                "entry_value": allocation_value,
+                "max_position_pct": 1.0,
+            },
+        )
 
         default_config.setdefault("entry_rule", entry_rule)
         default_config.setdefault("exit_rule", exit_rule)
@@ -492,25 +628,19 @@ def _generate_strategy_draft(
         risk.setdefault("cooldown_bars", 0)
         default_config["risk"] = risk
 
-        # --- selective overrides ONLY if explicitly mentioned ---
-
-        # benchmark
-        if any(phrase in prompt_lower for phrase in ["benchmark", "as benchmark", "set benchmark", "benchmark is"]):
+        if any(phrase in prompt_lower for phrase in ["benchmark", "as benchmark", "set benchmark", "benchmark is", "change benchmark"]):
             default_config["benchmark_symbol"] = benchmark_symbol
 
-        # capital
         if re.search(r"(?:capital|start with|\$)", prompt_lower):
             default_config["initial_capital"] = initial_capital
 
-        # allocation
-        if re.search(r"%\s+of\s+equity|allocation", prompt_lower):
+        if allocation_edit_value is not None or re.search(r"%\s+of\s+equity|allocation|allocate", prompt_lower):
             allocation = dict(default_config.get("allocation", {}))
             allocation["entry_mode"] = "percent_of_equity"
-            allocation["entry_value"] = allocation_value
+            allocation["entry_value"] = allocation_edit_value if allocation_edit_value is not None else allocation_value
             allocation.setdefault("max_position_pct", 1.0)
             default_config["allocation"] = allocation
 
-        # rules
         existing_entry_rule = dict(default_config.get("entry_rule", {}))
         existing_exit_rule = dict(default_config.get("exit_rule", {}))
 
@@ -564,17 +694,23 @@ def _generate_strategy_draft(
         ):
             default_config["exit_rule"] = exit_rule
 
-        # risk updates
         risk = dict(default_config.get("risk", {}))
-        if stop_loss_pct is not None:
+        if stop_loss_removed:
+            risk["stop_loss_pct"] = None
+        elif stop_loss_pct is not None:
             risk["stop_loss_pct"] = stop_loss_pct
-        if take_profit_pct is not None:
+
+        if take_profit_removed:
+            risk["take_profit_pct"] = None
+        elif take_profit_pct is not None:
             risk["take_profit_pct"] = take_profit_pct
-        if "cooldown" in prompt_lower:
+
+        if cooldown_removed:
+            risk["cooldown_bars"] = 0
+        elif cooldown_edit is not None or "cooldown" in prompt_lower:
             risk["cooldown_bars"] = cooldown_bars
         default_config["risk"] = risk
 
-        # name refresh
         default_config["name"] = _build_strategy_name(
             default_config["tradable_symbol"],
             default_config["entry_rule"],
@@ -602,25 +738,36 @@ def _generate_strategy_draft(
     if benchmark_symbol != tradable_symbol:
         summary_parts.append(f"Benchmark set to {benchmark_symbol}.")
 
-    if allocation_value != 1.0:
-        summary_parts.append(f"Position sizing set to {allocation_value * 100:.1f}% of equity.")
+    if allocation_edit_value is not None and config.get("allocation", {}).get("entry_value") != 1.0:
+        summary_parts.append(
+            f"Position sizing set to {config['allocation']['entry_value'] * 100:.1f}% of equity."
+        )
 
-    if stop_loss_pct is not None:
+    if stop_loss_removed:
+        summary_parts.append("Stop loss removed.")
+    elif stop_loss_pct is not None:
         summary_parts.append(f"Stop loss set to {stop_loss_pct * 100:.1f}%.")
 
-    if take_profit_pct is not None:
+    if take_profit_removed:
+        summary_parts.append("Take profit removed.")
+    elif take_profit_pct is not None:
         summary_parts.append(f"Take profit set to {take_profit_pct * 100:.1f}%.")
 
-    if cooldown_bars:
+    if cooldown_removed:
+        summary_parts.append("Cooldown removed.")
+    elif cooldown_edit is not None and cooldown_bars:
         summary_parts.append(f"Cooldown set to {cooldown_bars} bars.")
 
     validated = StrategyV2.model_validate(config)
+    validated_config = validated.model_dump(mode="json", exclude_none=True)
+    changes = _summarize_changes(base_config, validated_config)
 
     return (
-        validated.model_dump(mode="json", exclude_none=True),
+        validated_config,
         " ".join(summary_parts),
         warnings,
         assumptions,
+        changes,
     )
 
 
@@ -631,11 +778,12 @@ def generate_strategy_draft_api(
 ):
     _ = user
 
-    config, summary, warnings, assumptions = _generate_strategy_draft(req)
+    config, summary, warnings, assumptions, changes = _generate_strategy_draft(req)
 
     return StrategyBuilderGenerateResponse(
         config=config,
         summary=summary,
         warnings=warnings,
         assumptions=assumptions,
+        changes=changes,
     )

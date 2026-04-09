@@ -309,3 +309,128 @@ def test_generate_strategy_builder_draft_applies_sequential_rsi_exit_edit_from_c
     assert config["entry_rule"]["threshold"] == 30
     assert config["exit_rule"]["type"] == "rsi_above"
     assert config["exit_rule"]["threshold"] == 65
+
+
+def test_generate_strategy_builder_draft_applies_sequential_stop_loss_take_profit_allocation_benchmark_and_cooldown_edits(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change stop loss to 6%, change take profit to 18%, change allocation to 40%, change benchmark to TLT, and change cooldown to 3 bars",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "take_profit_pct": 0.12,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["benchmark_symbol"] == "TLT"
+    assert config["allocation"]["entry_value"] == 0.4
+    assert config["risk"]["stop_loss_pct"] == 0.06
+    assert config["risk"]["take_profit_pct"] == 0.18
+    assert config["risk"]["cooldown_bars"] == 3
+    assert "Updated stop loss from 8.0% to 6.0%." in body["changes"]
+    assert "Updated take profit from 12.0% to 18.0%." in body["changes"]
+    assert "Updated allocation from 100.0% to 40.0%." in body["changes"]
+    assert "Updated benchmark from SPY to TLT." in body["changes"]
+    assert "Updated cooldown bars from 0 to 3." in body["changes"]
+
+
+
+def test_generate_strategy_builder_draft_can_remove_stop_loss_take_profit_and_cooldown(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove stop loss, remove take profit, and remove cooldown",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "take_profit_pct": 0.15,
+                        "cooldown_bars": 5,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert "stop_loss_pct" not in config["risk"]
+    assert "take_profit_pct" not in config["risk"]
+    assert config["risk"]["cooldown_bars"] == 0
+    assert "Updated stop loss from 8.0% to none." in body["changes"]
+    assert "Updated take profit from 15.0% to none." in body["changes"]
+    assert "Updated cooldown bars from 5 to 0." in body["changes"]

@@ -208,7 +208,10 @@ export function StrategyBuilderPage() {
     const state: SaveAsNewVersionState = {
       builderDraft: {
         configText: prettifyJson(parsedConfig),
-        changeNote: 'Generated from Strategy Builder'
+        changeNote:
+          draftResponse?.changes?.length
+            ? draftResponse.changes.join(' ')
+            : 'Generated from Strategy Builder'
       }
     };
 
@@ -368,12 +371,13 @@ export function StrategyBuilderPage() {
             </div>
 
             <div className="mt-5 space-y-4">
+              <ListBlock title="Changes" items={draftResponse?.changes ?? []} />
               <ListBlock
                 title="Warnings"
                 items={draftResponse?.warnings ?? []}
                 tone="warning"
               />
-              <ListBlock title="Assumptions" items={draftResponse?.assumptions ?? []} />
+              <ListBlock title="Changes" items={draftResponse?.changes ?? []} />
             </div>
           </section>
         </div>

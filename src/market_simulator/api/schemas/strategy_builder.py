@@ -21,4 +21,4 @@ class StrategyBuilderGenerateResponse(BaseModel):
     config: dict[str, Any]
     summary: str
     warnings: list[str] = Field(default_factory=list)
-    assumptions: list[str] = Field(default_factory=list)
+    changes: list[str] = Field(default_factory=list)
