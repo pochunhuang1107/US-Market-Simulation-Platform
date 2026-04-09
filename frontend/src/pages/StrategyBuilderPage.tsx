@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { generateStrategyDraft } from '../lib/api';
 import type { StrategyBuilderGenerateResponse } from '../types/api';
@@ -17,6 +17,14 @@ type SaveAsNewVersionState = {
   builderDraft: {
     configText: string;
     changeNote: string;
+  };
+};
+
+type StrategyBuilderLocationState = {
+  builderContext?: {
+    strategyId?: string | null;
+    baseVersionId?: string | null;
+    currentConfig?: Record<string, unknown> | null;
   };
 };
 
@@ -93,10 +101,14 @@ function ListBlock({
 export function StrategyBuilderPage() {
   const navigate = useNavigate();
 
+  const location = useLocation();
+
+  const builderContext = (location.state as StrategyBuilderLocationState | null)?.builderContext ?? null;
+
   const [prompt, setPrompt] = useState('');
-  const [existingStrategyId, setExistingStrategyId] = useState('');
+  const [existingStrategyId, setExistingStrategyId] = useState( builderContext?.strategyId ?? '');
   const [draftResponse, setDraftResponse] = useState<StrategyBuilderGenerateResponse | null>(null);
-  const [configText, setConfigText] = useState('{}');
+  const [configText, setConfigText] = useState( builderContext?.currentConfig ? prettifyJson(builderContext.currentConfig) : '{}' );
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -127,7 +139,15 @@ export function StrategyBuilderPage() {
         context: existingStrategyId.trim()
           ? {
               strategy_id: existingStrategyId.trim(),
-              mode: 'NEW_VERSION'
+              base_version_id: builderContext?.baseVersionId ?? null,
+              mode: 'NEW_VERSION',
+              current_config: (() => {
+                try {
+                  return JSON.parse(configText);
+                } catch {
+                  return builderContext?.currentConfig ?? null;
+                }
+              })()
             }
           : {
               mode: 'NEW_STRATEGY'
@@ -214,6 +234,8 @@ export function StrategyBuilderPage() {
     }
   }, [configText]);
 
+  const isVersionAwareMode = Boolean(builderContext?.currentConfig);
+
   return (
     <div className="mx-auto max-w-7xl px-6 py-10">
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -248,8 +270,9 @@ export function StrategyBuilderPage() {
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-white">Prompt Drafting</h2>
             <p className="mt-2 text-sm text-slate-400">
-              MVP flow: generate a draft only. Saving still goes through the existing strategy and
-              version endpoints.
+              {isVersionAwareMode
+                ? 'Version-aware mode: apply a natural-language edit to the current strategy config before saving a new version.'
+                : 'MVP flow: generate a draft only. Saving still goes through the existing strategy and version endpoints.'}
             </p>
           </div>
 
@@ -272,6 +295,12 @@ export function StrategyBuilderPage() {
                 className={inputClassName}
               />
             </Field>
+
+            {builderContext?.currentConfig && (
+              <div className="rounded-2xl border border-cyan-900/60 bg-cyan-950/30 px-4 py-3 text-sm text-cyan-100">
+                Using current strategy version as the base config. Your prompt will modify this draft instead of creating one from scratch.
+              </div>
+            )}
           </div>
 
           {loadError && (
@@ -286,7 +315,13 @@ export function StrategyBuilderPage() {
               disabled={generating}
               className="rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {generating ? 'Generating Draft...' : 'Generate Draft'}
+              {generating
+                ? isVersionAwareMode
+                  ? 'Applying Prompt...'
+                  : 'Generating Draft...'
+                : isVersionAwareMode
+                  ? 'Apply Prompt'
+                  : 'Generate Draft'}
             </button>
 
             <button
@@ -295,7 +330,11 @@ export function StrategyBuilderPage() {
                 setPrompt('');
                 setExistingStrategyId('');
                 setDraftResponse(null);
-                setConfigText('{}');
+                setConfigText(
+                  builderContext?.currentConfig
+                    ? prettifyJson(builderContext.currentConfig)
+                    : '{}'
+                );
                 setLoadError(null);
                 setJsonError(null);
               }}

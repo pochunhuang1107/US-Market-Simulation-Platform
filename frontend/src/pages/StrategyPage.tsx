@@ -66,6 +66,11 @@ export function StrategyPage() {
     ];
   }, [data]);
 
+  const currentVersion = useMemo(() => {
+    if (!data) return null;
+    return data.versions.find((version) => version.is_current) ?? data.versions[0] ?? null;
+  }, [data]);
+
   if (loading) {
     return <StateCard title="Loading strategy dashboard" description="Fetching strategy metadata, versions, and associated runs." />;
   }
@@ -87,6 +92,19 @@ export function StrategyPage() {
               className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
             >
               New Version
+            </Link>
+            <Link
+              to="/strategy-builder"
+              state={{
+                builderContext: {
+                  strategyId: data.strategy.id,
+                  baseVersionId: currentVersion?.id ?? null,
+                  currentConfig: currentVersion?.config_json ?? null
+                }
+              }}
+              className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300"
+            >
+              Open in Builder
             </Link>
             <Link
               to="/runs"
