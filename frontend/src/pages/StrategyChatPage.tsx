@@ -13,9 +13,7 @@ import {
   generateStrategyDraft
 } from '../lib/api';
 
-function extractDraftConfig(
-  draft: unknown
-): Record<string, unknown> | null {
+function extractDraftConfig(draft: unknown): Record<string, unknown> | null {
   if (!draft || typeof draft !== 'object') return null;
 
   const record = draft as {
@@ -29,6 +27,18 @@ function extractDraftConfig(
 
   if (record.config && typeof record.config === 'object') {
     return record.config as Record<string, unknown>;
+  }
+
+  return null;
+}
+
+function getLatestDraftConfig(messages: ChatMessage[]): Record<string, unknown> | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== 'assistant' || !message.draft) continue;
+
+    const config = extractDraftConfig(message.draft);
+    if (config) return config;
   }
 
   return null;
@@ -50,26 +60,18 @@ function formatUnknownError(error: unknown): string {
       error?: unknown;
     };
 
-    if (typeof record.detail === 'string') {
-      return record.detail;
-    }
-
-    if (typeof record.message === 'string') {
-      return record.message;
-    }
-
-    if (typeof record.error === 'string') {
-      return record.error;
-    }
+    if (typeof record.detail === 'string') return record.detail;
+    if (typeof record.message === 'string') return record.message;
+    if (typeof record.error === 'string') return record.error;
 
     try {
       return JSON.stringify(error, null, 2);
     } catch {
-      return 'Failed to run simulation.';
+      return 'Request failed.';
     }
   }
 
-  return 'Failed to run simulation.';
+  return 'Request failed.';
 }
 
 export function StrategyChatPage() {
@@ -98,17 +100,33 @@ export function StrategyChatPage() {
       text: prompt
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    const nextMessages = [...messages, userMessage];
+    const currentConfig = getLatestDraftConfig(messages);
+
+    setMessages(nextMessages);
     setInput('');
     setIsGenerating(true);
 
     try {
-      const draft = await generateStrategyDraft({ prompt });
+      const draft = await generateStrategyDraft(
+        currentConfig
+          ? {
+              prompt,
+              context: {
+                current_config: currentConfig
+              }
+            }
+          : {
+              prompt
+            }
+      );
 
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        text: 'Here is your strategy draft.',
+        text: currentConfig
+          ? 'Updated your strategy draft based on the latest configuration.'
+          : 'Here is your strategy draft.',
         draft
       };
 
@@ -219,6 +237,7 @@ export function StrategyChatPage() {
                 }}
                 submitting={isGenerating}
                 placeholder="Describe your strategy..."
+                submitLabel="Generate Strategy"
               />
             </div>
           </div>
@@ -231,7 +250,7 @@ export function StrategyChatPage() {
 
               {isGenerating && (
                 <div className="mx-auto mt-4 max-w-3xl rounded-3xl border border-white/10 bg-white/[0.03] px-5 py-4 text-sm text-slate-300">
-                  Thinking through your strategy...
+                  Updating your strategy...
                 </div>
               )}
 
@@ -248,7 +267,8 @@ export function StrategyChatPage() {
                   void handleSubmit();
                 }}
                 submitting={isGenerating}
-                placeholder="Refine the strategy or describe a new one..."
+                placeholder="Refine the strategy or describe a new adjustment..."
+                submitLabel="Update Strategy"
               />
             </div>
           </div>
