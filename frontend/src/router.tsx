@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter } from 'react-router-dom';
 
 import { AppShell } from './components/layout/AppShell';
 import { ComparePage } from './pages/ComparePage';
@@ -8,6 +8,7 @@ import { CreateStrategyVersionPage } from './pages/CreateStrategyVersionPage';
 import { RunDetailPage } from './pages/RunDetailPage';
 import { RunsPage } from './pages/RunsPage';
 import { StrategyBuilderPage } from './pages/StrategyBuilderPage';
+import { StrategyChatPage } from './pages/StrategyChatPage';
 import { StrategyPage } from './pages/StrategyPage';
 
 export const router = createBrowserRouter([
@@ -15,7 +16,8 @@ export const router = createBrowserRouter([
     path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/runs" replace /> },
+      { index: true, element: <StrategyChatPage /> },
+      { path: '/chat', element: <StrategyChatPage /> },
       { path: '/runs', element: <RunsPage /> },
       { path: '/runs/new', element: <CreateSimulationPage /> },
       { path: '/runs/:runId', element: <RunDetailPage /> },

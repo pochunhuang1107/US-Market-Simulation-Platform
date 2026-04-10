@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
 const navItems = [
+  { to: '/', label: 'Home', end: true },
   { to: '/runs', label: 'Runs', end: true },
   { to: '/strategy-builder', label: 'Builder', end: true },
   { to: '/strategies/new', label: 'Strategy', end: true },
@@ -17,7 +18,7 @@ export function AppShell() {
             <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-300">
               US Market Strategy Platform
             </p>
-            <h1 className="mt-1 text-xl font-semibold text-white">Simulation Dashboard</h1>
+            <h1 className="mt-1 text-xl font-semibold text-white">Chat-First Strategy Builder</h1>
           </div>
 
           <nav className="flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900/70 p-1.5">

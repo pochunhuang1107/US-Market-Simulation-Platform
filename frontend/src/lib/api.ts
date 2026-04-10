@@ -17,6 +17,32 @@ import type {
   StrategyListItem
 } from '../types/api';
 
+type ErrorBody = {
+  detail?: unknown;
+  message?: unknown;
+  error?: unknown;
+};
+
+function formatErrorBody(body: ErrorBody): string {
+  if (typeof body.detail === 'string') return body.detail;
+  if (typeof body.message === 'string') return body.message;
+  if (typeof body.error === 'string') return body.error;
+
+  if (body.detail !== undefined) {
+    try {
+      return JSON.stringify(body.detail, null, 2);
+    } catch {
+      return String(body.detail);
+    }
+  }
+
+  try {
+    return JSON.stringify(body, null, 2);
+  } catch {
+    return 'Request failed.';
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: {
@@ -26,28 +52,48 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init
   });
 
+  const contentType = response.headers.get('content-type') ?? '';
+  const isJson = contentType.includes('application/json');
+
   if (!response.ok) {
     let detail = `Request failed with status ${response.status}`;
+
     try {
-      const body = (await response.json()) as { detail?: string };
-      if (body.detail) {
-        detail = body.detail;
+      if (isJson) {
+        const body = (await response.json()) as ErrorBody;
+        detail = formatErrorBody(body);
+      } else {
+        const text = await response.text();
+        if (text.trim()) {
+          detail = text;
+        }
       }
     } catch {
       // ignore
     }
+
     throw new Error(detail);
   }
 
-  return (await response.json()) as T;
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  if (isJson) {
+    return (await response.json()) as T;
+  }
+
+  return (await response.text()) as T;
 }
 
 function buildQueryString(query: Record<string, string | number | undefined | null>): string {
   const params = new URLSearchParams();
+
   Object.entries(query).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     params.set(key, String(value));
   });
+
   const qs = params.toString();
   return qs ? `?${qs}` : '';
 }
@@ -56,6 +102,10 @@ export async function fetchRunsDashboard(query: RunsDashboardQuery): Promise<Run
   return request<RunDashboardListResponse>(
     `/api/runs/dashboard${buildQueryString(query as Record<string, string | number | null | undefined>)}`
   );
+}
+
+export async function fetchRun(runId: string): Promise<RunResponse> {
+  return request<RunResponse>(`/api/runs/${runId}`);
 }
 
 export async function fetchRunDashboard(runId: string): Promise<RunDashboardResponse> {
