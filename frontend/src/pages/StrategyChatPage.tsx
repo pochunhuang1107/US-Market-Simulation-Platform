@@ -212,7 +212,7 @@ export function StrategyChatPage() {
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {!hasMessages ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center px-4 pt-16">
+          <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center px-4 pt-16 pb-28">
             <div className="space-y-3 text-center">
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-300/80">
                 US Market Strategy Platform
@@ -231,7 +231,7 @@ export function StrategyChatPage() {
             </div>
           </div>
 
-          <div className="border-t border-white/10 bg-slate-950/80 p-4 backdrop-blur">
+          <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-slate-950/80 p-4 backdrop-blur">
             <div className="mx-auto w-full max-w-3xl">
               <PromptComposer
                 value={input}
