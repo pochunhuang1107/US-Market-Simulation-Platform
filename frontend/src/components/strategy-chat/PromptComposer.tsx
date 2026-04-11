@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
 
 type PromptComposerProps = {
   value: string;
@@ -17,12 +17,27 @@ export function PromptComposer({
   submitting,
   disabled = false,
   placeholder = 'Describe your strategy...',
-  submitLabel = 'Generate Strategy'
+  submitLabel
 }: PromptComposerProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const resizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = '0px';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+  }, []);
+
+  useLayoutEffect(() => {
+    resizeTextarea();
+  }, [value, resizeTextarea]);
+
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
+
         if (!submitting && !disabled && value.trim()) {
           onSubmit();
         }
@@ -35,30 +50,41 @@ export function PromptComposer({
 
   return (
     <div className="rounded-[28px] border border-white/10 bg-slate-900/90 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-      <div className="p-4">
+      <div className="flex items-center gap-3 px-4 py-3">
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onInput={resizeTextarea}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          rows={5}
+          rows={1}
           disabled={disabled || submitting}
-          className="w-full resize-none border-0 bg-transparent text-base text-white outline-none placeholder:text-slate-500"
+          className="w-full resize-none overflow-y-auto border-0 bg-transparent text-base leading-6 text-white outline-none placeholder:text-slate-500"
         />
-      </div>
-
-      <div className="flex items-center justify-between border-t border-white/10 px-4 py-3">
-        <p className="text-xs text-slate-500">
-          Natural language in, validated Strategy V2 config out.
-        </p>
 
         <button
           type="button"
           onClick={onSubmit}
           disabled={isButtonDisabled}
-          className="rounded-full bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={submitLabel ?? 'Send'}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-500 text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {submitting ? 'Working...' : submitLabel}
+          {submitting ? (
+            <span className="text-xs font-semibold">...</span>
+          ) : (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              className="h-4 w-4"
+            >
+              <path d="M12 19V5" />
+              <path d="m5 12 7-7 7 7" />
+            </svg>
+          )}
         </button>
       </div>
     </div>

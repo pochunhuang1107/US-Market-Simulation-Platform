@@ -209,10 +209,10 @@ export function StrategyChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-5rem)] flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {!hasMessages ? (
-        <div className="mx-auto flex h-full w-full max-w-4xl flex-col justify-center px-4 pb-10">
-          <div className="space-y-8">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center px-4 pt-16">
             <div className="space-y-3 text-center">
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-300/80">
                 US Market Strategy Platform
@@ -226,9 +226,13 @@ export function StrategyChatPage() {
               </p>
             </div>
 
-            <div className="mx-auto w-full max-w-3xl space-y-4">
+            <div className="mt-10 w-full max-w-3xl">
               <ExamplePromptChips onSelect={handlePromptChipClick} />
+            </div>
+          </div>
 
+          <div className="border-t border-white/10 bg-slate-950/80 p-4 backdrop-blur">
+            <div className="mx-auto w-full max-w-3xl">
               <PromptComposer
                 value={input}
                 onChange={setInput}
@@ -259,7 +263,7 @@ export function StrategyChatPage() {
           </div>
 
           <div className="border-t border-white/10 bg-slate-950/80 p-4 backdrop-blur">
-            <div className="mx-auto max-w-4xl">
+            <div className="mx-auto w-full max-w-3xl">
               <PromptComposer
                 value={input}
                 onChange={setInput}
