@@ -54,7 +54,7 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+      <span className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
         {label}
       </span>
       {children}
@@ -74,18 +74,18 @@ function ListBlock({
   const borderClassName =
     tone === 'warning'
       ? 'border-amber-900/60 bg-amber-950/30'
-      : 'border-slate-800 bg-slate-950/60';
+      : 'app-code';
 
-  const bulletClassName = tone === 'warning' ? 'text-amber-300' : 'text-cyan-300';
+  const bulletClassName = tone === 'warning' ? 'app-chip-warning' : 'app-accent';
 
   return (
     <section className={`rounded-2xl border px-4 py-4 ${borderClassName}`}>
-      <h3 className="text-sm font-semibold text-white">{title}</h3>
+      <h3 className="app-title text-sm font-semibold">{title}</h3>
 
       {items.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-400">None.</p>
+        <p className="app-text-muted mt-2 text-sm">None.</p>
       ) : (
-        <ul className="mt-3 space-y-2 text-sm text-slate-200">
+        <ul className="app-title mt-3 space-y-2 text-sm">
           {items.map((item, index) => (
             <li key={`${title}-${index}`} className="flex gap-2">
               <span className={bulletClassName}>•</span>
@@ -116,11 +116,11 @@ export function StrategyBuilderPage() {
   const [generating, setGenerating] = useState(false);
 
   const inputClassName =
-    'w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500';
+    'app-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition focus:border-cyan-500';
   const textareaClassName =
-    'w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500';
+    'app-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition focus:border-cyan-500';
   const jsonTextareaClassName =
-    'min-h-[520px] w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500';
+    'app-code-block min-h-[520px] w-full rounded-2xl px-4 py-3 font-mono text-sm outline-none transition focus:border-cyan-500';
 
   async function handleGenerate(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -256,13 +256,13 @@ export function StrategyBuilderPage() {
     <div className="mx-auto max-w-7xl px-6 py-10">
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-400">
+          <div className="app-eyebrow text-xs font-semibold uppercase tracking-[0.28em]">
             LLM-Assisted Strategy Builder
           </div>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
+          <h1 className="app-title mt-2 text-3xl font-semibold tracking-tight">
             Strategy Builder
           </h1>
-          <p className="mt-3 max-w-3xl text-sm text-slate-400">
+          <p className="app-text-muted mt-3 max-w-3xl text-sm">
             Describe a strategy in natural language, review the generated canonical JSON draft, and
             hand it off into the existing save flow.
           </p>
@@ -271,7 +271,7 @@ export function StrategyBuilderPage() {
         <div className="flex items-center gap-3">
           <Link
             to="/runs"
-            className="rounded-2xl border border-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900"
+            className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
           >
             Back to Runs
           </Link>
@@ -281,11 +281,11 @@ export function StrategyBuilderPage() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)]">
         <form
           onSubmit={handleGenerate}
-          className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20"
+          className="app-card app-shadow rounded-3xl border p-6"
         >
           <div className="mb-6">
-            <h2 className="text-xl font-semibold text-white">Prompt Drafting</h2>
-            <p className="mt-2 text-sm text-slate-400">
+            <h2 className="app-title text-xl font-semibold">Prompt Drafting</h2>
+            <p className="app-text-muted mt-2 text-sm">
               {isVersionAwareMode
                 ? 'Version-aware mode: apply a natural-language edit to the current strategy config before saving a new version.'
                 : 'MVP flow: generate a draft only. Saving still goes through the existing strategy and version endpoints.'}
@@ -313,7 +313,7 @@ export function StrategyBuilderPage() {
             </Field>
 
             {builderContext?.currentConfig && (
-              <div className="rounded-2xl border border-cyan-900/60 bg-cyan-950/30 px-4 py-3 text-sm text-cyan-100">
+              <div className="app-note rounded-2xl border px-4 py-3 text-sm">
                 Using current strategy version as the base config. Your prompt will modify this draft instead of creating one from scratch.
               </div>
             )}
@@ -329,7 +329,7 @@ export function StrategyBuilderPage() {
             <button
               type="submit"
               disabled={generating}
-              className="rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-button-primary rounded-2xl px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               {generating
                 ? isVersionAwareMode
@@ -355,7 +355,7 @@ export function StrategyBuilderPage() {
                 setLoadError(null);
                 setJsonError(null);
               }}
-              className="rounded-2xl border border-slate-800 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900"
+              className="app-button-secondary rounded-2xl px-4 py-3 text-sm font-medium transition"
             >
               Clear
             </button>
@@ -363,9 +363,9 @@ export function StrategyBuilderPage() {
         </form>
 
         <div className="space-y-6">
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20">
-            <h2 className="text-xl font-semibold text-white">Draft Preview</h2>
-            <p className="mt-2 text-sm text-slate-400">
+          <section className="app-card app-shadow rounded-3xl border p-6">
+            <h2 className="app-title text-xl font-semibold">Draft Preview</h2>
+            <p className="app-text-muted mt-2 text-sm">
               Human-readable interpretation returned by the generation endpoint.
             </p>
 
@@ -375,11 +375,11 @@ export function StrategyBuilderPage() {
               <PreviewRow label="Benchmark Symbol" value={configStats.benchmarkSymbol} />
             </div>
 
-            <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+            <div className="app-code mt-5 rounded-2xl border px-4 py-4">
+              <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
                 Summary
               </div>
-              <div className="mt-2 whitespace-pre-wrap text-sm text-slate-100">
+              <div className="app-title mt-2 whitespace-pre-wrap text-sm">
                 {draftResponse?.summary ?? 'No draft generated yet.'}
               </div>
             </div>
@@ -397,10 +397,10 @@ export function StrategyBuilderPage() {
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)]">
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20">
+        <section className="app-card app-shadow rounded-3xl border p-6">
           <div className="mb-6">
-            <h2 className="text-xl font-semibold text-white">Editable Canonical JSON</h2>
-            <p className="mt-2 text-sm text-slate-400">
+            <h2 className="app-title text-xl font-semibold">Editable Canonical JSON</h2>
+            <p className="app-text-muted mt-2 text-sm">
               Review and refine the generated Strategy V2 config before handing it off.
             </p>
           </div>
@@ -423,7 +423,7 @@ export function StrategyBuilderPage() {
               type="button"
               onClick={handleSaveAsNewStrategy}
               disabled={!draftResponse}
-              className="rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-button-primary rounded-2xl px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save as New Strategy
             </button>
@@ -432,7 +432,7 @@ export function StrategyBuilderPage() {
               type="button"
               onClick={handleSaveAsNewVersion}
               disabled={!draftResponse}
-              className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-500/50 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-button-secondary rounded-2xl px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save as New Version
             </button>
@@ -446,16 +446,16 @@ export function StrategyBuilderPage() {
                 }
               }}
               disabled={!draftResponse}
-              className="rounded-2xl border border-slate-800 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-button-secondary rounded-2xl px-4 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               Reset to Generated Draft
             </button>
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20">
-          <h2 className="text-xl font-semibold text-white">Handoff Notes</h2>
-          <p className="mt-2 text-sm text-slate-400">
+        <section className="app-card app-shadow rounded-3xl border p-6">
+          <h2 className="app-title text-xl font-semibold">Handoff Notes</h2>
+          <p className="app-text-muted mt-2 text-sm">
             Save actions reuse your existing create pages instead of calling persistence APIs
             directly from the builder.
           </p>
@@ -489,11 +489,11 @@ function PreviewRow({
   value: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
-      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+    <div className="app-code rounded-2xl border px-4 py-4">
+      <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
         {label}
       </div>
-      <div className="mt-2 break-words text-sm text-slate-100">{value || '—'}</div>
+      <div className="app-title mt-2 break-words text-sm">{value || '—'}</div>
     </div>
   );
 }

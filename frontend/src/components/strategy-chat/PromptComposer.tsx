@@ -49,7 +49,7 @@ export function PromptComposer({
   const isButtonDisabled = disabled || submitting || !value.trim();
 
   return (
-    <div className="rounded-[28px] border border-white/10 bg-slate-900/90 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+    <div className="app-composer-shell rounded-[28px]">
       <div className="flex items-center gap-3 px-4 py-3">
         <textarea
           ref={textareaRef}
@@ -60,7 +60,7 @@ export function PromptComposer({
           placeholder={placeholder}
           rows={1}
           disabled={disabled || submitting}
-          className="w-full resize-none overflow-y-auto border-0 bg-transparent text-base leading-6 text-white outline-none placeholder:text-slate-500"
+          className="w-full resize-none overflow-y-auto border-0 bg-transparent text-base leading-6 app-title outline-none placeholder:text-[var(--text-soft)]"
         />
 
         <button
@@ -68,7 +68,7 @@ export function PromptComposer({
           onClick={onSubmit}
           disabled={isButtonDisabled}
           aria-label={submitLabel ?? 'Send'}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-500 text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="app-button-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? (
             <span className="text-xs font-semibold">...</span>

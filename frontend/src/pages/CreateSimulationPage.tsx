@@ -209,14 +209,14 @@ export function CreateSimulationPage() {
         description="Submit a new run using your existing strategy and version records. This page uses only the current backend endpoints: GET /strategies, GET /strategies/{id}/dashboard, POST /runs, and POST /runs/{id}/enqueue."
         actions={
           <>
-            <Link to="/runs" className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300">
+            <Link to="/runs" className="app-button-secondary rounded-xl px-4 py-2 text-sm transition">
               Back to runs
             </Link>
             {createdRunId ? (
               <button
                 type="button"
                 onClick={() => navigate(`/runs/${createdRunId}`)}
-                className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
               >
                 Open created run
               </button>
@@ -287,7 +287,7 @@ export function CreateSimulationPage() {
                   ))}
                 </select>
               </Field>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs app-text-muted">
                 Executor is selected automatically from run type.
               </p>
 
@@ -306,12 +306,12 @@ export function CreateSimulationPage() {
               </Field>
 
               <Field label="Queue after create">
-                <label className="flex h-[46px] items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/50 px-4 text-sm text-slate-200">
+                <label className="app-form-field flex h-[46px] items-center gap-3 rounded-2xl px-4 text-sm">
                   <input
                     type="checkbox"
                     checked={enqueueImmediately}
                     onChange={(event) => setEnqueueImmediately(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-700 bg-slate-950"
+                    className="app-checkbox h-4 w-4 rounded"
                   />
                   Enqueue immediately after POST /runs succeeds
                 </label>
@@ -324,7 +324,7 @@ export function CreateSimulationPage() {
                 onChange={(event) => setRequestPayloadText(event.target.value)}
                 rows={14}
                 spellCheck={false}
-                className={`${inputClassName} min-h-[320px] font-mono text-xs leading-6`}
+                className="app-form-code min-h-[320px] w-full rounded-2xl px-4 py-3 font-mono text-xs leading-6 outline-none transition"
               />
             </Field>
 
@@ -332,14 +332,14 @@ export function CreateSimulationPage() {
               <button
                 type="submit"
                 disabled={submitting || strategyLoading || versionsLoading}
-                className="rounded-xl bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                className="app-button-primary rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {submitting ? 'Submitting…' : 'Create simulation run'}
               </button>
               {createdRunId ? (
                 <Link
                   to={`/runs/${createdRunId}`}
-                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300"
+                  className="app-button-secondary rounded-xl px-4 py-2 text-sm transition"
                 >
                   View created run
                 </Link>
@@ -363,16 +363,16 @@ export function CreateSimulationPage() {
 
           <SectionCard title="Version Config Snapshot" subtitle="Read-only preview of the selected version config from GET /strategies/{id}/dashboard.">
             {selectedVersion ? (
-              <pre className="max-h-[420px] overflow-auto rounded-2xl border border-slate-800 bg-slate-950/60 p-4 font-mono text-xs leading-6 text-slate-200">
+              <pre className="app-form-code max-h-[420px] overflow-auto rounded-2xl p-4 font-mono text-xs leading-6">
                 {prettyJson(selectedVersion.config_json)}
               </pre>
             ) : (
-              <p className="text-sm text-slate-400">Choose a strategy version to inspect its config.</p>
+              <p className="text-sm app-text-muted">Choose a strategy version to inspect its config.</p>
             )}
           </SectionCard>
 
           <SectionCard title="What this page supports today" subtitle="Current backend-aligned scope.">
-            <ul className="space-y-2 text-sm text-slate-300">
+            <ul className="app-list space-y-2 text-sm">
               <li>• Create a run from an existing strategy and version.</li>
               <li>• Optionally enqueue the run immediately after creation.</li>
               <li>• Reuse the selected strategy version config as a read-only reference.</li>
@@ -387,9 +387,9 @@ export function CreateSimulationPage() {
 
 function Row({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div className="flex flex-col gap-1 rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</span>
-      <span className="text-slate-200">{value || '—'}</span>
+    <div className="app-value-block rounded-2xl px-4 py-3 flex flex-col gap-1">
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] app-text-soft">{label}</span>
+      <span className="app-title">{value || '—'}</span>
     </div>
   );
 }
@@ -397,7 +397,7 @@ function Row({ label, value }: { label: string; value: string | null | undefined
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] app-text-muted">{label}</span>
       {children}
     </label>
   );
@@ -408,4 +408,4 @@ function prettyJson(value: Record<string, unknown>) {
 }
 
 const inputClassName =
-  'w-full rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500/50';
+  'app-form-field w-full rounded-2xl px-4 py-3 text-sm outline-none transition';

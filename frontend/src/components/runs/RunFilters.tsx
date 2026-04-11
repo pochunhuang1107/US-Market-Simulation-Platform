@@ -26,7 +26,7 @@ export function RunFilters({
   onSortOrderChange
 }: RunFiltersProps) {
   return (
-    <div className="grid gap-4 rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-2xl shadow-slate-950/30 lg:grid-cols-4 lg:p-6">
+    <div className="app-card app-shadow grid gap-4 rounded-3xl border p-5 lg:grid-cols-4 lg:p-6">
       <FilterSelect label="Status" value={status} onChange={(event) => onStatusChange(event.target.value)}>
         <option value="">All statuses</option>
         <option value="PENDING">Pending</option>
@@ -73,13 +73,9 @@ function FilterSelect({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block text-sm text-slate-300">
-      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</span>
-      <select
-        value={value}
-        onChange={onChange}
-        className="w-full rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-sm text-slate-200 outline-none transition focus:border-cyan-500"
-      >
+    <label className="block text-sm">
+      <span className="app-text-soft mb-2 block text-xs font-semibold uppercase tracking-[0.18em]">{label}</span>
+      <select value={value} onChange={onChange} className="app-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition focus:border-cyan-500">
         {children}
       </select>
     </label>

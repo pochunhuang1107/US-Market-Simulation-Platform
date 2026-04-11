@@ -72,13 +72,13 @@ export function statusTone(status: string): string {
       return 'text-rose-300';
     case 'RUNNING':
     case 'LEASED':
-      return 'text-cyan-300';
+      return 'app-accent';
     case 'QUEUED':
     case 'PENDING':
       return 'text-amber-300';
     case 'CANCELED':
-      return 'text-slate-300';
+      return 'app-text-muted';
     default:
-      return 'text-slate-300';
+      return 'app-text-muted';
   }
 }

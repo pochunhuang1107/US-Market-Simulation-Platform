@@ -52,7 +52,7 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+      <span className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
         {label}
       </span>
       {children}
@@ -79,9 +79,9 @@ export function CreateStrategyVersionPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const inputClassName =
-    'w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500';
+    'app-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition focus:border-cyan-500';
   const textareaClassName =
-    'min-h-[460px] w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500';
+    'app-code-block min-h-[460px] w-full rounded-2xl px-4 py-3 font-mono text-sm outline-none transition focus:border-cyan-500';
 
   useEffect(() => {
     let active = true;
@@ -178,7 +178,7 @@ export function CreateStrategyVersionPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-6 py-10">
-        <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-slate-300">
+        <div className="app-card app-shadow rounded-3xl border p-8">
           Loading strategy version editor...
         </div>
       </div>
@@ -199,13 +199,13 @@ export function CreateStrategyVersionPage() {
     <div className="mx-auto max-w-7xl px-6 py-10">
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-400">
+          <div className="app-eyebrow text-xs font-semibold uppercase tracking-[0.28em]">
             Strategy Versioning
           </div>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
+          <h1 className="app-title mt-2 text-3xl font-semibold tracking-tight">
             New Version · {strategyDashboard.strategy.name}
           </h1>
-          <p className="mt-3 max-w-3xl text-sm text-slate-400">
+          <p className="app-text-muted mt-3 max-w-3xl text-sm">
             Create a new version from the current strategy config, save a change note, and keep
             version history under the same strategy.
           </p>
@@ -214,7 +214,7 @@ export function CreateStrategyVersionPage() {
         <div className="flex items-center gap-3">
           <Link
             to={`/strategies/${strategyDashboard.strategy.id}`}
-            className="rounded-2xl border border-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900"
+            className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
           >
             Back to Strategy
           </Link>
@@ -222,7 +222,7 @@ export function CreateStrategyVersionPage() {
       </div>
 
       {builderDraft && (
-        <div className="mb-6 rounded-2xl border border-cyan-900/60 bg-cyan-950/30 px-4 py-3 text-sm text-cyan-100">
+        <div className="app-note mb-6 rounded-2xl border px-4 py-3 text-sm">
           Prefilled from Strategy Builder. Review the draft and create the version when ready.
         </div>
       )}
@@ -230,11 +230,11 @@ export function CreateStrategyVersionPage() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
         <form
           onSubmit={handleSubmit}
-          className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20"
+          className="app-card app-shadow rounded-3xl border p-6"
         >
           <div className="mb-6">
-            <h2 className="text-xl font-semibold text-white">Version Request</h2>
-            <p className="mt-2 text-sm text-slate-400">
+            <h2 className="app-title text-xl font-semibold">Version Request</h2>
+            <p className="app-text-muted mt-2 text-sm">
               Start from the current version config and edit only what changed.
             </p>
           </div>
@@ -270,7 +270,7 @@ export function CreateStrategyVersionPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-button-primary rounded-2xl px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? 'Creating Version...' : 'Create Version'}
             </button>
@@ -282,7 +282,7 @@ export function CreateStrategyVersionPage() {
                   builderDraft?.configText ?? prettifyJson(currentVersion?.config_json ?? {})
                 )
               }
-              className="rounded-2xl border border-slate-800 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900"
+              className="app-button-secondary rounded-2xl px-4 py-3 text-sm font-medium transition"
             >
               {builderDraft ? 'Reset to Builder Draft' : 'Reset to Current Version'}
             </button>
@@ -290,9 +290,9 @@ export function CreateStrategyVersionPage() {
         </form>
 
         <div className="space-y-6">
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20">
-            <h2 className="text-xl font-semibold text-white">Current Version</h2>
-            <p className="mt-2 text-sm text-slate-400">
+          <section className="app-card app-shadow rounded-3xl border p-6">
+            <h2 className="app-title text-xl font-semibold">Current Version</h2>
+            <p className="app-text-muted mt-2 text-sm">
               The new version will be created under this strategy and become the current version.
             </p>
 
@@ -307,13 +307,13 @@ export function CreateStrategyVersionPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20">
-            <h2 className="text-xl font-semibold text-white">Current Config Snapshot</h2>
-            <p className="mt-2 text-sm text-slate-400">
+          <section className="app-card app-shadow rounded-3xl border p-6">
+            <h2 className="app-title text-xl font-semibold">Current Config Snapshot</h2>
+            <p className="app-text-muted mt-2 text-sm">
               Reference view of the current version config before saving the new one.
             </p>
 
-            <pre className="mt-5 max-h-[460px] overflow-auto rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-xs leading-6 text-slate-200">
+            <pre className="app-code-block app-title mt-5 max-h-[460px] overflow-auto rounded-2xl p-4 text-xs leading-6">
               {prettifyJson(currentVersion?.config_json ?? {})}
             </pre>
           </section>
@@ -331,11 +331,11 @@ function PreviewRow({
   value: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
-      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+    <div className="app-code rounded-2xl border px-4 py-4">
+      <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
         {label}
       </div>
-      <div className="mt-2 break-words text-sm text-slate-100">{value || '—'}</div>
+      <div className="app-title mt-2 break-words text-sm">{value || '—'}</div>
     </div>
   );
 }

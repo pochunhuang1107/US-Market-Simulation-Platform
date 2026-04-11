@@ -89,7 +89,7 @@ export function StrategyPage() {
           <div className="flex items-center gap-3">
             <Link
               to={`/strategies/${data.strategy.id}/versions/new`}
-              className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+              className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
             >
               New Version
             </Link>
@@ -102,13 +102,13 @@ export function StrategyPage() {
                   currentConfig: currentVersion?.config_json ?? null
                 }
               }}
-              className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300"
+              className="app-button-secondary rounded-xl px-4 py-2 text-sm transition"
             >
               Open in Builder
             </Link>
             <Link
               to="/runs"
-              className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300"
+              className="app-button-secondary rounded-xl px-4 py-2 text-sm transition"
             >
               Back to runs
             </Link>
@@ -140,13 +140,13 @@ export function StrategyPage() {
                 ))}
               </div>
               {data.latest_run_id ? (
-                <Link to={`/runs/${data.latest_run_id}`} className="inline-flex rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300">
+                <Link to={`/runs/${data.latest_run_id}`} className="app-button-secondary inline-flex rounded-xl px-4 py-2 text-sm transition">
                   Open latest run
                 </Link>
               ) : null}
             </div>
           ) : (
-            <p className="text-sm text-slate-400">No succeeded run is available yet for this strategy.</p>
+            <p className="app-text-muted text-sm">No succeeded run is available yet for this strategy.</p>
           )}
         </SectionCard>
       </div>
@@ -164,9 +164,9 @@ export function StrategyPage() {
 
 function Row({ label, value, mono = false }: { label: string; value: string | null | undefined; mono?: boolean }) {
   return (
-    <div className="flex flex-col gap-1 rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</span>
-      <span className={`${mono ? 'font-mono text-xs break-all' : ''} text-slate-200`}>{value || '—'}</span>
+    <div className="app-code rounded-2xl border px-4 py-3">
+      <span className="app-label text-xs font-semibold uppercase tracking-[0.18em]">{label}</span>
+      <span className={`${mono ? 'font-mono text-xs break-all' : ''} app-title`}>{value || '—'}</span>
     </div>
   );
 }

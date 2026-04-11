@@ -72,7 +72,7 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+      <span className="text-xs font-semibold uppercase tracking-[0.22em] app-text-muted">
         {label}
       </span>
       {children}
@@ -97,9 +97,9 @@ export function CreateStrategyPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const inputClassName =
-    'w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500';
+    'app-form-field w-full rounded-2xl px-4 py-3 text-sm outline-none transition';
   const textareaClassName =
-    'min-h-[420px] w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500';
+    'app-form-code min-h-[420px] w-full rounded-2xl px-4 py-3 font-mono text-sm outline-none transition';
 
   async function handleSubmit(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -141,13 +141,13 @@ export function CreateStrategyPage() {
     <div className="mx-auto max-w-7xl px-6 py-10">
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-400">
+          <div className="text-xs font-semibold uppercase tracking-[0.28em] app-accent">
             Us Market Strategy Platform
           </div>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight app-title">
             Create Strategy
           </h1>
-          <p className="mt-3 max-w-3xl text-sm text-slate-400">
+          <p className="mt-3 max-w-3xl text-sm app-text-muted">
             Create a new strategy and its initial version using the existing backend contract.
           </p>
         </div>
@@ -155,7 +155,7 @@ export function CreateStrategyPage() {
         <div className="flex items-center gap-3">
           <Link
             to="/runs"
-            className="rounded-2xl border border-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900"
+            className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
           >
             Back to Runs
           </Link>
@@ -163,7 +163,7 @@ export function CreateStrategyPage() {
       </div>
 
       {builderDraft && (
-        <div className="mb-6 rounded-2xl border border-cyan-900/60 bg-cyan-950/30 px-4 py-3 text-sm text-cyan-100">
+        <div className="app-note mb-6 rounded-2xl px-4 py-3 text-sm">
           Prefilled from Strategy Builder. Review the draft and save when ready.
         </div>
       )}
@@ -171,11 +171,11 @@ export function CreateStrategyPage() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.85fr)]">
         <form
           onSubmit={handleSubmit}
-          className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20"
+          className="rounded-3xl border app-divider app-card p-6 shadow-2xl "
         >
           <div className="mb-6">
-            <h2 className="text-xl font-semibold text-white">Strategy Request</h2>
-            <p className="mt-2 text-sm text-slate-400">
+            <h2 className="text-xl font-semibold app-title">Strategy Request</h2>
+            <p className="mt-2 text-sm app-text-muted">
               This will create the strategy and automatically create version 1.
             </p>
           </div>
@@ -211,7 +211,7 @@ export function CreateStrategyPage() {
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                   placeholder="Optional description"
-                  className="min-h-[110px] w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500"
+                  className="app-form-field min-h-[110px] w-full rounded-2xl px-4 py-3 text-sm outline-none transition"
                 />
               </Field>
             </div>
@@ -229,7 +229,7 @@ export function CreateStrategyPage() {
           </div>
 
           {submitError && (
-            <div className="mt-6 rounded-2xl border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
+            <div className="mt-6 rounded-2xl border border-rose-300/50 bg-rose-50/90 px-4 py-3 text-sm text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/20 dark:text-rose-100">
               {submitError}
             </div>
           )}
@@ -238,7 +238,7 @@ export function CreateStrategyPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-button-primary rounded-2xl px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? 'Creating Strategy...' : 'Create Strategy'}
             </button>
@@ -246,7 +246,7 @@ export function CreateStrategyPage() {
             <button
               type="button"
               onClick={() => setConfigText(prettifyJson(builderDraft?.configText ?? DEFAULT_CONFIG))}
-              className="rounded-2xl border border-slate-800 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-700 hover:bg-slate-900"
+              className="app-button-secondary rounded-2xl px-4 py-3 text-sm font-medium transition"
             >
               {builderDraft ? 'Reset to Builder Draft' : 'Reset Config'}
             </button>
@@ -254,45 +254,45 @@ export function CreateStrategyPage() {
         </form>
 
         <div className="space-y-6">
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20">
-            <h2 className="text-xl font-semibold text-white">Live Preview</h2>
-            <p className="mt-2 text-sm text-slate-400">
+          <section className="rounded-3xl border app-divider app-card p-6 shadow-2xl ">
+            <h2 className="text-xl font-semibold app-title">Live Preview</h2>
+            <p className="mt-2 text-sm app-text-muted">
               Review the values that will be submitted to POST /strategies.
             </p>
 
             <div className="mt-5 space-y-3">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+              <div className="app-value-block rounded-2xl px-4 py-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.22em] app-text-soft">
                   Name
                 </div>
-                <div className="mt-2 text-sm text-slate-100">{name || '—'}</div>
+                <div className="mt-2 text-sm app-title">{name || '—'}</div>
               </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+              <div className="app-value-block rounded-2xl px-4 py-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.22em] app-text-soft">
                   Strategy Type
                 </div>
-                <div className="mt-2 text-sm text-slate-100">{strategyType}</div>
+                <div className="mt-2 text-sm app-title">{strategyType}</div>
               </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+              <div className="app-value-block rounded-2xl px-4 py-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.22em] app-text-soft">
                   Description
                 </div>
-                <div className="mt-2 whitespace-pre-wrap text-sm text-slate-100">
+                <div className="mt-2 whitespace-pre-wrap text-sm app-title">
                   {description || '—'}
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/20">
-            <h2 className="text-xl font-semibold text-white">Config Snapshot</h2>
-            <p className="mt-2 text-sm text-slate-400">
+          <section className="rounded-3xl border app-divider app-card p-6 shadow-2xl ">
+            <h2 className="text-xl font-semibold app-title">Config Snapshot</h2>
+            <p className="mt-2 text-sm app-text-muted">
               Read-only preview of the config JSON to be saved as version 1.
             </p>
 
-            <pre className="mt-5 max-h-[460px] overflow-auto rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-xs leading-6 text-slate-200">
+            <pre className="app-form-code mt-5 max-h-[460px] overflow-auto rounded-2xl p-4 text-xs leading-6">
               {prettifyJson(configText)}
             </pre>
           </section>

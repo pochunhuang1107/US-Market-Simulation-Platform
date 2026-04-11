@@ -204,6 +204,7 @@ export function RunDetailPage() {
   return (
     <div className="space-y-6">
       <RunHeader run={data.run} />
+      <RunCharts chartData={data.chart_data} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {summaryMetrics.map((metric) => (
@@ -212,7 +213,6 @@ export function RunDetailPage() {
       </div>
 
       <RunMetaPanel run={data.run} />
-      <RunCharts chartData={data.chart_data} />
     </div>
   );
 }

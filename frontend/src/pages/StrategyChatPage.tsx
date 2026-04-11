@@ -210,17 +210,17 @@ export function StrategyChatPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      {!hasMessages ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center px-4 pt-16 pb-28">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {!hasMessages ? (
+          <div className="mx-auto flex w-full max-w-4xl flex-col items-center px-4 pt-16 pb-40">
             <div className="space-y-3 text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-300/80">
+              <p className="app-eyebrow text-xs font-semibold uppercase tracking-[0.35em]">
                 US Market Strategy Platform
               </p>
-              <h1 className="text-3xl font-semibold tracking-tight text-white md:text-5xl">
+              <h1 className="text-3xl font-semibold tracking-tight app-title md:text-5xl">
                 Build a strategy in plain English
               </h1>
-              <p className="mx-auto max-w-2xl text-sm text-slate-400 md:text-base">
+              <p className="mx-auto max-w-2xl text-sm app-text-muted md:text-base">
                 Describe a trading idea, review the structured strategy draft, and
                 launch a simulation in one flow.
               </p>
@@ -230,54 +230,39 @@ export function StrategyChatPage() {
               <ExamplePromptChips onSelect={handlePromptChipClick} />
             </div>
           </div>
+        ) : (
+          <div className="mx-auto w-full max-w-4xl px-4 py-6 pb-40">
+            <ChatMessageList messages={messages} onRunDraft={handleRun} />
 
-          <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-slate-950/80 p-4 backdrop-blur">
-            <div className="mx-auto w-full max-w-3xl">
-              <PromptComposer
-                value={input}
-                onChange={setInput}
-                onSubmit={() => {
-                  void handleSubmit();
-                }}
-                submitting={isGenerating}
-                placeholder="Describe your strategy..."
-                submitLabel="Generate Strategy"
-              />
-            </div>
+            {isGenerating && (
+              <div className="app-card mx-auto mt-4 max-w-3xl rounded-3xl border px-5 py-4 text-sm app-text-muted">
+                Updating your strategy...
+              </div>
+            )}
+
+            <div ref={bottomRef} />
           </div>
+        )}
+      </div>
+
+      <div className="app-composer-dock fixed bottom-0 left-0 right-0 z-30 px-4 py-4">
+        <div className="mx-auto w-full max-w-3xl">
+          <PromptComposer
+            value={input}
+            onChange={setInput}
+            onSubmit={() => {
+              void handleSubmit();
+            }}
+            submitting={isGenerating}
+            placeholder={
+              hasMessages
+                ? 'Refine the strategy or describe a new adjustment...'
+                : 'Describe your strategy...'
+            }
+            submitLabel={hasMessages ? 'Update Strategy' : 'Generate Strategy'}
+          />
         </div>
-      ) : (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-4xl px-4 py-6">
-              <ChatMessageList messages={messages} onRunDraft={handleRun} />
-
-              {isGenerating && (
-                <div className="mx-auto mt-4 max-w-3xl rounded-3xl border border-white/10 bg-white/[0.03] px-5 py-4 text-sm text-slate-300">
-                  Updating your strategy...
-                </div>
-              )}
-
-              <div ref={bottomRef} />
-            </div>
-          </div>
-
-          <div className="border-t border-white/10 bg-slate-950/80 p-4 backdrop-blur">
-            <div className="mx-auto w-full max-w-3xl">
-              <PromptComposer
-                value={input}
-                onChange={setInput}
-                onSubmit={() => {
-                  void handleSubmit();
-                }}
-                submitting={isGenerating}
-                placeholder="Refine the strategy or describe a new adjustment..."
-                submitLabel="Update Strategy"
-              />
-            </div>
-          </div>
-        </>
-      )}
+      </div>
     </div>
   );
 }

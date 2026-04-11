@@ -89,18 +89,14 @@ function explainRule(rule: unknown): string {
   const node = rule as RuleNode;
   const kind = typeof node.kind === 'string' ? node.kind : 'atomic';
 
-  if (kind === 'atomic') {
-    return explainAtomicRule(node);
-  }
+  if (kind === 'atomic') return explainAtomicRule(node);
 
   if (kind === 'sequence') {
     const steps = Array.isArray(node.steps) ? node.steps : [];
     const windowBars = typeof node.window_bars === 'number' ? node.window_bars : null;
     const explainedSteps = steps.map((step) => explainRule(step));
     return explainedSteps.length > 0
-      ? `Sequence${windowBars ? ` within ${windowBars} bars` : ''}: ${explainedSteps.join(
-          ' → '
-        )}`
+      ? `Sequence${windowBars ? ` within ${windowBars} bars` : ''}: ${explainedSteps.join(' → ')}`
       : 'Sequence rule';
   }
 
@@ -116,70 +112,35 @@ function explainRule(rule: unknown): string {
   return compactRuleLabel(typeof node.type === 'string' ? node.type : 'Unknown');
 }
 
-function InfoPill({
-  label,
-  value
-}: {
-  label: string;
-  value: string | number | null | undefined;
-}) {
+function InfoPill({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-        {label}
-      </div>
-      <div className="mt-1 text-sm text-slate-100">{value ?? '—'}</div>
+    <div className="app-home-draft-panel rounded-2xl px-4 py-3">
+      <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">{label}</div>
+      <div className="app-title mt-1 text-sm">{value ?? '—'}</div>
     </div>
   );
 }
 
-function Section({
-  eyebrow,
-  title,
-  children
-}: {
-  eyebrow?: string;
-  title: string;
-  children: React.ReactNode;
-}) {
+function Section({ eyebrow, title, children }: { eyebrow?: string; title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-3xl border border-slate-800 bg-slate-950/60 p-5">
-      {eyebrow ? (
-        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-300">
-          {eyebrow}
-        </div>
-      ) : null}
-      <h3 className="mt-1 text-sm font-semibold text-white">{title}</h3>
+    <section className="app-home-draft-section rounded-3xl p-5">
+      {eyebrow ? <div className="app-accent text-[11px] font-semibold uppercase tracking-[0.24em]">{eyebrow}</div> : null}
+      <h3 className="app-title mt-1 text-sm font-semibold">{title}</h3>
       <div className="mt-3">{children}</div>
     </section>
   );
 }
 
-function BulletList({
-  items,
-  emptyText,
-  tone = 'default'
-}: {
-  items: string[];
-  emptyText: string;
-  tone?: 'default' | 'warning' | 'success';
-}) {
-  const bulletClass =
-    tone === 'warning'
-      ? 'text-amber-300'
-      : tone === 'success'
-      ? 'text-emerald-300'
-      : 'text-cyan-300';
+function BulletList({ items, emptyText, tone = 'default' }: { items: string[]; emptyText: string; tone?: 'default' | 'warning' | 'success' }) {
+  const bulletClass = tone === 'warning' ? 'app-chip-warning' : tone === 'success' ? 'app-chip-success' : 'app-chip-info';
 
-  if (items.length === 0) {
-    return <p className="text-sm text-slate-400">{emptyText}</p>;
-  }
+  if (items.length === 0) return <p className="app-text-muted text-sm">{emptyText}</p>;
 
   return (
-    <ul className="space-y-2 text-sm text-slate-100">
+    <ul className="space-y-2 text-sm">
       {items.map((item, index) => (
-        <li key={`${item}-${index}`} className="flex gap-2">
-          <span className={bulletClass}>•</span>
+        <li key={`${item}-${index}`} className="app-title flex gap-2">
+          <span className={`${bulletClass} inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px]`}>•</span>
           <span>{item}</span>
         </li>
       ))}
@@ -187,101 +148,49 @@ function BulletList({
   );
 }
 
-export function StrategyDraftCard({
-  draft,
-  onRun,
-  isRunning = false,
-  runError = null
-}: {
-  draft: StrategyBuilderGenerateResponse;
-  onRun: () => void;
-  isRunning?: boolean;
-  runError?: string | null;
-}) {
+export function StrategyDraftCard({ draft, onRun, isRunning = false, runError = null }: { draft: StrategyBuilderGenerateResponse; onRun: () => void; isRunning?: boolean; runError?: string | null; }) {
   const [showConfig, setShowConfig] = useState(false);
 
   const viewModel = useMemo(() => {
     const config = draft.config ?? {};
-    const allocation =
-      (config.allocation as Record<string, unknown> | undefined) ?? {};
+    const allocation = (config.allocation as Record<string, unknown> | undefined) ?? {};
     const risk = (config.risk as Record<string, unknown> | undefined) ?? {};
-    const coreOverlay =
-      (config.core_overlay as Record<string, unknown> | undefined) ?? {};
+    const coreOverlay = (config.core_overlay as Record<string, unknown> | undefined) ?? {};
 
-    const entryRule = config.entry_rule;
-    const exitRule = config.exit_rule;
-
-    const entryValue =
-      typeof allocation.entry_value === 'number'
-        ? `${(allocation.entry_value * 100).toFixed(1)}% of equity`
-        : '—';
-
-    const maxPosition =
-      typeof allocation.max_position_pct === 'number'
-        ? `${(allocation.max_position_pct * 100).toFixed(1)}%`
-        : '—';
-
+    const entryValue = typeof allocation.entry_value === 'number' ? `${(allocation.entry_value * 100).toFixed(1)}% of equity` : '—';
+    const maxPosition = typeof allocation.max_position_pct === 'number' ? `${(allocation.max_position_pct * 100).toFixed(1)}%` : '—';
     const stopLoss = formatPercent(risk.stop_loss_pct);
     const takeProfit = formatPercent(risk.take_profit_pct);
-    const cooldown =
-      typeof risk.cooldown_bars === 'number'
-        ? risk.cooldown_bars === 0
-          ? 'None'
-          : `${risk.cooldown_bars} bars`
-        : '—';
-
+    const cooldown = typeof risk.cooldown_bars === 'number' ? (risk.cooldown_bars === 0 ? 'None' : `${risk.cooldown_bars} bars`) : '—';
     const coreOverlayEnabled = coreOverlay.enabled === true;
-    const coreAllocation =
-      typeof coreOverlay.core_allocation_pct === 'number'
-        ? `${(coreOverlay.core_allocation_pct * 100).toFixed(1)}% core`
-        : '—';
-
-    const strategyHeadline =
-      typeof config.name === 'string' && config.name.trim()
-        ? config.name
-        : 'Generated strategy';
-
-    const readableExplanation = [
-      `Trade ${typeof config.tradable_symbol === 'string' ? config.tradable_symbol : 'the selected asset'} from ${
-        typeof config.start_date === 'string' ? config.start_date : 'the chosen start date'
-      } to ${typeof config.end_date === 'string' ? config.end_date : 'the chosen end date'}.`,
-      `Enter when ${explainRule(entryRule)}.`,
-      `Exit when ${explainRule(exitRule)}.`,
-      typeof allocation.entry_value === 'number'
-        ? `Use ${(allocation.entry_value * 100).toFixed(1)}% of equity per entry.`
-        : null,
-      typeof risk.stop_loss_pct === 'number'
-        ? `Protect downside with a ${formatPercent(risk.stop_loss_pct)} stop loss.`
-        : null,
-      typeof risk.take_profit_pct === 'number'
-        ? `Take profit at ${formatPercent(risk.take_profit_pct)}.`
-        : null,
-      typeof risk.cooldown_bars === 'number' && risk.cooldown_bars > 0
-        ? `Wait ${risk.cooldown_bars} bars before re-entering after an exit.`
-        : null
-    ].filter((item): item is string => Boolean(item));
+    const coreAllocation = typeof coreOverlay.core_allocation_pct === 'number' ? `${(coreOverlay.core_allocation_pct * 100).toFixed(1)}% core` : '—';
+    const strategyHeadline = typeof config.name === 'string' && config.name.trim() ? config.name : 'Generated strategy';
 
     return {
       strategyHeadline,
-      tradableSymbol:
-        typeof config.tradable_symbol === 'string' ? config.tradable_symbol : '—',
-      benchmarkSymbol:
-        typeof config.benchmark_symbol === 'string' ? config.benchmark_symbol : '—',
+      tradableSymbol: typeof config.tradable_symbol === 'string' ? config.tradable_symbol : '—',
+      benchmarkSymbol: typeof config.benchmark_symbol === 'string' ? config.benchmark_symbol : '—',
       startDate: typeof config.start_date === 'string' ? config.start_date : '—',
       endDate: typeof config.end_date === 'string' ? config.end_date : '—',
       initialCapital: formatCurrency(config.initial_capital),
       transactionCost: formatBps(config.transaction_cost_bps),
-      allocationMode:
-        typeof allocation.entry_mode === 'string' ? titleCase(allocation.entry_mode) : '—',
       entryValue,
       maxPosition,
-      entryRuleLabel: explainRule(entryRule),
-      exitRuleLabel: explainRule(exitRule),
+      entryRuleLabel: explainRule(config.entry_rule),
+      exitRuleLabel: explainRule(config.exit_rule),
       stopLoss,
       takeProfit,
       cooldown,
       coreOverlayLabel: coreOverlayEnabled ? `Enabled · ${coreAllocation}` : 'Disabled',
-      readableExplanation
+      readableExplanation: [
+        `Trade ${typeof config.tradable_symbol === 'string' ? config.tradable_symbol : 'the selected asset'} from ${typeof config.start_date === 'string' ? config.start_date : 'the chosen start date'} to ${typeof config.end_date === 'string' ? config.end_date : 'the chosen end date'}.`,
+        `Enter when ${explainRule(config.entry_rule)}.`,
+        `Exit when ${explainRule(config.exit_rule)}.`,
+        typeof allocation.entry_value === 'number' ? `Use ${(allocation.entry_value * 100).toFixed(1)}% of equity per entry.` : null,
+        typeof risk.stop_loss_pct === 'number' ? `Protect downside with a ${formatPercent(risk.stop_loss_pct)} stop loss.` : null,
+        typeof risk.take_profit_pct === 'number' ? `Take profit at ${formatPercent(risk.take_profit_pct)}.` : null,
+        typeof risk.cooldown_bars === 'number' && risk.cooldown_bars > 0 ? `Wait ${risk.cooldown_bars} bars before re-entering after an exit.` : null
+      ].filter((item): item is string => Boolean(item))
     };
   }, [draft]);
 
@@ -290,48 +199,30 @@ export function StrategyDraftCard({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-[32px] border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-black/20">
-        <div className="flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-start lg:justify-between">
+      <div className="app-card app-home-draft-card app-shadow rounded-[32px] border p-5">
+        <div className="app-divider flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-cyan-900/70 bg-cyan-950/40 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-300">
+              <span className="app-chip-info rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em]">
                 {hasChanges ? 'Updated Draft' : 'Strategy Draft'}
               </span>
               {hasWarnings ? (
-                <span className="rounded-full border border-amber-900/70 bg-amber-950/40 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-300">
-                  Review warnings
-                </span>
+                <span className="app-chip-warning rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em]">Review warnings</span>
               ) : (
-                <span className="rounded-full border border-emerald-900/70 bg-emerald-950/30 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-300">
-                  Ready to simulate
-                </span>
+                <span className="app-chip-success rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em]">Ready to simulate</span>
               )}
             </div>
-
             <div>
-              <h2 className="text-lg font-semibold tracking-tight text-white">
-                {viewModel.strategyHeadline}
-              </h2>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-200">
-                {draft.summary}
-              </p>
+              <h2 className="app-title text-lg font-semibold tracking-tight">{viewModel.strategyHeadline}</h2>
+              <p className="app-text-muted mt-2 whitespace-pre-wrap text-sm leading-6">{draft.summary}</p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => setShowConfig((value) => !value)}
-              className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-600 hover:bg-slate-900"
-            >
+            <button type="button" onClick={() => setShowConfig((value) => !value)} className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition">
               {showConfig ? 'Hide JSON' : 'Show JSON'}
             </button>
-            <button
-              type="button"
-              onClick={onRun}
-              disabled={isRunning}
-              className="rounded-2xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-            >
+            <button type="button" onClick={onRun} disabled={isRunning} className="app-button-primary rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60">
               {isRunning ? 'Running...' : 'Run Simulation'}
             </button>
           </div>
@@ -350,26 +241,18 @@ export function StrategyDraftCard({
 
         <div className="mt-5 grid gap-4 xl:grid-cols-2">
           <Section eyebrow="Readable explanation" title="How this strategy trades">
-            <BulletList
-              items={viewModel.readableExplanation}
-              emptyText="No explanation available."
-              tone="success"
-            />
+            <BulletList items={viewModel.readableExplanation} emptyText="No explanation available." tone="success" />
           </Section>
 
           <Section eyebrow="Signal logic" title="Entry and exit rules">
-            <div className="space-y-3 text-sm text-slate-100">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Entry
-                </div>
-                <div className="mt-2 leading-6">{viewModel.entryRuleLabel}</div>
+            <div className="space-y-3 text-sm">
+              <div className="app-home-draft-panel rounded-2xl p-4">
+                <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">Entry</div>
+                <div className="app-title mt-2 leading-6">{viewModel.entryRuleLabel}</div>
               </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Exit
-                </div>
-                <div className="mt-2 leading-6">{viewModel.exitRuleLabel}</div>
+              <div className="app-home-draft-panel rounded-2xl p-4">
+                <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">Exit</div>
+                <div className="app-title mt-2 leading-6">{viewModel.exitRuleLabel}</div>
               </div>
             </div>
           </Section>
@@ -384,42 +267,25 @@ export function StrategyDraftCard({
           </Section>
 
           <Section eyebrow="Revision history" title="What changed in this draft">
-            <BulletList
-              items={draft.changes}
-              emptyText="No explicit config changes were detected."
-            />
+            <BulletList items={draft.changes} emptyText="No explicit config changes were detected." />
           </Section>
         </div>
 
         {hasWarnings ? (
-          <div className="mt-4 rounded-3xl border border-amber-900/60 bg-amber-950/20 p-5">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-300">
-              Warnings
-            </div>
+          <div className="app-alert-warning mt-4 rounded-3xl p-5">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em]">Warnings</div>
             <div className="mt-3">
-              <BulletList
-                items={draft.warnings}
-                emptyText="No warnings."
-                tone="warning"
-              />
+              <BulletList items={draft.warnings} emptyText="No warnings." tone="warning" />
             </div>
           </div>
         ) : null}
 
-        {runError ? (
-          <div className="mt-4 rounded-2xl border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
-            {runError}
-          </div>
-        ) : null}
+        {runError ? <div className="app-alert-error mt-4 rounded-2xl px-4 py-3 text-sm">{runError}</div> : null}
 
         {showConfig ? (
-          <div className="mt-4 rounded-3xl border border-slate-800 bg-slate-950 p-5">
-            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-              Canonical Strategy V2 JSON
-            </div>
-            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-200">
-              {prettifyJson(draft.config)}
-            </pre>
+          <div className="app-home-json-panel mt-4 rounded-3xl p-5">
+            <div className="app-label mb-3 text-[11px] font-semibold uppercase tracking-[0.22em]">Canonical Strategy V2 JSON</div>
+            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6">{prettifyJson(draft.config)}</pre>
           </div>
         ) : null}
       </div>

@@ -17,7 +17,7 @@ export function ExamplePromptChips({
           key={example}
           type="button"
           onClick={() => onSelect(example)}
-          className="rounded-full border border-slate-800 bg-slate-900/80 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300"
+          className="app-card rounded-full border px-4 py-2 text-sm transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]"
         >
           {example}
         </button>

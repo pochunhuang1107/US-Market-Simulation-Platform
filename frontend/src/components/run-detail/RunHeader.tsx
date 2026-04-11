@@ -10,20 +10,20 @@ interface RunHeaderProps {
 
 export function RunHeader({ run }: RunHeaderProps) {
   return (
-    <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-slate-950/40">
+    <section className="app-card app-shadow rounded-3xl border p-6">
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-300">
-              Run Detail
+            <p className="app-eyebrow text-xs font-semibold uppercase tracking-[0.26em]">
+              Simulation Result
             </p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-tight text-white">
+            <h1 className="mt-2 text-4xl font-semibold tracking-tight app-title">
               {formatRunLabel(run.strategy_name, run.strategy_version_number)}
             </h1>
-            <p className="mt-3 font-mono text-sm text-slate-400">{run.id}</p>
+            <p className="mt-3 font-mono text-sm app-text-muted">{run.id}</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-400">
+          <div className="flex flex-wrap items-center gap-3 text-sm app-text-muted">
             <span>{run.run_type}</span>
             <span>•</span>
             <span>{run.executor_type}</span>
@@ -32,17 +32,14 @@ export function RunHeader({ run }: RunHeaderProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <Link
-              to="/runs"
-              className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300"
-            >
+            <Link to="/runs" className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition">
               Back to runs
             </Link>
 
             {run.strategy_id ? (
               <Link
                 to={`/strategies/${run.strategy_id}`}
-                className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-300"
+                className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
               >
                 Open strategy
               </Link>
@@ -51,7 +48,7 @@ export function RunHeader({ run }: RunHeaderProps) {
             {run.strategy_id ? (
               <Link
                 to={`/strategies/${run.strategy_id}/versions/new`}
-                className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
               >
                 New version
               </Link>
@@ -60,7 +57,7 @@ export function RunHeader({ run }: RunHeaderProps) {
             {run.strategy_id ? (
               <Link
                 to={`/runs/new?strategyId=${run.strategy_id}`}
-                className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
               >
                 Create similar run
               </Link>
@@ -70,7 +67,7 @@ export function RunHeader({ run }: RunHeaderProps) {
 
         <div className="flex flex-col items-start gap-4 lg:items-end">
           <RunStatusBadge status={run.status} />
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
+          <div className="app-card-soft rounded-2xl border px-4 py-3 text-sm app-text-muted">
             Finished {formatDateTime(run.finished_at)}
           </div>
         </div>

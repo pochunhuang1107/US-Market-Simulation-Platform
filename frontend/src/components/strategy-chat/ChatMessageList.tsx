@@ -14,7 +14,7 @@ export function ChatMessageList({
         if (message.role === 'user') {
           return (
             <div key={message.id} className="flex justify-end">
-              <div className="max-w-3xl rounded-[28px] bg-cyan-500 px-5 py-4 text-sm leading-6 text-slate-950 shadow-lg shadow-cyan-950/30">
+              <div className="app-button-primary max-w-3xl rounded-[28px] px-5 py-4 text-sm leading-6 shadow-lg shadow-cyan-950/20">
                 {message.text}
               </div>
             </div>
@@ -23,8 +23,8 @@ export function ChatMessageList({
 
         return (
           <div key={message.id} className="flex justify-start">
-            <div className="w-full max-w-5xl rounded-[32px] border border-slate-800 bg-slate-900/70 p-4 shadow-2xl shadow-black/20">
-              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+            <div className="app-card app-shadow w-full max-w-5xl rounded-[32px] border p-4">
+              <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
                 Strategy Assistant
               </div>
               {message.draft ? (
@@ -35,7 +35,7 @@ export function ChatMessageList({
                   runError={message.runError}
                 />
               ) : (
-                <p className="text-sm text-slate-200">{message.text}</p>
+                <p className="app-title text-sm">{message.text}</p>
               )}
             </div>
           </div>
