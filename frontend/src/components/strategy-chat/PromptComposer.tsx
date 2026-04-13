@@ -49,7 +49,7 @@ export function PromptComposer({
   const isButtonDisabled = disabled || submitting || !value.trim();
 
   return (
-    <div className="app-composer-shell rounded-[28px]">
+    <div className="app-card rounded-[28px] border shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
       <div className="flex items-center gap-3 px-4 py-3">
         <textarea
           ref={textareaRef}

@@ -21,6 +21,8 @@
   --positive: #34d399;
   --warning: #f59e0b;
   --danger: #fb7185;
+  --range-selection-fill: rgba(34, 211, 238, 0.10);
+  --range-selection-line: rgba(8, 145, 178, 0.72);
 }
 
 html[data-theme='light'] {
@@ -43,6 +45,8 @@ html[data-theme='light'] {
   --positive: #059669;
   --warning: #b45309;
   --danger: #be123c;
+  --range-selection-fill: rgba(14, 116, 144, 0.10);
+  --range-selection-line: rgba(14, 116, 144, 0.78);
 }
 
 html {
@@ -239,26 +243,23 @@ html[data-theme='light'] .app-home-json-panel {
 }
 
 
-.app-composer-dock {
-  background: color-mix(in srgb, var(--bg-start) 72%, transparent);
-  border-top: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+.chart-frame :where(svg, .recharts-wrapper, .recharts-surface):focus,
+.chart-frame :where(svg, .recharts-wrapper, .recharts-surface):focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
-.app-composer-shell {
-  background: color-mix(in srgb, var(--surface-strong) 92%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+.chart-frame .recharts-reference-area-rect {
+  rx: 10px;
 }
 
-html[data-theme='light'] .app-composer-dock {
-  background: rgba(248, 250, 252, 0.82);
-  border-top-color: rgba(148, 163, 184, 0.24);
+.recharts-wrapper:focus,
+.recharts-surface:focus,
+.recharts-dot:focus,
+.recharts-active-dot:focus {
+  outline: none !important;
 }
 
-html[data-theme='light'] .app-composer-shell {
-  background: rgba(255, 255, 255, 0.96);
-  border-color: rgba(148, 163, 184, 0.34);
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+.recharts-wrapper *:focus {
+  outline: none !important;
 }
