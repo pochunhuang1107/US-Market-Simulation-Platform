@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -14,9 +16,9 @@ from market_simulator.api.deps import get_current_user, get_db
 from market_simulator.api.main import app
 from market_simulator.db.base import Base
 import market_simulator.db.models  # noqa: F401
-from market_simulator.db.enums import StrategyType, UserStatus
+from market_simulator.db.enums import StrategyType, SubscriptionStatus, UserStatus
 from market_simulator.db.models.strategy import Strategy, StrategyVersion
-from market_simulator.db.models.user import User
+from market_simulator.db.models.user import Plan, User, UserPlanSubscription
 
 
 TEST_DATABASE_URL = os.getenv(
@@ -118,6 +120,62 @@ def _default_strategy_config() -> dict[str, Any]:
     }
 
 
+def _ensure_default_test_plan(db_session: Session) -> Plan:
+    existing = db_session.query(Plan).filter(Plan.code == "TEST_PRO").first()
+    if existing is not None:
+        return existing
+
+    plan = Plan(
+        id=uuid.uuid4(),
+        code="TEST_PRO",
+        name="Test Pro",
+        monthly_price_usd=Decimal("0.00"),
+        daily_free_runs=1000,
+        max_saved_strategies=1000,
+        max_tracked_strategies=1000,
+        allow_portfolio_runs=True,
+        allow_comparison_runs=True,
+        allow_parameter_sweeps=True,
+        allow_ai_builder=True,
+        allow_strategy_history=True,
+        is_active=True,
+    )
+    db_session.add(plan)
+    db_session.commit()
+    db_session.refresh(plan)
+    return plan
+
+
+def _attach_default_subscription(db_session: Session, *, user_id: uuid.UUID) -> None:
+    plan = _ensure_default_test_plan(db_session)
+
+    existing = (
+        db_session.query(UserPlanSubscription)
+        .filter(
+            UserPlanSubscription.user_id == user_id,
+            UserPlanSubscription.plan_id == plan.id,
+            UserPlanSubscription.status == SubscriptionStatus.ACTIVE,
+        )
+        .first()
+    )
+    if existing is not None:
+        return
+
+    subscription = UserPlanSubscription(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        plan_id=plan.id,
+        status=SubscriptionStatus.ACTIVE,
+        starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+        ends_at=None,
+        auto_renew=False,
+        provider=None,
+        provider_subscription_id=None,
+    )
+    db_session.add(subscription)
+    db_session.commit()
+
+
 @pytest.fixture
 def create_user(db_session: Session):
     def _create_user(
@@ -125,6 +183,7 @@ def create_user(db_session: Session):
         user_id: str | None = None,
         email: str | None = None,
         display_name: str = "Test User",
+        with_default_plan: bool = True,
     ) -> User:
         user_uuid = uuid.UUID(user_id) if user_id else uuid.uuid4()
         user = User(
@@ -137,6 +196,10 @@ def create_user(db_session: Session):
         db_session.add(user)
         db_session.commit()
         db_session.refresh(user)
+
+        if with_default_plan:
+            _attach_default_subscription(db_session, user_id=user.id)
+
         return user
 
     return _create_user

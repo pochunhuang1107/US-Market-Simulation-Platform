@@ -301,3 +301,47 @@ export interface StrategyBuilderGenerateResponse {
   warnings: string[];
   changes: string[];
 }
+
+export interface MeUserResponse {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  status: string;
+}
+
+export interface MePlanResponse {
+  code: string;
+  name: string;
+  monthly_price_usd: number;
+}
+
+export interface MeFeatureFlagsResponse {
+  allow_portfolio_runs: boolean;
+  allow_comparison_runs: boolean;
+  allow_parameter_sweeps: boolean;
+  allow_ai_builder: boolean;
+  allow_strategy_history: boolean;
+}
+
+export interface MeUsageLimitsResponse {
+  daily_free_runs: number;
+  max_saved_strategies: number;
+  max_tracked_strategies: number;
+}
+
+export interface MeUsageResponse {
+  runs_created_today: number;
+  daily_runs_remaining: number;
+  saved_strategies: number;
+  saved_strategies_remaining: number;
+  tracked_strategies: number;
+  tracked_strategies_remaining: number;
+}
+
+export interface MeEntitlementsResponse {
+  user: MeUserResponse;
+  plan: MePlanResponse;
+  features: MeFeatureFlagsResponse;
+  limits: MeUsageLimitsResponse;
+  usage: MeUsageResponse;
+}

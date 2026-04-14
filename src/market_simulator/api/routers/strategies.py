@@ -22,6 +22,10 @@ from market_simulator.repositories.strategies import (
     list_strategies,
     list_strategy_versions,
 )
+from market_simulator.services.entitlements import (
+    enforce_strategy_create_access,
+    enforce_strategy_history_access,
+)
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 
@@ -37,6 +41,8 @@ def create_strategy_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    enforce_strategy_create_access(db, user["id"])
+
     strategy = create_strategy(
         db,
         user["id"],
@@ -64,6 +70,8 @@ def create_strategy_version_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    enforce_strategy_history_access(db, user["id"])
+
     strategy = get_strategy_for_user(db, strategy_id, user["id"])
     if strategy is None:
         raise HTTPException(status_code=404, detail="Strategy not found")

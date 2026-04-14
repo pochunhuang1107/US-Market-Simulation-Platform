@@ -25,7 +25,7 @@ def seed():
             allow_portfolio_runs=False,
             allow_comparison_runs=False,
             allow_parameter_sweeps=False,
-            allow_ai_builder=False,
+            allow_ai_builder=True,
             allow_strategy_history=False,
             is_active=True,
         ),

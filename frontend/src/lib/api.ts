@@ -4,6 +4,7 @@ import type {
   CreateStrategyResponse,
   CreateStrategyVersionRequest,
   CreateStrategyVersionResponse,
+  MeEntitlementsResponse,
   RunActionResponse,
   RunComparisonChartResponse,
   RunComparisonResponse,
@@ -96,6 +97,10 @@ function buildQueryString(query: Record<string, string | number | undefined | nu
 
   const qs = params.toString();
   return qs ? `?${qs}` : '';
+}
+
+export async function fetchMeEntitlements(): Promise<MeEntitlementsResponse> {
+  return request<MeEntitlementsResponse>('/api/me/entitlements');
 }
 
 export async function fetchRunsDashboard(query: RunsDashboardQuery): Promise<RunDashboardListResponse> {

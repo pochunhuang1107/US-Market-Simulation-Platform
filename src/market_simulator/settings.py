@@ -38,13 +38,26 @@ class Settings(BaseModel):
     artifact_storage_backend: str = os.getenv("ARTIFACT_STORAGE_BACKEND", "LOCAL")
     artifact_s3_bucket: str | None = os.getenv("ARTIFACT_S3_BUCKET")
     artifact_s3_prefix: str = os.getenv("ARTIFACT_S3_PREFIX", "artifacts")
-    artifact_s3_region: str = os.getenv("ARTIFACT_S3_REGION", os.getenv("S3_REGION", "us-west-2"))
-    artifact_presign_ttl_seconds: int = int(os.getenv("ARTIFACT_PRESIGN_TTL_SECONDS", "3600"))
+    artifact_s3_region: str = os.getenv(
+        "ARTIFACT_S3_REGION",
+        os.getenv("S3_REGION", "us-west-2"),
+    )
+    artifact_presign_ttl_seconds: int = int(
+        os.getenv("ARTIFACT_PRESIGN_TTL_SECONDS", "3600")
+    )
 
     # ------------------------
-    # Runtime flags (optional)
+    # Runtime flags
     # ------------------------
     env: str = os.getenv("ENV", "local")
+
+    # ------------------------
+    # Dev auth fallback
+    # ------------------------
+    dev_default_user_id: str | None = os.getenv(
+        "DEV_DEFAULT_USER_ID",
+        "00000000-0000-0000-0000-000000000001",
+    )
 
 
 _settings: Settings | None = None

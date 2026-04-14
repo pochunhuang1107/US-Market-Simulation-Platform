@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def default_builder_test_user(create_user, current_user_ctx):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="builder-test@example.com",
+    )
+
 
 def test_generate_strategy_builder_draft_returns_valid_strategy_v2_config(client):
     response = client.post(

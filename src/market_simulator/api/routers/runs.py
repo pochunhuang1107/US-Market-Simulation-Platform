@@ -27,6 +27,11 @@ from market_simulator.repositories.runs import (
     get_run_for_user,
     list_runs,
 )
+from market_simulator.repositories.strategies import (
+    get_strategy_for_user,
+    get_strategy_version,
+)
+from market_simulator.services.entitlements import enforce_run_create_access
 
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -49,12 +54,40 @@ def _build_run_response(run) -> RunResponse:
     return response
 
 
+def _validate_run_strategy_access(
+    db: Session,
+    *,
+    user_id: str,
+    strategy_id: str,
+    strategy_version_id: str | None,
+):
+    strategy = get_strategy_for_user(db, strategy_id, user_id)
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    if strategy_version_id is not None:
+        version = get_strategy_version(db, strategy_version_id)
+        if version is None or str(version.strategy_id) != str(strategy.id):
+            raise HTTPException(status_code=404, detail="Strategy version not found")
+
+    return strategy
+
+
 @router.post("", response_model=RunResponse)
 def create_run_api(
     req: CreateRunRequest,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    enforce_run_create_access(db, user["id"], req.run_type)
+
+    _validate_run_strategy_access(
+        db,
+        user_id=user["id"],
+        strategy_id=req.strategy_id,
+        strategy_version_id=req.strategy_version_id,
+    )
+
     run = create_run(
         db,
         user["id"],

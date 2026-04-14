@@ -10,8 +10,10 @@ import {
   createStrategy,
   createStrategyVersion,
   enqueueRun,
+  fetchMeEntitlements,
   generateStrategyDraft
 } from '../lib/api';
+import type { MeEntitlementsResponse } from '../types/api';
 
 function extractDraftConfig(draft: unknown): Record<string, unknown> | null {
   if (!draft || typeof draft !== 'object') return null;
@@ -74,16 +76,117 @@ function formatUnknownError(error: unknown): string {
   return 'Request failed.';
 }
 
+function formatLimitError(error: unknown): string {
+  const message = formatUnknownError(error);
+
+  if (message.includes('Daily run limit reached')) {
+    return 'You have reached your daily simulation limit. You can still edit your strategy draft, but running a new simulation is locked for now.';
+  }
+
+  if (message.includes('Saved strategy limit reached')) {
+    return 'You have reached your saved strategy limit. Remove an older saved strategy or upgrade your plan to save and run another one.';
+  }
+
+  if (message.includes('strategy builder access')) {
+    return 'Your current plan does not include Strategy Builder access.';
+  }
+
+  if (message.includes('version history')) {
+    return 'Your current plan does not include strategy version history.';
+  }
+
+  return message;
+}
+
+function EntitlementSummary({
+  entitlements,
+  loading,
+  error
+}: {
+  entitlements: MeEntitlementsResponse | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  if (loading) {
+    return (
+      <div className="app-surface-soft rounded-2xl border px-4 py-3 text-xs app-text-muted">
+        Loading plan limits...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+        {error}
+      </div>
+    );
+  }
+
+  if (!entitlements) return null;
+
+  const { plan, usage } = entitlements;
+
+  return (
+    <div className="app-surface-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs">
+      <div>
+        <span className="app-text-muted">Plan</span>{' '}
+        <span className="font-semibold app-title">{plan.name}</span>
+      </div>
+      <div>
+        <span className="app-text-muted">Runs left today</span>{' '}
+        <span className="font-semibold app-title">{usage.daily_runs_remaining}</span>
+      </div>
+      <div>
+        <span className="app-text-muted">Saved strategies left</span>{' '}
+        <span className="font-semibold app-title">{usage.saved_strategies_remaining}</span>
+      </div>
+    </div>
+  );
+}
+
 export function StrategyChatPage() {
   const navigate = useNavigate();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [entitlements, setEntitlements] = useState<MeEntitlementsResponse | null>(null);
+  const [isLoadingEntitlements, setIsLoadingEntitlements] = useState(true);
+  const [entitlementError, setEntitlementError] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const hasMessages = messages.length > 0;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadEntitlements() {
+      setIsLoadingEntitlements(true);
+      setEntitlementError(null);
+
+      try {
+        const data = await fetchMeEntitlements();
+
+        if (!isMounted) return;
+        setEntitlements(data);
+      } catch (error) {
+        if (!isMounted) return;
+        setEntitlementError(formatLimitError(error));
+      } finally {
+        if (isMounted) {
+          setIsLoadingEntitlements(false);
+        }
+      }
+    }
+
+    void loadEntitlements();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasMessages) return;
@@ -93,6 +196,17 @@ export function StrategyChatPage() {
   async function handleSubmit(promptText?: string) {
     const prompt = (promptText ?? input).trim();
     if (!prompt || isGenerating) return;
+
+    if (entitlements && !entitlements.features.allow_ai_builder) {
+      const assistantError: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: 'Your current plan does not include Strategy Builder access.'
+      };
+
+      setMessages((prev) => [...prev, assistantError]);
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -183,9 +297,16 @@ export function StrategyChatPage() {
 
       await enqueueRun(run.id);
 
+      try {
+        const refreshedEntitlements = await fetchMeEntitlements();
+        setEntitlements(refreshedEntitlements);
+      } catch {
+        // Do not block navigation if entitlement refresh fails.
+      }
+
       navigate(`/runs/${run.id}`);
     } catch (error) {
-      const message = formatUnknownError(error);
+      const message = formatLimitError(error);
 
       console.error('Run simulation failed:', error);
       window.alert(message);
@@ -226,7 +347,15 @@ export function StrategyChatPage() {
               </p>
             </div>
 
-            <div className="mt-10 w-full max-w-3xl">
+            <div className="mt-8 w-full max-w-3xl">
+              <EntitlementSummary
+                entitlements={entitlements}
+                loading={isLoadingEntitlements}
+                error={entitlementError}
+              />
+            </div>
+
+            <div className="mt-6 w-full max-w-3xl">
               <ExamplePromptChips onSelect={handlePromptChipClick} />
             </div>
           </div>
@@ -242,6 +371,7 @@ export function StrategyChatPage() {
                 submitting={isGenerating}
                 placeholder="Describe your strategy..."
                 submitLabel="Generate Strategy"
+                disabled={Boolean(entitlements && !entitlements.features.allow_ai_builder)}
               />
             </div>
           </div>
@@ -250,6 +380,14 @@ export function StrategyChatPage() {
         <>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-4xl px-4 py-6">
+              <div className="mb-5">
+                <EntitlementSummary
+                  entitlements={entitlements}
+                  loading={isLoadingEntitlements}
+                  error={entitlementError}
+                />
+              </div>
+
               <ChatMessageList messages={messages} onRunDraft={handleRun} />
 
               {isGenerating && (
@@ -273,6 +411,7 @@ export function StrategyChatPage() {
                 submitting={isGenerating}
                 placeholder="Refine the strategy or describe a new adjustment..."
                 submitLabel="Update Strategy"
+                disabled={Boolean(entitlements && !entitlements.features.allow_ai_builder)}
               />
             </div>
           </div>
