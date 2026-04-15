@@ -323,6 +323,12 @@ def save_draft_run_as_strategy_api(
     if run.strategy_id is not None:
         raise HTTPException(status_code=400, detail="Run is already linked to a saved strategy")
 
+    if run.status != "SUCCEEDED":
+        raise HTTPException(
+            status_code=400,
+            detail="Only succeeded unsaved runs can be saved as a strategy",
+        )
+
     draft_config = (run.request_payload or {}).get("draft_config")
     if not isinstance(draft_config, dict):
         raise HTTPException(status_code=400, detail="Run does not contain a saveable draft config")

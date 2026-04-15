@@ -21,13 +21,19 @@ export function ChatMessageList({
           );
         }
 
+        const hasDraftConfig =
+          Boolean(message.draft) &&
+          message.draft?.response_type !== 'ANSWER' &&
+          message.draft?.response_type !== 'VALIDATION_ERROR' &&
+          Boolean(message.draft?.config);
+
         return (
           <div key={message.id} className="flex justify-start">
             <div className="app-card app-shadow w-full max-w-5xl rounded-[32px] border p-4">
               <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
                 Strategy Assistant
               </div>
-              {message.draft ? (
+              {hasDraftConfig && message.draft ? (
                 <StrategyDraftCard
                   draft={message.draft}
                   onRun={() => onRunDraft(message.id)}
@@ -35,7 +41,7 @@ export function ChatMessageList({
                   runError={message.runError}
                 />
               ) : (
-                <p className="app-title text-sm">{message.text}</p>
+                <p className="app-title whitespace-pre-wrap text-sm">{message.text}</p>
               )}
             </div>
           </div>

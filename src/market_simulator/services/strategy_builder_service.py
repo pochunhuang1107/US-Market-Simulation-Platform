@@ -5,6 +5,7 @@ from datetime import date
 
 from market_simulator.api.schemas.strategy_builder import (
     StrategyBuilderGenerateRequest,
+    StrategyBuilderResponseType,
 )
 from market_simulator.models.strategy_v2 import StrategyV2
 from datetime import timedelta
@@ -102,6 +103,148 @@ def _extract_date_range(
         f"Used the default backtest range {default_start_date} to {default_end_date}."
     )
     return date.fromisoformat(default_start_date), date.fromisoformat(default_end_date), assumptions
+
+
+def _has_current_config(req: StrategyBuilderGenerateRequest) -> bool:
+    current_config = req.context.current_config if req.context else None
+    return isinstance(current_config, dict) and bool(current_config)
+
+
+def _extract_explicit_date_edits(text: str) -> dict[str, str]:
+    updates: dict[str, str] = {}
+
+    start_patterns = [
+        r"change\s+start\s+date\s+to\s+(20\d{2}-\d{2}-\d{2})",
+        r"set\s+start\s+date\s+to\s+(20\d{2}-\d{2}-\d{2})",
+        r"start\s+date\s+(?:to|as)\s+(20\d{2}-\d{2}-\d{2})",
+    ]
+    end_patterns = [
+        r"change\s+end\s+date\s+to\s+(20\d{2}-\d{2}-\d{2})",
+        r"set\s+end\s+date\s+to\s+(20\d{2}-\d{2}-\d{2})",
+        r"end\s+date\s+(?:to|as)\s+(20\d{2}-\d{2}-\d{2})",
+    ]
+
+    for pattern in start_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            updates["start_date"] = match.group(1)
+            break
+
+    for pattern in end_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            updates["end_date"] = match.group(1)
+            break
+
+    return updates
+
+
+def _has_date_edit_intent(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:change|set|update).*(?:start\s+date|end\s+date)|"
+            r"(?:start\s+date|end\s+date).*(?:change|set|update)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _looks_like_question(prompt: str) -> bool:
+    text = prompt.strip().lower()
+
+    action_prefixes = (
+        "create ",
+        "build ",
+        "generate ",
+        "make ",
+        "draft ",
+        "update ",
+        "change ",
+        "set ",
+        "remove ",
+        "delete ",
+    )
+    if text.startswith(action_prefixes):
+        return False
+
+    action_patterns = [
+        r"\bcreate\b.*\bstrategy\b",
+        r"\bbuild\b.*\bstrategy\b",
+        r"\bgenerate\b.*\bstrategy\b",
+        r"\bchange\b.*\b(start date|end date|benchmark|stop loss|take profit|allocation|rsi)\b",
+        r"\bset\b.*\b(start date|end date|benchmark|stop loss|take profit|allocation|rsi)\b",
+        r"\bupdate\b.*\b(start date|end date|benchmark|stop loss|take profit|allocation|rsi)\b",
+        r"\bremove\b.*\b(stop loss|take profit|cooldown)\b",
+    ]
+    if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in action_patterns):
+        return False
+
+    if prompt.strip().endswith("?"):
+        return True
+
+    return text.startswith(
+        (
+            "what ",
+            "which ",
+            "how ",
+            "can i ",
+            "do you ",
+            "is ",
+            "are ",
+            "why ",
+            "when ",
+            "show me ",
+            "tell me ",
+            "list ",
+        )
+    )
+
+
+def _build_answer_message(*, prompt: str, max_backtest_years: int) -> str:
+    settings = get_settings()
+    prompt_lower = prompt.lower()
+
+    if "symbol" in prompt_lower or "etf" in prompt_lower:
+        symbols = ", ".join(sorted(settings.supported_etf_symbols))
+        return f"Supported ETF symbols right now are: {symbols}."
+
+    if "date" in prompt_lower or "range" in prompt_lower or "history" in prompt_lower:
+        return (
+            "Supported data coverage is "
+            f"{settings.supported_data_start.isoformat()} to {settings.supported_data_end.isoformat()}, "
+            f"and your current plan allows up to {max_backtest_years} years per backtest."
+        )
+
+    if "limit" in prompt_lower or "plan" in prompt_lower:
+        return (
+            "The builder applies plan guardrails such as max prompt length, daily prompt limits, "
+            f"and a maximum backtest window of {max_backtest_years} years."
+        )
+
+    return (
+        "I can help answer ETF coverage questions, create a new draft, update your current draft, "
+        "or explain why a requested edit cannot be applied."
+    )
+
+
+def _build_response(
+    *,
+    response_type: StrategyBuilderResponseType,
+    message: str,
+    config: dict[str, Any] | None = None,
+    summary: str | None = None,
+    warnings: list[str] | None = None,
+    changes: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "response_type": response_type,
+        "message": message,
+        "config": config,
+        "summary": summary,
+        "warnings": warnings or [],
+        "changes": changes or [],
+    }
 
 
 def _extract_initial_capital(text: str) -> tuple[float, list[str]]:
@@ -431,6 +574,7 @@ def _generate_strategy_draft(
 
     allocation_edit_value = _extract_allocation_value_edit(prompt)
     allocation_value, allocation_assumptions = _extract_allocation_value(prompt)
+    explicit_date_edits = _extract_explicit_date_edits(prompt)
     assumptions.extend(allocation_assumptions)
 
     stop_loss_removed = _has_stop_loss_removal(prompt)
@@ -605,6 +749,11 @@ def _generate_strategy_draft(
         default_config.setdefault("end_date", end_date.isoformat())
         default_config.setdefault("initial_capital", initial_capital)
 
+        if "start_date" in explicit_date_edits:
+            default_config["start_date"] = explicit_date_edits["start_date"]
+        if "end_date" in explicit_date_edits:
+            default_config["end_date"] = explicit_date_edits["end_date"]
+
         default_config.setdefault(
             "allocation",
             {
@@ -772,4 +921,67 @@ def generate_strategy_builder_draft(
     return _generate_strategy_draft(
         req,
         max_backtest_years=max_backtest_years,
+    )
+
+
+def generate_strategy_builder_response(
+    req: StrategyBuilderGenerateRequest,
+    *,
+    max_backtest_years: int = 5,
+) -> dict[str, Any]:
+    prompt = req.prompt.strip()
+    has_current_config = _has_current_config(req)
+
+    if _looks_like_question(prompt):
+        return _build_response(
+            response_type=StrategyBuilderResponseType.ANSWER,
+            message=_build_answer_message(
+                prompt=prompt,
+                max_backtest_years=max_backtest_years,
+            ),
+        )
+
+    try:
+        config, summary, warnings, _, changes = generate_strategy_builder_draft(
+            req,
+            max_backtest_years=max_backtest_years,
+        )
+    except ValueError as exc:
+        return _build_response(
+            response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+            message=str(exc),
+        )
+
+    if has_current_config and _has_date_edit_intent(prompt) and not changes:
+        return _build_response(
+            response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+            message=(
+                "I could not apply that date change. Please use ISO format like "
+                "2021-04-14, and make sure the new range stays within your plan limits."
+            ),
+        )
+
+    if has_current_config and not changes:
+        return _build_response(
+            response_type=StrategyBuilderResponseType.ANSWER,
+            message=(
+                "I reviewed your request, but it did not change the current draft. "
+                "You can ask for a specific edit like changing benchmark, stop loss, "
+                "take profit, allocation, cooldown, RSI thresholds, or dates."
+            ),
+        )
+
+    response_type = (
+        StrategyBuilderResponseType.UPDATE_DRAFT
+        if has_current_config
+        else StrategyBuilderResponseType.CREATE_DRAFT
+    )
+
+    return _build_response(
+        response_type=response_type,
+        message=summary,
+        config=config,
+        summary=summary,
+        warnings=warnings,
+        changes=changes,
     )

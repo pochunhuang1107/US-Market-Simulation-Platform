@@ -308,9 +308,17 @@ export interface StrategyBuilderGenerateRequest {
   context?: StrategyBuilderContext | null;
 }
 
+export type StrategyBuilderResponseType =
+  | 'ANSWER'
+  | 'CREATE_DRAFT'
+  | 'UPDATE_DRAFT'
+  | 'VALIDATION_ERROR';
+
 export interface StrategyBuilderGenerateResponse {
-  config: Record<string, unknown>;
-  summary: string;
+  response_type: StrategyBuilderResponseType;
+  message: string;
+  config?: Record<string, unknown> | null;
+  summary?: string | null;
   warnings: string[];
   changes: string[];
 }

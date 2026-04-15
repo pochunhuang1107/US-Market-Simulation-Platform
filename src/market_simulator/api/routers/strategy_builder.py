@@ -7,6 +7,7 @@ from market_simulator.api.deps import get_current_user, get_db
 from market_simulator.api.schemas.strategy_builder import (
     StrategyBuilderGenerateRequest,
     StrategyBuilderGenerateResponse,
+    StrategyBuilderResponseType,
 )
 from market_simulator.repositories.builder_prompts import (
     count_builder_prompts_today,
@@ -17,7 +18,7 @@ from market_simulator.services.strategy_builder_guardrails import (
     validate_strategy_builder_request,
 )
 from market_simulator.services.strategy_builder_service import (
-    generate_strategy_builder_draft,
+    generate_strategy_builder_response,
 )
 
 router = APIRouter(prefix="/strategy-builder", tags=["strategy-builder"])
@@ -91,24 +92,33 @@ def generate_strategy_draft_api(
             ),
         )
 
-    try:
-        config, summary, warnings, _, changes = generate_strategy_builder_draft(
-            req,
-            max_backtest_years=entitlements.max_backtest_years,
-        )
-        validate_strategy_builder_request(
-            prompt=req.prompt,
-            config=config,
-            max_backtest_years=entitlements.max_backtest_years,
-        )
-    except ValueError as exc:
-        _record_rejected_prompt(
-            db,
-            user_id=user["id"],
-            prompt_chars=prompt_chars,
-            reason=str(exc),
-        )
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = generate_strategy_builder_response(
+        req,
+        max_backtest_years=entitlements.max_backtest_years,
+    )
+
+    if (
+        result["response_type"]
+        in {
+            StrategyBuilderResponseType.CREATE_DRAFT,
+            StrategyBuilderResponseType.UPDATE_DRAFT,
+        }
+        and result.get("config") is not None
+    ):
+        try:
+            validate_strategy_builder_request(
+                prompt=req.prompt,
+                config=result["config"],
+                max_backtest_years=entitlements.max_backtest_years,
+            )
+        except ValueError as exc:
+            _record_rejected_prompt(
+                db,
+                user_id=user["id"],
+                prompt_chars=prompt_chars,
+                reason=str(exc),
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     create_builder_prompt_event(
         db,
@@ -118,9 +128,4 @@ def generate_strategy_draft_api(
         rejection_reason=None,
     )
 
-    return StrategyBuilderGenerateResponse(
-        config=config,
-        summary=summary,
-        warnings=warnings,
-        changes=changes,
-    )
+    return StrategyBuilderGenerateResponse(**result)

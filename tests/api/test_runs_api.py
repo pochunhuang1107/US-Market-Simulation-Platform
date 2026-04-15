@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from market_simulator.db.enums import RunStatus
-from market_simulator.repositories.runs import create_run, mark_run_succeeded
+from market_simulator.repositories.runs import create_run, get_run, mark_run_succeeded
 
 
 def _create_run_via_api(
@@ -900,6 +900,19 @@ def test_save_draft_run_as_strategy_creates_strategy_and_links_run(
     assert create_resp.status_code == 200
     run_id = create_resp.json()["id"]
 
+    run = get_run(db_session, run_id)
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"total_return_pct": 12.3},
+        artifact_dir="data/local_artifacts/runs/test-run",
+        artifact_manifest_json={"summary_json": "summary.json"},
+    )
+
     save_resp = client.post(
         f"/runs/{run_id}/save-strategy",
         json={
@@ -922,3 +935,42 @@ def test_save_draft_run_as_strategy_creates_strategy_and_links_run(
     assert get_body["strategy_id"] == body["strategy_id"]
     assert get_body["strategy_version_id"] == body["version_id"]
     assert get_body["strategy_name"] == "My Saved Draft"
+
+def test_save_draft_run_as_strategy_requires_succeeded_run(
+    client,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="runs-test@example.com",
+    )
+
+    response = client.post(
+        "/runs",
+        json={
+            "draft_config": {
+                "name": "qqq-rsi-test",
+                "tradable_symbol": "QQQ",
+                "benchmark_symbol": "QQQ",
+                "start_date": "2021-04-14",
+                "end_date": "2026-04-14",
+                "initial_capital": 100000,
+            },
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {},
+            "max_attempts": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    run_id = response.json()["id"]
+
+    save_response = client.post(
+        f"/runs/{run_id}/save-strategy",
+        json={"name": "Saved too early"},
+    )
+
+    assert save_response.status_code == 400
+    assert "Only succeeded unsaved runs can be saved as a strategy" in save_response.json()["detail"]

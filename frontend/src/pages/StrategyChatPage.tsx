@@ -249,7 +249,7 @@ export function StrategyChatPage() {
     setIsGenerating(true);
 
     try {
-      const draft = await generateStrategyDraft(
+      const response = await generateStrategyDraft(
         currentConfig
           ? {
               prompt,
@@ -262,13 +262,16 @@ export function StrategyChatPage() {
             }
       );
 
+      const hasDraftConfig =
+        (response.response_type === 'CREATE_DRAFT' ||
+          response.response_type === 'UPDATE_DRAFT') &&
+        Boolean(extractDraftConfig(response));
+
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        text: currentConfig
-          ? 'Updated your strategy draft based on the latest configuration.'
-          : 'Here is your strategy draft.',
-        draft
+        text: response.message,
+        draft: hasDraftConfig ? response : undefined
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -399,7 +402,7 @@ export function StrategyChatPage() {
                 <span className={isPromptTooLong ? 'text-amber-300' : 'app-text-muted'}>
                   {isPromptTooLong
                     ? `Prompt is too long for your plan (${promptMaxChars} max).`
-                    : `ETF-only coverage. Supported data range currently ends at ${entitlements?.limits.max_backtest_years ?? 5} years per plan.`}
+                    : `ETF-only coverage. Your current plan allows up to ${entitlements?.limits.max_backtest_years ?? 5} years per backtest.`}
                 </span>
                 <span className={isPromptTooLong ? 'text-amber-300' : 'app-text-muted'}>
                   {promptChars} / {promptMaxChars}
@@ -411,7 +414,7 @@ export function StrategyChatPage() {
       ) : (
         <>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-4xl px-4 py-6">
+            <div className="mx-auto w-full max-w-4xl px-4 py-6 pb-40">
               <div className="mb-5">
                 <EntitlementSummary
                   entitlements={entitlements}
@@ -424,7 +427,7 @@ export function StrategyChatPage() {
 
               {isGenerating && (
                 <div className="app-card mx-auto mt-4 max-w-3xl rounded-3xl border px-5 py-4 text-sm app-text-muted">
-                  Updating your strategy...
+                  Thinking through your request...
                 </div>
               )}
 
@@ -432,7 +435,7 @@ export function StrategyChatPage() {
             </div>
           </div>
 
-          <div className="border-t app-header p-4 backdrop-blur">
+          <div className="fixed bottom-0 left-0 right-0 z-20 border-t app-header p-4 backdrop-blur">
             <div className="mx-auto w-full max-w-3xl">
               <PromptComposer
                 value={input}

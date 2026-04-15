@@ -444,3 +444,72 @@ def test_generate_strategy_builder_draft_can_remove_stop_loss_take_profit_and_co
     assert "Updated stop loss from 8.0% to none." in body["changes"]
     assert "Updated take profit from 15.0% to none." in body["changes"]
     assert "Updated cooldown bars from 5 to 0." in body["changes"]
+
+def test_generate_strategy_builder_returns_answer_for_info_question(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "What ETF symbols are currently supported?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "ANSWER"
+    assert body["config"] is None
+    assert "Supported ETF symbols" in body["message"]
+
+
+def test_generate_strategy_builder_returns_validation_error_for_over_limit_date_edit(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change start date to 2018-01-01",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "QQQ",
+                    "reference_symbols": [],
+                    "start_date": "2021-04-14",
+                    "end_date": "2026-04-14",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["config"] is None
+    assert "plan limit" in body["message"]
