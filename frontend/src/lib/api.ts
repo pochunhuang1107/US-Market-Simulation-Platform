@@ -12,6 +12,8 @@ import type {
   RunDashboardResponse,
   RunResponse,
   RunsDashboardQuery,
+  SaveDraftRunAsStrategyRequest,
+  SaveDraftRunAsStrategyResponse,
   StrategyBuilderGenerateRequest,
   StrategyBuilderGenerateResponse,
   StrategyDashboardResponse,
@@ -139,6 +141,16 @@ export async function fetchRunComparisonChart(runIds: string[]): Promise<RunComp
 
 export async function createRun(payload: CreateRunRequest): Promise<RunResponse> {
   return request<RunResponse>('/api/runs', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function saveDraftRunAsStrategy(
+  runId: string,
+  payload: SaveDraftRunAsStrategyRequest
+): Promise<SaveDraftRunAsStrategyResponse> {
+  return request<SaveDraftRunAsStrategyResponse>(`/api/runs/${runId}/save-strategy`, {
     method: 'POST',
     body: JSON.stringify(payload)
   });

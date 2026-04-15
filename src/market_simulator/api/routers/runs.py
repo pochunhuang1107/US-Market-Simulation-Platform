@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+import hashlib
+import json
 
 from market_simulator.api.deps import get_current_user, get_db
 from market_simulator.api.schemas.runs import (
@@ -15,6 +17,8 @@ from market_simulator.api.schemas.runs import (
     RunDashboardQueryParams,
     RunListResponse,
     RunResponse,
+    SaveDraftRunAsStrategyRequest,
+    SaveDraftRunAsStrategyResponse,
 )
 from market_simulator.platform.services.artifact_store import build_artifact_store
 from market_simulator.platform.services.run_chart_service import RunChartService
@@ -25,13 +29,19 @@ from market_simulator.repositories.runs import (
     count_runs,
     create_run,
     get_run_for_user,
+    link_run_to_strategy_version,
     list_runs,
 )
 from market_simulator.repositories.strategies import (
+    create_strategy,
+    create_strategy_version,
     get_strategy_for_user,
     get_strategy_version,
 )
-from market_simulator.services.entitlements import enforce_run_create_access
+from market_simulator.services.entitlements import (
+    enforce_run_create_access,
+    enforce_strategy_create_access,
+)
 
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -52,6 +62,11 @@ def _build_run_response(run) -> RunResponse:
         run.strategy_version.version_number if run.strategy_version else None
     )
     return response
+
+
+def _hash_config(config: dict) -> str:
+    normalized = json.dumps(config, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode()).hexdigest()
 
 
 def _validate_run_strategy_access(
@@ -81,12 +96,17 @@ def create_run_api(
 ):
     enforce_run_create_access(db, user["id"], req.run_type)
 
-    _validate_run_strategy_access(
-        db,
-        user_id=user["id"],
-        strategy_id=req.strategy_id,
-        strategy_version_id=req.strategy_version_id,
-    )
+    if req.strategy_id is not None:
+        _validate_run_strategy_access(
+            db,
+            user_id=user["id"],
+            strategy_id=req.strategy_id,
+            strategy_version_id=req.strategy_version_id,
+        )
+
+    request_payload = dict(req.request_payload or {})
+    if req.draft_config is not None:
+        request_payload["draft_config"] = req.draft_config
 
     run = create_run(
         db,
@@ -95,7 +115,7 @@ def create_run_api(
         req.strategy_version_id,
         req.run_type,
         req.executor_type,
-        req.request_payload,
+        request_payload,
         max_attempts=req.max_attempts,
     )
     return _build_run_response(run)
@@ -284,6 +304,57 @@ def compare_runs_chart_api(
         benchmark_curves=result["benchmark_curves"],
         strategy_drawdown_curves=result["strategy_drawdown_curves"],
         benchmark_drawdown_curves=result["benchmark_drawdown_curves"],
+    )
+
+
+@router.post("/{run_id}/save-strategy", response_model=SaveDraftRunAsStrategyResponse)
+def save_draft_run_as_strategy_api(
+    run_id: str,
+    req: SaveDraftRunAsStrategyRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    enforce_strategy_create_access(db, user["id"])
+
+    run = get_run_for_user(db, run_id, user["id"])
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.strategy_id is not None:
+        raise HTTPException(status_code=400, detail="Run is already linked to a saved strategy")
+
+    draft_config = (run.request_payload or {}).get("draft_config")
+    if not isinstance(draft_config, dict):
+        raise HTTPException(status_code=400, detail="Run does not contain a saveable draft config")
+
+    strategy = create_strategy(
+        db,
+        user["id"],
+        req.name,
+        req.description,
+        req.strategy_type,
+    )
+
+    version = create_strategy_version(
+        db,
+        strategy.id,
+        draft_config,
+        _hash_config(draft_config),
+        user["id"],
+        change_note="Saved from run detail",
+    )
+
+    link_run_to_strategy_version(
+        db,
+        run,
+        strategy_id=strategy.id,
+        strategy_version_id=version.id,
+    )
+
+    return SaveDraftRunAsStrategyResponse(
+        run_id=str(run.id),
+        strategy_id=str(strategy.id),
+        version_id=str(version.id),
     )
 
 

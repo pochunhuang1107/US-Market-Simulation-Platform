@@ -4,16 +4,44 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict, field_serializer
+from pydantic import BaseModel, Field, ConfigDict, field_serializer, model_validator
 
 
 class CreateRunRequest(BaseModel):
-    strategy_id: str
+    strategy_id: str | None = None
     strategy_version_id: str | None = None
+    draft_config: dict[str, Any] | None = None
     run_type: str
     executor_type: str
     request_payload: dict[str, Any]
     max_attempts: int = Field(default=3, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def validate_run_source(self):
+        has_saved_strategy = self.strategy_id is not None
+        has_draft_config = self.draft_config is not None
+
+        if has_saved_strategy == has_draft_config:
+            raise ValueError(
+                "Exactly one run source is required: either strategy_id or draft_config"
+            )
+
+        if self.strategy_version_id is not None and self.strategy_id is None:
+            raise ValueError("strategy_version_id requires strategy_id")
+
+        return self
+
+
+class SaveDraftRunAsStrategyRequest(BaseModel):
+    name: str
+    description: str | None = None
+    strategy_type: str = "SINGLE_ASSET"
+
+
+class SaveDraftRunAsStrategyResponse(BaseModel):
+    run_id: str
+    strategy_id: str
+    version_id: str
 
 
 class RunListQueryParams(BaseModel):

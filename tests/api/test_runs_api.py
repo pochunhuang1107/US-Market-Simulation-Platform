@@ -829,3 +829,96 @@ def test_runs_dashboard_supports_filter_and_sort(
 def test_runs_dashboard_invalid_pagination_returns_422(client):
     response = client.get("/runs/dashboard?page=0&page_size=101")
     assert response.status_code == 422
+
+
+def test_create_draft_run_without_saved_strategy_returns_pending(
+    client,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    response = client.post(
+        "/runs",
+        json={
+            "draft_config": {
+                "name": "draft-run",
+                "tradable_symbol": "QQQ",
+                "benchmark_symbol": "QQQ",
+                "start_date": "2019-01-02",
+                "end_date": "2024-12-31",
+                "initial_capital": 100000,
+            },
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {},
+            "max_attempts": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["status"] == "PENDING"
+    assert body["strategy_id"] is None
+    assert body["strategy_version_id"] is None
+    assert body["strategy_name"] is None
+    assert body["request_payload"]["draft_config"]["tradable_symbol"] == "QQQ"
+
+
+def test_save_draft_run_as_strategy_creates_strategy_and_links_run(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    create_resp = client.post(
+        "/runs",
+        json={
+            "draft_config": {
+                "name": "draft-run",
+                "tradable_symbol": "QQQ",
+                "benchmark_symbol": "QQQ",
+                "start_date": "2019-01-02",
+                "end_date": "2024-12-31",
+                "initial_capital": 100000,
+            },
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {},
+            "max_attempts": 1,
+        },
+    )
+    assert create_resp.status_code == 200
+    run_id = create_resp.json()["id"]
+
+    save_resp = client.post(
+        f"/runs/{run_id}/save-strategy",
+        json={
+            "name": "My Saved Draft",
+            "description": "Saved from run detail",
+            "strategy_type": "SINGLE_ASSET",
+        },
+    )
+    assert save_resp.status_code == 200
+
+    body = save_resp.json()
+    assert body["run_id"] == run_id
+    assert body["strategy_id"] is not None
+    assert body["version_id"] is not None
+
+    get_resp = client.get(f"/runs/{run_id}")
+    assert get_resp.status_code == 200
+    get_body = get_resp.json()
+
+    assert get_body["strategy_id"] == body["strategy_id"]
+    assert get_body["strategy_version_id"] == body["version_id"]
+    assert get_body["strategy_name"] == "My Saved Draft"

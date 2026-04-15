@@ -19,8 +19,11 @@ class RunDispatcherService:
         if run.status not in {RunStatus.PENDING, RunStatus.FAILED}:
             raise ValueError(f"Run cannot be enqueued from status: {run.status}")
 
-        if run.strategy_version_id is None:
-            raise ValueError("Run does not have strategy_version_id")
+        has_saved_strategy_version = run.strategy_version_id is not None
+        has_draft_config = isinstance((run.request_payload or {}).get("draft_config"), dict)
+
+        if not has_saved_strategy_version and not has_draft_config:
+            raise ValueError("Run does not have a saved strategy version or draft_config")
 
         if run.executor_type != "SIMULATION_EXECUTOR":
             raise ValueError(f"Unsupported executor_type for now: {run.executor_type}")

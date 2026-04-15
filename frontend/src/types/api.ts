@@ -247,8 +247,9 @@ export interface StrategyDashboardResponse {
 export type RunType = 'SIMULATION' | 'PORTFOLIO' | 'COMPARISON' | 'PARAMETER_SWEEP';
 
 export interface CreateRunRequest {
-  strategy_id: string;
+  strategy_id?: string | null;
   strategy_version_id?: string | null;
+  draft_config?: Record<string, unknown> | null;
   run_type: RunType;
   executor_type: string;
   request_payload: Record<string, unknown>;
@@ -279,6 +280,18 @@ export interface CreateStrategyVersionRequest {
 }
 
 export interface CreateStrategyVersionResponse {
+  strategy_id: string;
+  version_id: string;
+}
+
+export interface SaveDraftRunAsStrategyRequest {
+  name: string;
+  description?: string | null;
+  strategy_type?: string;
+}
+
+export interface SaveDraftRunAsStrategyResponse {
+  run_id: string;
   strategy_id: string;
   version_id: string;
 }

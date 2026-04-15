@@ -6,9 +6,21 @@ import { RunStatusBadge } from '../runs/RunStatusBadge';
 
 interface RunHeaderProps {
   run: RunResponse;
+  canSaveDraftStrategy?: boolean;
+  isSavingDraftStrategy?: boolean;
+  onSaveDraftStrategy?: () => void;
 }
 
-export function RunHeader({ run }: RunHeaderProps) {
+export function RunHeader({
+  run,
+  canSaveDraftStrategy = false,
+  isSavingDraftStrategy = false,
+  onSaveDraftStrategy
+}: RunHeaderProps) {
+  const title = run.strategy_id
+    ? formatRunLabel(run.strategy_name, run.strategy_version_number)
+    : 'Unsaved draft run';
+
   return (
     <section className="app-card app-shadow rounded-3xl border p-6">
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -18,7 +30,7 @@ export function RunHeader({ run }: RunHeaderProps) {
               Simulation Result
             </p>
             <h1 className="mt-2 text-4xl font-semibold tracking-tight app-title">
-              {formatRunLabel(run.strategy_name, run.strategy_version_number)}
+              {title}
             </h1>
             <p className="mt-3 font-mono text-sm app-text-muted">{run.id}</p>
           </div>
@@ -61,6 +73,17 @@ export function RunHeader({ run }: RunHeaderProps) {
               >
                 Create similar run
               </Link>
+            ) : null}
+
+            {canSaveDraftStrategy ? (
+              <button
+                type="button"
+                onClick={onSaveDraftStrategy}
+                disabled={isSavingDraftStrategy}
+                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSavingDraftStrategy ? 'Saving...' : 'Save strategy'}
+              </button>
             ) : null}
           </div>
         </div>

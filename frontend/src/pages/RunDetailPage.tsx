@@ -6,7 +6,7 @@ import { RunHeader } from '../components/run-detail/RunHeader';
 import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
 import { MetricCard } from '../components/shared/MetricCard';
 import { StateCard } from '../components/shared/StateCard';
-import { fetchRun, fetchRunDashboard } from '../lib/api';
+import { fetchRun, fetchRunDashboard, saveDraftRunAsStrategy } from '../lib/api';
 import { formatCurrency, formatDecimal, formatNumber, formatPct } from '../lib/formatters';
 import type { RunDashboardResponse, RunResponse } from '../types/api';
 
@@ -21,6 +21,7 @@ export function RunDetailPage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [isSavingDraftStrategy, setIsSavingDraftStrategy] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -118,6 +119,39 @@ export function RunDetailPage() {
     };
   }, [runId]);
 
+  async function handleSaveDraftStrategy() {
+    if (!runId || !run) return;
+    if (run.strategy_id) return;
+
+    const suggestedName =
+      typeof run.request_payload?.draft_config === 'object' &&
+      run.request_payload?.draft_config &&
+      typeof (run.request_payload.draft_config as Record<string, unknown>).name === 'string'
+        ? ((run.request_payload.draft_config as Record<string, unknown>).name as string)
+        : 'My strategy';
+
+    const name = window.prompt('Enter a name for this strategy', suggestedName)?.trim();
+    if (!name) return;
+
+    setIsSavingDraftStrategy(true);
+
+    try {
+      await saveDraftRunAsStrategy(runId, {
+        name,
+        description: `Saved from run ${runId}`,
+        strategy_type: 'SINGLE_ASSET'
+      });
+
+      const refreshedRun = await fetchRun(runId);
+      setRun(refreshedRun);
+      window.alert('Strategy saved successfully.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to save strategy');
+    } finally {
+      setIsSavingDraftStrategy(false);
+    }
+  }
+
   const summaryMetrics = useMemo(() => {
     const summary = data?.run.summary_json ?? {};
     const toNumber = (value: unknown): number | null => (typeof value === 'number' ? value : null);
@@ -203,7 +237,16 @@ export function RunDetailPage() {
 
   return (
     <div className="space-y-6">
-      <RunHeader run={data.run} />
+      {run ? (
+        <RunHeader
+          run={run}
+          canSaveDraftStrategy={run.status === 'SUCCEEDED' && !run.strategy_id}
+          isSavingDraftStrategy={isSavingDraftStrategy}
+          onSaveDraftStrategy={() => {
+            void handleSaveDraftStrategy();
+          }}
+        />
+      ) : null}
       <RunCharts chartData={data.chart_data} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

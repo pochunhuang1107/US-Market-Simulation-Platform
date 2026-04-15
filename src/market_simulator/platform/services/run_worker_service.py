@@ -39,6 +39,18 @@ class RunWorkerService:
     def _log_error(self, message: str, **fields):
         logger.error("%s | %s", message, fields)
 
+    def _resolve_run_config(self, db: Session, run) -> tuple[dict, str]:
+        if run.strategy_version_id is not None:
+            strategy_version = get_strategy_version(db, run.strategy_version_id)
+            if strategy_version is None:
+                raise ValueError(f"Strategy version not found: {run.strategy_version_id}")
+            return strategy_version.config_json, "Loaded saved strategy version"
+
+        draft_config = (run.request_payload or {}).get("draft_config")
+        if not isinstance(draft_config, dict):
+            raise ValueError("Run does not contain draft_config")
+        return draft_config, "Loaded unsaved draft config"
+
     def _handle_execution_failure(
         self,
         db: Session,
@@ -120,15 +132,10 @@ class RunWorkerService:
         )
 
         try:
-            if run.strategy_version_id is None:
-                raise ValueError("Run does not have strategy_version_id")
-
-            strategy_version = get_strategy_version(db, run.strategy_version_id)
-            if strategy_version is None:
-                raise ValueError(f"Strategy version not found: {run.strategy_version_id}")
-
             if run.executor_type != "SIMULATION_EXECUTOR":
                 raise ValueError(f"Unsupported executor_type for now: {run.executor_type}")
+
+            config_json, load_message = self._resolve_run_config(db, run)
 
             run_artifact_dir = self.artifact_store.prepare_run_directory(run.id)
 
@@ -151,7 +158,7 @@ class RunWorkerService:
                 db,
                 run,
                 progress_pct=15,
-                progress_message="Loaded strategy version",
+                progress_message=load_message,
             )
             touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
             self._log_info(
@@ -180,7 +187,7 @@ class RunWorkerService:
             )
 
             result = service.run_from_config(
-                strategy_version.config_json,
+                config_json,
                 output_dir=run_artifact_dir,
             )
 

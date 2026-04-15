@@ -203,3 +203,58 @@ def test_recover_stale_runs_requeues_expired_run(
     assert refreshed.status == RunStatus.QUEUED
     assert refreshed.progress_message == "Stale run re-queued"
     assert refreshed.error_message == "Worker lease expired; retry scheduled"
+
+
+def test_claim_and_execute_next_run_succeeds_for_unsaved_draft_config(
+    monkeypatch,
+    db_session,
+    create_user,
+):
+    user = create_user(email="worker-draft@example.com")
+
+    class FakeSimulationService:
+        def run_from_config(self, config_json, output_dir):
+            assert config_json["tradable_symbol"] == "QQQ"
+            return FakeSimulationResult(summary={"name": "draft", "total_return_pct": 8.76})
+
+    monkeypatch.setattr(
+        "market_simulator.platform.services.run_worker_service.SimulationService",
+        FakeSimulationService,
+    )
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {
+            "draft_config": {
+                "name": "draft-run",
+                "tradable_symbol": "QQQ",
+                "benchmark_symbol": "QQQ",
+                "start_date": "2019-01-02",
+                "end_date": "2024-12-31",
+                "initial_capital": 100000,
+            }
+        },
+        max_attempts=3,
+    )
+    enqueue_run(db_session, run)
+
+    service = RunWorkerService(artifact_store=FakeArtifactStore())
+    result = service.claim_and_execute_next_run(
+        db_session,
+        worker_id="worker-draft-1",
+        lease_seconds=300,
+    )
+
+    refreshed = get_run(db_session, run.id)
+
+    assert result is not None
+    assert result["status"] == "SUCCEEDED"
+    assert refreshed.status == RunStatus.SUCCEEDED
+    assert refreshed.strategy_id is None
+    assert refreshed.strategy_version_id is None
+    assert refreshed.summary_json["name"] == "draft"

@@ -51,6 +51,20 @@ def create_run(
     return run
 
 
+def link_run_to_strategy_version(
+    db: Session,
+    run: Run,
+    *,
+    strategy_id,
+    strategy_version_id,
+):
+    run.strategy_id = strategy_id
+    run.strategy_version_id = strategy_version_id
+    db.commit()
+    db.refresh(run)
+    return run
+
+
 def get_run(db: Session, run_id):
     return db.query(Run).filter(Run.id == run_id).first()
 

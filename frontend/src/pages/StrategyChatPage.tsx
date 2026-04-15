@@ -7,8 +7,6 @@ import { PromptComposer } from '../components/strategy-chat/PromptComposer';
 import type { ChatMessage } from '../components/strategy-chat/types';
 import {
   createRun,
-  createStrategy,
-  createStrategyVersion,
   enqueueRun,
   fetchMeEntitlements,
   generateStrategyDraft
@@ -275,20 +273,8 @@ export function StrategyChatPage() {
         throw new Error('No strategy config returned from strategy builder.');
       }
 
-      const strategy = await createStrategy({
-        name: 'chat-strategy',
-        description: 'Generated from Strategy Chat',
-        strategy_type: 'SINGLE_ASSET',
-        config
-      });
-
-      const version = await createStrategyVersion(strategy.strategy_id, {
-        config
-      });
-
       const run = await createRun({
-        strategy_id: strategy.strategy_id,
-        strategy_version_id: version.version_id,
+        draft_config: config,
         run_type: 'SIMULATION',
         executor_type: 'SIMULATION_EXECUTOR',
         request_payload: {},
