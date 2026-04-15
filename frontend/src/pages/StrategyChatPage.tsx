@@ -93,6 +93,26 @@ function formatLimitError(error: unknown): string {
     return 'Your current plan does not include strategy version history.';
   }
 
+  if (message.includes('Daily builder prompt limit reached')) {
+    return 'You have reached your daily Strategy Builder prompt limit for today.';
+  }
+
+  if (message.includes('Prompt exceeds your plan limit')) {
+    return message;
+  }
+
+  if (message.includes('Unsupported symbol')) {
+    return message;
+  }
+
+  if (message.includes('outside supported data coverage')) {
+    return message;
+  }
+
+  if (message.includes('backtest window exceeds your plan limit')) {
+    return message;
+  }
+
   return message;
 }
 
@@ -123,7 +143,7 @@ function EntitlementSummary({
 
   if (!entitlements) return null;
 
-  const { plan, usage } = entitlements;
+  const { plan, usage, limits } = entitlements;
 
   return (
     <div className="app-surface-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs">
@@ -132,12 +152,16 @@ function EntitlementSummary({
         <span className="font-semibold app-title">{plan.name}</span>
       </div>
       <div>
+        <span className="app-text-muted">Prompts left today</span>{' '}
+        <span className="font-semibold app-title">{usage.builder_prompts_remaining_today}</span>
+      </div>
+      <div>
         <span className="app-text-muted">Runs left today</span>{' '}
         <span className="font-semibold app-title">{usage.daily_runs_remaining}</span>
       </div>
       <div>
-        <span className="app-text-muted">Saved strategies left</span>{' '}
-        <span className="font-semibold app-title">{usage.saved_strategies_remaining}</span>
+        <span className="app-text-muted">Max chars</span>{' '}
+        <span className="font-semibold app-title">{limits.builder_prompt_max_chars}</span>
       </div>
     </div>
   );
@@ -156,6 +180,10 @@ export function StrategyChatPage() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const hasMessages = messages.length > 0;
+
+  const promptMaxChars = entitlements?.limits.builder_prompt_max_chars ?? 1000;
+  const promptChars = input.length;
+  const isPromptTooLong = promptChars > promptMaxChars;
 
   useEffect(() => {
     let isMounted = true;
@@ -194,6 +222,7 @@ export function StrategyChatPage() {
   async function handleSubmit(promptText?: string) {
     const prompt = (promptText ?? input).trim();
     if (!prompt || isGenerating) return;
+    if (isPromptTooLong) return;
 
     if (entitlements && !entitlements.features.allow_ai_builder) {
       const assistantError: ChatMessage = {
@@ -253,6 +282,13 @@ export function StrategyChatPage() {
       setMessages((prev) => [...prev, assistantError]);
     } finally {
       setIsGenerating(false);
+
+      try {
+        const refreshedEntitlements = await fetchMeEntitlements();
+        setEntitlements(refreshedEntitlements);
+      } catch {
+        // keep existing entitlement state if refresh fails
+      }
     }
   }
 
@@ -354,11 +390,21 @@ export function StrategyChatPage() {
                 onSubmit={() => {
                   void handleSubmit();
                 }}
-                submitting={isGenerating}
+                submitting={isGenerating || isPromptTooLong}
                 placeholder="Describe your strategy..."
                 submitLabel="Generate Strategy"
                 disabled={Boolean(entitlements && !entitlements.features.allow_ai_builder)}
               />
+              <div className="mt-2 flex items-center justify-between px-2 text-xs">
+                <span className={isPromptTooLong ? 'text-amber-300' : 'app-text-muted'}>
+                  {isPromptTooLong
+                    ? `Prompt is too long for your plan (${promptMaxChars} max).`
+                    : `ETF-only coverage. Supported data range currently ends at ${entitlements?.limits.max_backtest_years ?? 5} years per plan.`}
+                </span>
+                <span className={isPromptTooLong ? 'text-amber-300' : 'app-text-muted'}>
+                  {promptChars} / {promptMaxChars}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -394,11 +440,21 @@ export function StrategyChatPage() {
                 onSubmit={() => {
                   void handleSubmit();
                 }}
-                submitting={isGenerating}
+                submitting={isGenerating || isPromptTooLong}
                 placeholder="Refine the strategy or describe a new adjustment..."
                 submitLabel="Update Strategy"
                 disabled={Boolean(entitlements && !entitlements.features.allow_ai_builder)}
               />
+              <div className="mt-2 flex items-center justify-between px-2 text-xs">
+                <span className={isPromptTooLong ? 'text-amber-300' : 'app-text-muted'}>
+                  {isPromptTooLong
+                    ? `Prompt is too long for your plan (${promptMaxChars} max).`
+                    : `Builder prompts left today: ${entitlements?.usage.builder_prompts_remaining_today ?? '—'}`}
+                </span>
+                <span className={isPromptTooLong ? 'text-amber-300' : 'app-text-muted'}>
+                  {promptChars} / {promptMaxChars}
+                </span>
+              </div>
             </div>
           </div>
         </>

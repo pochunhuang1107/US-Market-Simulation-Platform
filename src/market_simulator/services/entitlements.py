@@ -19,6 +19,9 @@ class UserEntitlements:
     daily_free_runs: int
     max_saved_strategies: int
     max_tracked_strategies: int
+    builder_prompt_daily_limit: int
+    builder_prompt_max_chars: int
+    max_backtest_years: int
     allow_portfolio_runs: bool
     allow_comparison_runs: bool
     allow_parameter_sweeps: bool
@@ -39,6 +42,9 @@ def get_user_entitlements(db: Session, user_id: str) -> UserEntitlements:
         daily_free_runs=plan.daily_free_runs,
         max_saved_strategies=plan.max_saved_strategies,
         max_tracked_strategies=plan.max_tracked_strategies,
+        builder_prompt_daily_limit=plan.builder_prompt_daily_limit,
+        builder_prompt_max_chars=plan.builder_prompt_max_chars,
+        max_backtest_years=plan.max_backtest_years,
         allow_portfolio_runs=plan.allow_portfolio_runs,
         allow_comparison_runs=plan.allow_comparison_runs,
         allow_parameter_sweeps=plan.allow_parameter_sweeps,

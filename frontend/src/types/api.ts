@@ -340,6 +340,9 @@ export interface MeUsageLimitsResponse {
   daily_free_runs: number;
   max_saved_strategies: number;
   max_tracked_strategies: number;
+  builder_prompt_daily_limit: number;
+  builder_prompt_max_chars: number;
+  max_backtest_years: number;
 }
 
 export interface MeUsageResponse {
@@ -349,6 +352,8 @@ export interface MeUsageResponse {
   saved_strategies_remaining: number;
   tracked_strategies: number;
   tracked_strategies_remaining: number;
+  builder_prompts_used_today: number;
+  builder_prompts_remaining_today: number;
 }
 
 export interface MeEntitlementsResponse {

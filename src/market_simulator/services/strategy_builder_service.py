@@ -7,39 +7,22 @@ from market_simulator.api.schemas.strategy_builder import (
     StrategyBuilderGenerateRequest,
 )
 from market_simulator.models.strategy_v2 import StrategyV2
+from datetime import timedelta
+from market_simulator.settings import get_settings
 
 from typing import Any
 
 
-SUPPORTED_SYMBOLS = {
-    "SPY",
-    "QQQ",
-    "DIA",
-    "IWM",
-    "VTI",
-    "GLD",
-    "SLV",
-    "TLT",
-    "IEF",
-    "HYG",
-    "LQD",
-    "XLF",
-    "XLK",
-    "XLE",
-    "XLV",
-    "XLY",
-    "XLP",
-    "XLI",
-    "XLU",
-    "XLB",
-    "XLRE",
-    "ARKK",
-    "VUG",
-    "VTV",
-    "QUAL",
-    "MTUM",
-    "IBIT",
-}
+SUPPORTED_SYMBOLS = frozenset(get_settings().supported_etf_symbols)
+
+
+def _build_default_date_range(*, max_backtest_years: int) -> tuple[str, str]:
+    settings = get_settings()
+    end_date = settings.supported_data_end
+    approx_days = int(max_backtest_years * 365.25)
+    candidate_start = end_date - timedelta(days=approx_days)
+    start_date = max(settings.supported_data_start, candidate_start)
+    return start_date.isoformat(), end_date.isoformat()
 
 
 def _extract_symbols(text: str) -> list[str]:
@@ -91,7 +74,11 @@ def _extract_reference_symbols(
     return [s for s in symbols if s not in {tradable_symbol, benchmark_symbol}]
 
 
-def _extract_date_range(text: str) -> tuple[date, date, list[str]]:
+def _extract_date_range(
+    text: str,
+    *,
+    max_backtest_years: int,
+) -> tuple[date, date, list[str]]:
     assumptions: list[str] = []
 
     dates = re.findall(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
@@ -108,8 +95,13 @@ def _extract_date_range(text: str) -> tuple[date, date, list[str]]:
         end_year = int(range_match.group(2))
         return date(start_year, 1, 1), date(end_year, 12, 31), assumptions
 
-    assumptions.append("Used the default backtest range 2018-01-02 to 2024-12-31.")
-    return date(2018, 1, 2), date(2024, 12, 31), assumptions
+    default_start_date, default_end_date = _build_default_date_range(
+        max_backtest_years=max_backtest_years
+    )
+    assumptions.append(
+        f"Used the default backtest range {default_start_date} to {default_end_date}."
+    )
+    return date.fromisoformat(default_start_date), date.fromisoformat(default_end_date), assumptions
 
 
 def _extract_initial_capital(text: str) -> tuple[float, list[str]]:
@@ -394,6 +386,8 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
 
 def _generate_strategy_draft(
     req: StrategyBuilderGenerateRequest,
+    *,
+    max_backtest_years: int,
 ) -> tuple[dict, str, list[str], list[str], list[str]]:
     prompt = req.prompt.strip()
     prompt_lower = prompt.lower()
@@ -426,7 +420,10 @@ def _generate_strategy_draft(
             f"Detected reference symbols: {', '.join(reference_symbols)}."
         )
 
-    start_date, end_date, date_assumptions = _extract_date_range(prompt)
+    start_date, end_date, date_assumptions = _extract_date_range(
+        prompt,
+        max_backtest_years=max_backtest_years,
+    )
     assumptions.extend(date_assumptions)
 
     initial_capital, capital_assumptions = _extract_initial_capital(prompt)
@@ -769,5 +766,10 @@ def _generate_strategy_draft(
 
 def generate_strategy_builder_draft(
     req: StrategyBuilderGenerateRequest,
+    *,
+    max_backtest_years: int = 5,
 ) -> tuple[dict, str, list[str], list[str], list[str]]:
-    return _generate_strategy_draft(req)
+    return _generate_strategy_draft(
+        req,
+        max_backtest_years=max_backtest_years,
+    )

@@ -10,6 +10,7 @@ from market_simulator.db.enums import (
     StrategyStatus,
     StrategyType,
 )
+from market_simulator.db.models.builder_prompt_event import BuilderPromptEvent
 from market_simulator.db.models.run import Run
 from market_simulator.db.models.strategy import Strategy
 
@@ -53,6 +54,14 @@ def test_get_me_entitlements_returns_plan_features_and_usage(
         artifact_storage_type=ArtifactStorageType.LOCAL,
     )
     db_session.add(run)
+
+    prompt_event = BuilderPromptEvent(
+        user_id=user.id,
+        prompt_chars=42,
+        status="ACCEPTED",
+        rejection_reason=None,
+    )
+    db_session.add(prompt_event)
     db_session.commit()
 
     response = client.get("/me/entitlements")
@@ -74,11 +83,16 @@ def test_get_me_entitlements_returns_plan_features_and_usage(
     assert data["limits"]["daily_free_runs"] == 1000
     assert data["limits"]["max_saved_strategies"] == 1000
     assert data["limits"]["max_tracked_strategies"] == 1000
+    assert data["limits"]["builder_prompt_daily_limit"] == 1000
+    assert data["limits"]["builder_prompt_max_chars"] == 5000
+    assert data["limits"]["max_backtest_years"] == 25
 
     assert data["usage"]["runs_created_today"] == 1
     assert data["usage"]["daily_runs_remaining"] == 999
     assert data["usage"]["saved_strategies"] == 1
     assert data["usage"]["saved_strategies_remaining"] == 999
+    assert data["usage"]["builder_prompts_used_today"] == 1
+    assert data["usage"]["builder_prompts_remaining_today"] == 999
 
 
 def test_get_me_entitlements_requires_active_subscription(

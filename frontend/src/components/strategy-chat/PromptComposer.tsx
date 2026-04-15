@@ -59,8 +59,8 @@ export function PromptComposer({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           rows={1}
-          disabled={disabled || submitting}
-          className="w-full resize-none overflow-y-auto border-0 bg-transparent text-base leading-6 app-title outline-none placeholder:text-[var(--text-soft)]"
+          disabled={disabled}
+          className="w-full resize-none overflow-y-auto border-0 bg-transparent text-base leading-6 app-title outline-none placeholder:text-[var(--text-soft)] disabled:cursor-not-allowed disabled:opacity-60"
         />
 
         <button

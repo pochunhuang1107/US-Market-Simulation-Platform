@@ -28,6 +28,9 @@ class MeUsageLimitsResponse(BaseModel):
     daily_free_runs: int
     max_saved_strategies: int
     max_tracked_strategies: int
+    builder_prompt_daily_limit: int
+    builder_prompt_max_chars: int
+    max_backtest_years: int
 
 
 class MeUsageResponse(BaseModel):
@@ -37,6 +40,8 @@ class MeUsageResponse(BaseModel):
     saved_strategies_remaining: int
     tracked_strategies: int
     tracked_strategies_remaining: int
+    builder_prompts_used_today: int
+    builder_prompts_remaining_today: int
 
 
 class MeEntitlementsResponse(BaseModel):

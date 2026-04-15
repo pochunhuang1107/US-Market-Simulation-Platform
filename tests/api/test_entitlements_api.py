@@ -29,6 +29,9 @@ def create_plan(
     allow_portfolio_runs: bool = False,
     allow_comparison_runs: bool = False,
     allow_parameter_sweeps: bool = False,
+    builder_prompt_daily_limit: int = 20,
+    builder_prompt_max_chars: int = 1000,
+    max_backtest_years: int = 5,
 ):
     plan = Plan(
         id=uuid.uuid4(),
@@ -38,6 +41,9 @@ def create_plan(
         daily_free_runs=daily_free_runs,
         max_saved_strategies=max_saved_strategies,
         max_tracked_strategies=0,
+        builder_prompt_daily_limit=builder_prompt_daily_limit,
+        builder_prompt_max_chars=builder_prompt_max_chars,
+        max_backtest_years=max_backtest_years,
         allow_portfolio_runs=allow_portfolio_runs,
         allow_comparison_runs=allow_comparison_runs,
         allow_parameter_sweeps=allow_parameter_sweeps,

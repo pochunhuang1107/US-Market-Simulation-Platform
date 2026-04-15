@@ -13,6 +13,7 @@ from market_simulator.api.schemas.me import (
     MeUserResponse,
 )
 from market_simulator.db.models.user import User
+from market_simulator.repositories.builder_prompts import count_builder_prompts_today
 from market_simulator.repositories.plans import (
     count_runs_created_today,
     count_saved_strategies,
@@ -41,6 +42,7 @@ def get_my_entitlements(
     runs_created_today = count_runs_created_today(db, user["id"])
     saved_strategies = count_saved_strategies(db, user["id"])
     tracked_strategies = count_tracked_strategies(db, user["id"])
+    builder_prompts_used_today = count_builder_prompts_today(db, user["id"])
 
     return MeEntitlementsResponse(
         user=MeUserResponse(
@@ -65,18 +67,20 @@ def get_my_entitlements(
             daily_free_runs=plan.daily_free_runs,
             max_saved_strategies=plan.max_saved_strategies,
             max_tracked_strategies=plan.max_tracked_strategies,
+            builder_prompt_daily_limit=plan.builder_prompt_daily_limit,
+            builder_prompt_max_chars=plan.builder_prompt_max_chars,
+            max_backtest_years=plan.max_backtest_years,
         ),
         usage=MeUsageResponse(
             runs_created_today=runs_created_today,
             daily_runs_remaining=max(plan.daily_free_runs - runs_created_today, 0),
             saved_strategies=saved_strategies,
-            saved_strategies_remaining=max(
-                plan.max_saved_strategies - saved_strategies,
-                0,
-            ),
+            saved_strategies_remaining=max(plan.max_saved_strategies - saved_strategies, 0),
             tracked_strategies=tracked_strategies,
-            tracked_strategies_remaining=max(
-                plan.max_tracked_strategies - tracked_strategies,
+            tracked_strategies_remaining=max(plan.max_tracked_strategies - tracked_strategies, 0),
+            builder_prompts_used_today=builder_prompts_used_today,
+            builder_prompts_remaining_today=max(
+                plan.builder_prompt_daily_limit - builder_prompts_used_today,
                 0,
             ),
         ),

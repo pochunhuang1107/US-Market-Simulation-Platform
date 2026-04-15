@@ -28,6 +28,7 @@ class User(Base):
     strategies = relationship("Strategy", back_populates="user")
     runs = relationship("Run", back_populates="user")
     tracked_strategies = relationship("TrackedStrategy", back_populates="user")
+    builder_prompt_events = relationship("BuilderPromptEvent", back_populates="user")
 
 
 class Plan(Base):
@@ -43,6 +44,10 @@ class Plan(Base):
     daily_free_runs: Mapped[int] = mapped_column(Integer, nullable=False)
     max_saved_strategies: Mapped[int] = mapped_column(Integer, nullable=False)
     max_tracked_strategies: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    builder_prompt_daily_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    builder_prompt_max_chars: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_backtest_years: Mapped[int] = mapped_column(Integer, nullable=False)
 
     allow_portfolio_runs: Mapped[bool] = mapped_column(Boolean, nullable=False)
     allow_comparison_runs: Mapped[bool] = mapped_column(Boolean, nullable=False)
