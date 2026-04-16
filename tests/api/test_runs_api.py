@@ -3,7 +3,59 @@ from __future__ import annotations
 import uuid
 
 from market_simulator.db.enums import RunStatus
+from market_simulator.db.models import Plan
 from market_simulator.repositories.runs import create_run, get_run, mark_run_succeeded
+
+def create_plan(
+    db_session,
+    *,
+    code: str,
+    builder_prompt_daily_limit: int,
+    builder_prompt_max_chars: int,
+    max_backtest_years: int,
+):
+    plan = Plan(
+        code=code,
+        name=code.title(),
+        allow_ai_builder=True,
+        allow_saved_strategies=True,
+        allow_run_comparison=True,
+        builder_prompt_daily_limit=builder_prompt_daily_limit,
+        builder_prompt_max_chars=builder_prompt_max_chars,
+        max_backtest_years=max_backtest_years,
+        max_runs_per_day=50,
+        max_saved_strategies=50,
+    )
+    db_session.add(plan)
+    db_session.commit()
+    db_session.refresh(plan)
+    return plan
+
+
+def attach_plan(db_session, *, user_id: str, plan_id: str):
+    existing = (
+        db_session.query(UserPlanSubscription)
+        .filter(
+            UserPlanSubscription.user_id == user_id,
+            UserPlanSubscription.is_active.is_(True),
+        )
+        .all()
+    )
+    for row in existing:
+        row.is_active = False
+        row.ended_at = datetime.now(timezone.utc)
+
+    user_plan = UserPlanSubscription(
+        user_id=user_id,
+        plan_id=plan_id,
+        started_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        ended_at=None,
+        is_active=True,
+    )
+    db_session.add(user_plan)
+    db_session.commit()
+    db_session.refresh(user_plan)
+    return user_plan
 
 
 def _create_run_via_api(
@@ -845,12 +897,36 @@ def test_create_draft_run_without_saved_strategy_returns_pending(
         "/runs",
         json={
             "draft_config": {
+                "schema_version": "2.0",
                 "name": "draft-run",
                 "tradable_symbol": "QQQ",
                 "benchmark_symbol": "QQQ",
-                "start_date": "2019-01-02",
-                "end_date": "2024-12-31",
+                "reference_symbols": [],
+                "start_date": "2021-04-14",
+                "end_date": "2026-04-14",
                 "initial_capital": 100000,
+                "transaction_cost_bps": 5,
+                "allocation": {
+                    "entry_mode": "percent_of_equity",
+                    "entry_value": 1.0,
+                    "max_position_pct": 1.0,
+                },
+                "entry_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": "QQQ",
+                    "lookback": 14,
+                    "threshold": 30,
+                },
+                "exit_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_above",
+                    "symbol": "QQQ",
+                    "lookback": 14,
+                    "threshold": 70,
+                },
+                "risk": {"cooldown_bars": 0},
+                "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
             },
             "run_type": "SIMULATION",
             "executor_type": "SIMULATION_EXECUTOR",
@@ -884,12 +960,36 @@ def test_save_draft_run_as_strategy_creates_strategy_and_links_run(
         "/runs",
         json={
             "draft_config": {
+                "schema_version": "2.0",
                 "name": "draft-run",
                 "tradable_symbol": "QQQ",
                 "benchmark_symbol": "QQQ",
-                "start_date": "2019-01-02",
-                "end_date": "2024-12-31",
+                "reference_symbols": [],
+                "start_date": "2021-04-14",
+                "end_date": "2026-04-14",
                 "initial_capital": 100000,
+                "transaction_cost_bps": 5,
+                "allocation": {
+                    "entry_mode": "percent_of_equity",
+                    "entry_value": 1.0,
+                    "max_position_pct": 1.0,
+                },
+                "entry_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": "QQQ",
+                    "lookback": 14,
+                    "threshold": 30,
+                },
+                "exit_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_above",
+                    "symbol": "QQQ",
+                    "lookback": 14,
+                    "threshold": 70,
+                },
+                "risk": {"cooldown_bars": 0},
+                "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
             },
             "run_type": "SIMULATION",
             "executor_type": "SIMULATION_EXECUTOR",
@@ -936,6 +1036,7 @@ def test_save_draft_run_as_strategy_creates_strategy_and_links_run(
     assert get_body["strategy_version_id"] == body["version_id"]
     assert get_body["strategy_name"] == "My Saved Draft"
 
+
 def test_save_draft_run_as_strategy_requires_succeeded_run(
     client,
     create_user,
@@ -950,12 +1051,36 @@ def test_save_draft_run_as_strategy_requires_succeeded_run(
         "/runs",
         json={
             "draft_config": {
-                "name": "qqq-rsi-test",
+                "schema_version": "2.0",
+                "name": "draft-run",
                 "tradable_symbol": "QQQ",
                 "benchmark_symbol": "QQQ",
+                "reference_symbols": [],
                 "start_date": "2021-04-14",
                 "end_date": "2026-04-14",
                 "initial_capital": 100000,
+                "transaction_cost_bps": 5,
+                "allocation": {
+                    "entry_mode": "percent_of_equity",
+                    "entry_value": 1.0,
+                    "max_position_pct": 1.0,
+                },
+                "entry_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": "QQQ",
+                    "lookback": 14,
+                    "threshold": 30,
+                },
+                "exit_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_above",
+                    "symbol": "QQQ",
+                    "lookback": 14,
+                    "threshold": 70,
+                },
+                "risk": {"cooldown_bars": 0},
+                "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
             },
             "run_type": "SIMULATION",
             "executor_type": "SIMULATION_EXECUTOR",
@@ -974,3 +1099,253 @@ def test_save_draft_run_as_strategy_requires_succeeded_run(
 
     assert save_response.status_code == 400
     assert "Only succeeded unsaved runs can be saved as a strategy" in save_response.json()["detail"]
+
+
+def test_create_run_rejects_draft_config_outside_plan_limit(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    plan = db_session.query(Plan).filter(Plan.code == "TEST_PRO").one()
+    plan.max_backtest_years = 5
+    db_session.commit()
+    db_session.refresh(plan)
+
+    response = client.post(
+        "/runs",
+        json={
+            "draft_config": {
+                "schema_version": "2.0",
+                "name": "too-long-window",
+                "tradable_symbol": "QQQ",
+                "benchmark_symbol": "QQQ",
+                "reference_symbols": [],
+                "start_date": "2020-01-02",
+                "end_date": "2026-04-14",
+                "initial_capital": 100000,
+                "transaction_cost_bps": 5,
+                "allocation": {
+                    "entry_mode": "percent_of_equity",
+                    "entry_value": 1.0,
+                    "max_position_pct": 1.0,
+                },
+                "entry_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": "QQQ",
+                    "lookback": 14,
+                    "threshold": 30,
+                },
+                "exit_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_above",
+                    "symbol": "QQQ",
+                    "lookback": 14,
+                    "threshold": 70,
+                },
+                "risk": {"cooldown_bars": 0},
+                "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+            },
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {},
+            "max_attempts": 1,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "exceeds your plan limit" in response.json()["detail"]
+
+
+def test_create_run_rejects_draft_config_with_unsupported_symbol(
+    client,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    response = client.post(
+        "/runs",
+        json={
+            "draft_config": {
+                "schema_version": "2.0",
+                "name": "unsupported-symbol",
+                "tradable_symbol": "AAPL",
+                "benchmark_symbol": "QQQ",
+                "reference_symbols": [],
+                "start_date": "2021-04-14",
+                "end_date": "2026-04-14",
+                "initial_capital": 100000,
+                "transaction_cost_bps": 5,
+                "allocation": {
+                    "entry_mode": "percent_of_equity",
+                    "entry_value": 1.0,
+                    "max_position_pct": 1.0,
+                },
+                "entry_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": "AAPL",
+                    "lookback": 14,
+                    "threshold": 30,
+                },
+                "exit_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_above",
+                    "symbol": "AAPL",
+                    "lookback": 14,
+                    "threshold": 70,
+                },
+                "risk": {"cooldown_bars": 0},
+                "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+            },
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {},
+            "max_attempts": 1,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported symbol" in response.json()["detail"]
+
+
+def test_create_run_rejects_duplicate_active_draft_run(
+    client,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    payload = {
+        "draft_config": {
+            "schema_version": "2.0",
+            "name": "duplicate-check",
+            "tradable_symbol": "QQQ",
+            "benchmark_symbol": "QQQ",
+            "reference_symbols": [],
+            "start_date": "2021-04-14",
+            "end_date": "2026-04-14",
+            "initial_capital": 100000,
+            "transaction_cost_bps": 5,
+            "allocation": {
+                "entry_mode": "percent_of_equity",
+                "entry_value": 1.0,
+                "max_position_pct": 1.0,
+            },
+            "entry_rule": {
+                "kind": "atomic",
+                "type": "rsi_below",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 30,
+            },
+            "exit_rule": {
+                "kind": "atomic",
+                "type": "rsi_above",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 70,
+            },
+            "risk": {"cooldown_bars": 0},
+            "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+        },
+        "run_type": "SIMULATION",
+        "executor_type": "SIMULATION_EXECUTOR",
+        "request_payload": {},
+        "max_attempts": 1,
+    }
+
+    first = client.post("/runs", json=payload)
+    assert first.status_code == 200
+
+    second = client.post("/runs", json=payload)
+    assert second.status_code == 409
+    assert "already active" in second.json()["detail"]
+
+
+def test_save_draft_run_as_strategy_revalidates_draft_config(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        None,
+        None,
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {
+            "draft_config": {
+                "schema_version": "2.0",
+                "name": "bad-save",
+                "tradable_symbol": "AAPL",
+                "benchmark_symbol": "QQQ",
+                "reference_symbols": [],
+                "start_date": "2021-04-14",
+                "end_date": "2026-04-14",
+                "initial_capital": 100000,
+                "transaction_cost_bps": 5,
+                "allocation": {
+                    "entry_mode": "percent_of_equity",
+                    "entry_value": 1.0,
+                    "max_position_pct": 1.0,
+                },
+                "entry_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": "AAPL",
+                    "lookback": 14,
+                    "threshold": 30,
+                },
+                "exit_rule": {
+                    "kind": "atomic",
+                    "type": "rsi_above",
+                    "symbol": "AAPL",
+                    "lookback": 14,
+                    "threshold": 70,
+                },
+                "risk": {"cooldown_bars": 0},
+                "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+            }
+        },
+        max_attempts=1,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"total_return_pct": 1.0},
+        artifact_dir="data/local_artifacts/runs/test-run",
+        artifact_manifest_json={"summary_json": "summary.json"},
+    )
+
+    response = client.post(
+        f"/runs/{run.id}/save-strategy",
+        json={"name": "Should fail"},
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported symbol" in response.json()["detail"]

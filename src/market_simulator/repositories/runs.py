@@ -1,4 +1,6 @@
 import uuid
+import json
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, or_, select
@@ -17,6 +19,11 @@ TERMINAL_RUN_STATUSES = {
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _hash_payload(payload: dict) -> str:
+    normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode()).hexdigest()
 
 
 def create_run(
@@ -79,6 +86,41 @@ def get_run_for_user(db: Session, run_id, user_id):
         .filter(Run.id == run_id, Run.user_id == user_id)
         .first()
     )
+
+
+def find_duplicate_active_run(
+    db: Session,
+    *,
+    user_id,
+    strategy_id,
+    strategy_version_id,
+    run_type,
+    executor_type,
+    request_payload: dict,
+):
+    target_hash = _hash_payload(request_payload)
+
+    candidate_runs = (
+        db.query(Run)
+        .options(
+            joinedload(Run.strategy),
+            joinedload(Run.strategy_version),
+        )
+        .filter(Run.user_id == user_id)
+        .filter(Run.strategy_id == strategy_id)
+        .filter(Run.strategy_version_id == strategy_version_id)
+        .filter(Run.run_type == run_type)
+        .filter(Run.executor_type == executor_type)
+        .filter(Run.status.in_([RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING]))
+        .all()
+    )
+
+    for run in candidate_runs:
+        payload = run.request_payload or {}
+        if _hash_payload(payload) == target_hash:
+            return run
+
+    return None
 
 
 def _apply_run_filters(

@@ -28,6 +28,7 @@ from market_simulator.platform.services.run_worker_service import RunWorkerServi
 from market_simulator.repositories.runs import (
     count_runs,
     create_run,
+    find_duplicate_active_run,
     get_run_for_user,
     link_run_to_strategy_version,
     list_runs,
@@ -38,6 +39,7 @@ from market_simulator.repositories.strategies import (
     get_strategy_for_user,
     get_strategy_version,
 )
+from market_simulator.services.draft_validation import validate_draft_config
 from market_simulator.services.entitlements import (
     enforce_run_create_access,
     enforce_strategy_create_access,
@@ -94,7 +96,7 @@ def create_run_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    enforce_run_create_access(db, user["id"], req.run_type)
+    entitlements = enforce_run_create_access(db, user["id"], req.run_type)
 
     if req.strategy_id is not None:
         _validate_run_strategy_access(
@@ -106,7 +108,29 @@ def create_run_api(
 
     request_payload = dict(req.request_payload or {})
     if req.draft_config is not None:
+        try:
+            validate_draft_config(
+                config=req.draft_config,
+                max_backtest_years=entitlements.max_backtest_years,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         request_payload["draft_config"] = req.draft_config
+
+    duplicate_run = find_duplicate_active_run(
+        db,
+        user_id=user["id"],
+        strategy_id=req.strategy_id,
+        strategy_version_id=req.strategy_version_id,
+        run_type=req.run_type,
+        executor_type=req.executor_type,
+        request_payload=request_payload,
+    )
+    if duplicate_run is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"An equivalent run is already active: {duplicate_run.id}",
+        )
 
     run = create_run(
         db,
@@ -314,7 +338,7 @@ def save_draft_run_as_strategy_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    enforce_strategy_create_access(db, user["id"])
+    entitlements = enforce_strategy_create_access(db, user["id"])
 
     run = get_run_for_user(db, run_id, user["id"])
     if run is None:
@@ -332,6 +356,14 @@ def save_draft_run_as_strategy_api(
     draft_config = (run.request_payload or {}).get("draft_config")
     if not isinstance(draft_config, dict):
         raise HTTPException(status_code=400, detail="Run does not contain a saveable draft config")
+
+    try:
+        validate_draft_config(
+            config=draft_config,
+            max_backtest_years=entitlements.max_backtest_years,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     strategy = create_strategy(
         db,
