@@ -244,6 +244,14 @@ export function StrategyDraftCard({ draft, onRun, isRunning = false, runError = 
             <BulletList items={viewModel.readableExplanation} emptyText="No explanation available." tone="success" />
           </Section>
 
+          <Section eyebrow="Default choices" title="Why these defaults were chosen">
+            <BulletList
+              items={draft.assumptions}
+              emptyText="No default assumptions were needed."
+              tone="success"
+            />
+          </Section>
+
           <Section eyebrow="Signal logic" title="Entry and exit rules">
             <div className="space-y-3 text-sm">
               <div className="app-home-draft-panel rounded-2xl p-4">

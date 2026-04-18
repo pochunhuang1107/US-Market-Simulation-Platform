@@ -283,6 +283,7 @@ def _build_response(
     config: dict[str, Any] | None = None,
     summary: str | None = None,
     warnings: list[str] | None = None,
+    assumptions: list[str] | None = None,
     changes: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -291,6 +292,7 @@ def _build_response(
         "config": config,
         "summary": summary,
         "warnings": warnings or [],
+        "assumptions": assumptions or [],
         "changes": changes or [],
     }
 
@@ -991,7 +993,7 @@ def generate_strategy_builder_response(
         )
 
     try:
-        config, summary, warnings, _, changes = generate_strategy_builder_draft(
+        config, summary, warnings, assumptions, changes = generate_strategy_builder_draft(
             req,
             max_backtest_years=max_backtest_years,
         )
@@ -1032,5 +1034,6 @@ def generate_strategy_builder_response(
         config=config,
         summary=summary,
         warnings=warnings,
+        assumptions=assumptions,
         changes=changes,
     )

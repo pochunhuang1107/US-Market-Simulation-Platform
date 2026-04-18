@@ -320,6 +320,7 @@ export interface StrategyBuilderGenerateResponse {
   config?: Record<string, unknown> | null;
   summary?: string | null;
   warnings: string[];
+  assumptions: string[];
   changes: string[];
 }
 
