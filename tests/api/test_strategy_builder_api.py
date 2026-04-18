@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 import market_simulator.services.strategy_builder_service as builder_service
+from market_simulator.settings import get_settings
 
 
 @pytest.fixture(autouse=True)
@@ -12,6 +13,11 @@ def default_builder_test_user(create_user, current_user_ctx):
         user_id=current_user_ctx["id"],
         email="builder-test@example.com",
     )
+
+
+@pytest.fixture(autouse=True)
+def default_builder_metadata_lookup(monkeypatch):
+    monkeypatch.setattr(builder_service, "get_etf_history_range", lambda symbol: None)
 
 
 def test_generate_strategy_builder_draft_returns_valid_strategy_v2_config(client):
@@ -619,7 +625,8 @@ def test_generate_strategy_builder_draft_falls_back_when_metadata_is_missing(
 
     assert response.status_code == 200
     config = response.json()["config"]
+    settings = get_settings()
 
     assert config["tradable_symbol"] == "QQQ"
-    assert config["start_date"] == "2018-01-02"
-    assert config["end_date"] == "2026-04-17"
+    assert config["start_date"] == settings.supported_data_start.isoformat()
+    assert config["end_date"] == settings.supported_data_end.isoformat()
