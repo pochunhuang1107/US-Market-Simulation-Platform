@@ -9,6 +9,7 @@ from market_simulator.api.schemas.strategy_builder import (
 )
 from market_simulator.models.strategy_v2 import StrategyV2
 from datetime import timedelta
+from market_simulator.services.etf_metadata_service import get_etf_history_range
 from market_simulator.settings import get_settings
 
 from typing import Any
@@ -17,13 +18,53 @@ from typing import Any
 SUPPORTED_SYMBOLS = frozenset(get_settings().supported_etf_symbols)
 
 
-def _build_default_date_range(*, max_backtest_years: int) -> tuple[str, str]:
+def _build_fallback_default_date_range(*, max_backtest_years: int) -> tuple[str, str]:
     settings = get_settings()
     end_date = settings.supported_data_end
     approx_days = int(max_backtest_years * 365.25)
     candidate_start = end_date - timedelta(days=approx_days)
     start_date = max(settings.supported_data_start, candidate_start)
     return start_date.isoformat(), end_date.isoformat()
+
+
+def _build_default_date_range(
+    *,
+    symbol: str,
+    max_backtest_years: int,
+) -> tuple[str, str, list[str]]:
+    settings = get_settings()
+    assumptions: list[str] = []
+
+    history = get_etf_history_range(symbol)
+    if history is None:
+        start_date, end_date = _build_fallback_default_date_range(
+            max_backtest_years=max_backtest_years
+        )
+        assumptions.append(
+            f"No ETF metadata was found for {symbol}, so the default platform backtest range was used."
+        )
+        return start_date, end_date, assumptions
+
+    effective_end = min(settings.supported_data_end, history.last_available_date)
+    approx_days = int(max_backtest_years * 365.25)
+    candidate_start = effective_end - timedelta(days=approx_days)
+    effective_start = max(
+        settings.supported_data_start,
+        history.first_available_date,
+        candidate_start,
+    )
+
+    if effective_start == history.first_available_date:
+        assumptions.append(
+            f"Used available history for {symbol} starting on {history.first_available_date.isoformat()}."
+        )
+
+    if effective_end == history.last_available_date and history.last_available_date < settings.supported_data_end:
+        assumptions.append(
+            f"Used available history for {symbol} ending on {history.last_available_date.isoformat()}."
+        )
+
+    return effective_start.isoformat(), effective_end.isoformat(), assumptions
 
 
 def _extract_symbols(text: str) -> list[str]:
@@ -78,6 +119,7 @@ def _extract_reference_symbols(
 def _extract_date_range(
     text: str,
     *,
+    symbol: str,
     max_backtest_years: int,
 ) -> tuple[date, date, list[str]]:
     assumptions: list[str] = []
@@ -96,13 +138,19 @@ def _extract_date_range(
         end_year = int(range_match.group(2))
         return date(start_year, 1, 1), date(end_year, 12, 31), assumptions
 
-    default_start_date, default_end_date = _build_default_date_range(
-        max_backtest_years=max_backtest_years
+    default_start_date, default_end_date, history_assumptions = _build_default_date_range(
+        symbol=symbol,
+        max_backtest_years=max_backtest_years,
     )
+    assumptions.extend(history_assumptions)
     assumptions.append(
         f"Used the default backtest range {default_start_date} to {default_end_date}."
     )
-    return date.fromisoformat(default_start_date), date.fromisoformat(default_end_date), assumptions
+    return (
+        date.fromisoformat(default_start_date),
+        date.fromisoformat(default_end_date),
+        assumptions,
+    )
 
 
 def _has_current_config(req: StrategyBuilderGenerateRequest) -> bool:
@@ -565,6 +613,7 @@ def _generate_strategy_draft(
 
     start_date, end_date, date_assumptions = _extract_date_range(
         prompt,
+        symbol=tradable_symbol,
         max_backtest_years=max_backtest_years,
     )
     assumptions.extend(date_assumptions)

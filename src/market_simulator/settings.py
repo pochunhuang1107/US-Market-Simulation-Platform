@@ -53,6 +53,10 @@ class Settings(BaseModel):
         "MARKET_DATA_PATH",
         "s3://us-market-data-casper/curated/etf_daily_prices/**/*.parquet",
     )
+    etf_metadata_s3_uri: str = os.getenv(
+        "ETF_METADATA_S3_URI",
+        "s3://us-market-data-casper/curated/reference/etf_symbol_metadata/data.parquet",
+    )
     duckdb_database: str = os.getenv("DUCKDB_DATABASE", ":memory:")
     s3_region: str = os.getenv("S3_REGION", "us-west-2")
 
