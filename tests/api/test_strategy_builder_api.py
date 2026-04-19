@@ -665,3 +665,48 @@ def test_generate_strategy_builder_draft_returns_assumptions_in_response(
         "Used the default backtest range 2024-01-11 to 2026-04-17." in item
         for item in body["assumptions"]
     )
+
+
+def test_generate_strategy_builder_summary_mentions_available_history_when_metadata_shortens_window(
+    client,
+    monkeypatch,
+):
+    class StubHistory:
+        def __init__(self, symbol, first_date, last_date):
+            self.symbol = symbol
+            self.first_available_date = first_date
+            self.last_available_date = last_date
+
+    monkeypatch.setattr(
+        builder_service,
+        "get_etf_history_range",
+        lambda symbol: StubHistory(symbol, date(2024, 1, 11), date(2026, 4, 17)),
+    )
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create a strategy for IBIT"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert "using available history" in body["summary"]
+    assert "from 2024-01-11 to 2026-04-17" in body["summary"]
+
+
+def test_generate_strategy_builder_summary_mentions_default_platform_range_when_metadata_is_missing(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setattr(builder_service, "get_etf_history_range", lambda symbol: None)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create a mean reversion strategy for QQQ"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert "using the default platform range" in body["summary"]

@@ -577,6 +577,34 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     return changes
 
 
+def _build_summary_intro(
+    *,
+    symbol: str,
+    start_date_str: str,
+    end_date_str: str,
+    assumptions: list[str],
+) -> str:
+    if any(
+        assumption.startswith(f"Used available history for {symbol} ")
+        for assumption in assumptions
+    ):
+        return (
+            f"Drafted a strategy for {symbol} using available history "
+            f"from {start_date_str} to {end_date_str}"
+        )
+
+    if any(
+        assumption == f"No ETF metadata was found for {symbol}, so the default platform backtest range was used."
+        for assumption in assumptions
+    ):
+        return (
+            f"Drafted a strategy for {symbol} using the default platform range "
+            f"from {start_date_str} to {end_date_str}"
+        )
+
+    return f"Drafted a strategy for {symbol} from {start_date_str} to {end_date_str}"
+
+
 def _generate_strategy_draft(
     req: StrategyBuilderGenerateRequest,
     *,
@@ -917,10 +945,24 @@ def _generate_strategy_draft(
     effective_exit = config.get("exit_rule", exit_rule)
     effective_benchmark = config.get("benchmark_symbol", benchmark_symbol)
 
+    summary_start_date = (
+        config.get("start_date", start_date.isoformat())
+        if has_current_config
+        else start_date.isoformat()
+    )
+    summary_end_date = (
+        config.get("end_date", end_date.isoformat())
+        if has_current_config
+        else end_date.isoformat()
+    )
+
     summary_parts = [
-        f"Drafted a strategy for {effective_symbol}",
-        f"from {config.get('start_date', start_date.isoformat()) if has_current_config else start_date.isoformat()}",
-        f"to {config.get('end_date', end_date.isoformat()) if has_current_config else end_date.isoformat()}",
+        _build_summary_intro(
+            symbol=effective_symbol,
+            start_date_str=summary_start_date,
+            end_date_str=summary_end_date,
+            assumptions=assumptions,
+        ),
         f"with entry rule {effective_entry['type']}",
         f"and exit rule {effective_exit['type']}.",
     ]
