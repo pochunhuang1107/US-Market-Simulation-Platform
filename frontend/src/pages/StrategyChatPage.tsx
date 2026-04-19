@@ -6,6 +6,7 @@ import { ExamplePromptChips } from '../components/strategy-chat/ExamplePromptChi
 import { PromptComposer } from '../components/strategy-chat/PromptComposer';
 import type { ChatMessage } from '../components/strategy-chat/types';
 import {
+  ApiRequestError,
   createRun,
   enqueueRun,
   fetchMeEntitlements,
@@ -114,6 +115,38 @@ function formatLimitError(error: unknown): string {
   }
 
   return message;
+}
+
+function extractDuplicateRunId(error: unknown): string | null {
+  if (error instanceof ApiRequestError && error.status === 409 && error.body && typeof error.body === 'object') {
+    const record = error.body as {
+      detail?: {
+        code?: unknown;
+        existing_run_id?: unknown;
+      };
+    };
+
+    if (
+      record.detail &&
+      typeof record.detail === 'object' &&
+      record.detail.code === 'DUPLICATE_ACTIVE_RUN' &&
+      typeof record.detail.existing_run_id === 'string'
+    ) {
+      return record.detail.existing_run_id;
+    }
+  }
+
+  const message = formatUnknownError(error);
+  const match = message.match(/already active:\s*([0-9a-f-]{36})/i);
+  return match ? match[1] : null;
+}
+
+function formatDuplicateRunMessage(error: unknown): string {
+  const existingRunId = extractDuplicateRunId(error);
+  if (existingRunId) {
+    return 'This simulation is already running. Opening the existing run instead.';
+  }
+  return formatLimitError(error);
 }
 
 function EntitlementSummary({
@@ -331,9 +364,37 @@ export function StrategyChatPage() {
 
       navigate(`/runs/${run.id}`);
     } catch (error) {
-      const message = formatLimitError(error);
+      const duplicateRunId = extractDuplicateRunId(error);
 
       console.error('Run simulation failed:', error);
+
+      if (duplicateRunId) {
+        const message = formatDuplicateRunMessage(error);
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId
+              ? {
+                  ...m,
+                  isRunning: false,
+                  runError: message
+                }
+              : m
+          )
+        );
+
+        try {
+          const refreshedEntitlements = await fetchMeEntitlements();
+          setEntitlements(refreshedEntitlements);
+        } catch {
+          // keep current entitlement state if refresh fails
+        }
+
+        navigate(`/runs/${duplicateRunId}`);
+        return;
+      }
+
+      const message = formatLimitError(error);
       window.alert(message);
 
       setMessages((prev) =>

@@ -26,6 +26,18 @@ type ErrorBody = {
   error?: unknown;
 };
 
+export class ApiRequestError extends Error {
+  status: number;
+  body: unknown;
+
+  constructor(message: string, status: number, body: unknown) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 function formatErrorBody(body: ErrorBody): string {
   if (typeof body.detail === 'string') return body.detail;
   if (typeof body.message === 'string') return body.message;
@@ -60,13 +72,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     let detail = `Request failed with status ${response.status}`;
+    let errorBody: unknown = null;
 
     try {
       if (isJson) {
         const body = (await response.json()) as ErrorBody;
+        errorBody = body;
         detail = formatErrorBody(body);
       } else {
         const text = await response.text();
+        errorBody = text;
         if (text.trim()) {
           detail = text;
         }
@@ -75,7 +90,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // ignore
     }
 
-    throw new Error(detail);
+    throw new ApiRequestError(detail, response.status, errorBody);
   }
 
   if (response.status === 204) {

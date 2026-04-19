@@ -129,7 +129,11 @@ def create_run_api(
     if duplicate_run is not None:
         raise HTTPException(
             status_code=409,
-            detail=f"An equivalent run is already active: {duplicate_run.id}",
+            detail={
+                "code": "DUPLICATE_ACTIVE_RUN",
+                "message": "An equivalent run is already active.",
+                "existing_run_id": str(duplicate_run.id),
+            },
         )
 
     run = create_run(

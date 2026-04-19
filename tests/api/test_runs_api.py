@@ -1273,7 +1273,12 @@ def test_create_run_rejects_duplicate_active_draft_run(
 
     second = client.post("/runs", json=payload)
     assert second.status_code == 409
-    assert "already active" in second.json()["detail"]
+
+    detail = second.json()["detail"]
+    assert detail["code"] == "DUPLICATE_ACTIVE_RUN"
+    assert detail["message"] == "An equivalent run is already active."
+    assert isinstance(detail["existing_run_id"], str)
+    assert detail["existing_run_id"] == first.json()["id"]
 
 
 def test_save_draft_run_as_strategy_revalidates_draft_config(
