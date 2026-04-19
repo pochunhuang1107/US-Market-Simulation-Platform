@@ -390,7 +390,14 @@ export function StrategyChatPage() {
           // keep current entitlement state if refresh fails
         }
 
-        navigate(`/runs/${duplicateRunId}`);
+        navigate(`/runs/${duplicateRunId}`, {
+          state: {
+            notice: {
+              tone: 'info',
+              message: 'This simulation was already running, so we opened the existing run for you.'
+            }
+          }
+        });
         return;
       }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 
 import { RunCharts } from '../components/run-detail/RunCharts';
 import { RunHeader } from '../components/run-detail/RunHeader';
@@ -13,8 +13,46 @@ import type { RunDashboardResponse, RunResponse } from '../types/api';
 const ACTIVE_RUN_STATUSES = new Set(['PENDING', 'QUEUED', 'RUNNING']);
 const POLL_INTERVAL_MS = 2000;
 
+type NoticeTone = 'info' | 'success' | 'error';
+
+type PageNotice = {
+  tone: NoticeTone;
+  message: string;
+};
+
+function NoticeBanner({
+  notice,
+  onDismiss
+}: {
+  notice: PageNotice;
+  onDismiss: () => void;
+}) {
+  const toneClass =
+    notice.tone === 'success'
+      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+      : notice.tone === 'error'
+        ? 'border-rose-500/30 bg-rose-500/10 text-rose-200'
+        : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-100';
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 text-sm ${toneClass}`}>
+      <div className="flex items-start justify-between gap-4">
+        <p>{notice.message}</p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-xs font-semibold uppercase tracking-[0.2em] opacity-80 transition hover:opacity-100"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function RunDetailPage() {
   const { runId } = useParams();
+  const location = useLocation();
 
   const [run, setRun] = useState<RunResponse | null>(null);
   const [data, setData] = useState<RunDashboardResponse | null>(null);
@@ -22,6 +60,16 @@ export function RunDetailPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isSavingDraftStrategy, setIsSavingDraftStrategy] = useState(false);
+  const [notice, setNotice] = useState<PageNotice | null>(
+    (location.state as { notice?: PageNotice } | null)?.notice ?? null
+  );
+
+  useEffect(() => {
+    const incomingNotice = (location.state as { notice?: PageNotice } | null)?.notice ?? null;
+    if (incomingNotice) {
+      setNotice(incomingNotice);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     let ignore = false;
@@ -144,9 +192,15 @@ export function RunDetailPage() {
 
       const refreshedRun = await fetchRun(runId);
       setRun(refreshedRun);
-      window.alert('Strategy saved successfully.');
+      setNotice({
+        tone: 'success',
+        message: 'Strategy saved successfully.'
+      });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to save strategy');
+      setNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Failed to save strategy'
+      });
     } finally {
       setIsSavingDraftStrategy(false);
     }
@@ -187,6 +241,7 @@ export function RunDetailPage() {
   if (isFinalizing) {
     return (
       <div className="space-y-6">
+        {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
         <StateCard
           title="Preparing simulation results"
           description="Your run has finished. Final charts and metrics are loading."
@@ -199,6 +254,7 @@ export function RunDetailPage() {
   if (run && ACTIVE_RUN_STATUSES.has(run.status)) {
     return (
       <div className="space-y-6">
+        {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
         <StateCard
           title="Simulation in progress"
           description={
@@ -215,6 +271,7 @@ export function RunDetailPage() {
   if (run && (run.status === 'FAILED' || run.status === 'CANCELLED')) {
     return (
       <div className="space-y-6">
+        {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
         <StateCard
           title={`Run ${run.status.toLowerCase()}`}
           description={run.error_message ?? 'This run did not complete successfully.'}
@@ -227,16 +284,21 @@ export function RunDetailPage() {
 
   if (errorMessage || !data) {
     return (
-      <StateCard
-        title="Unable to load run dashboard"
-        description={errorMessage ?? 'Run dashboard was not available.'}
-        tone="error"
-      />
+      <div className="space-y-6">
+        {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
+        <StateCard
+          title="Unable to load run dashboard"
+          description={errorMessage ?? 'Run dashboard was not available.'}
+          tone="error"
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-6">
+      {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
+
       {run ? (
         <RunHeader
           run={run}
@@ -247,6 +309,7 @@ export function RunDetailPage() {
           }}
         />
       ) : null}
+
       <RunCharts chartData={data.chart_data} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
