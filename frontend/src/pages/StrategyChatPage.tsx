@@ -144,7 +144,7 @@ function extractDuplicateRunId(error: unknown): string | null {
 function formatDuplicateRunMessage(error: unknown): string {
   const existingRunId = extractDuplicateRunId(error);
   if (existingRunId) {
-    return 'This simulation is already running. Opening the existing run instead.';
+    return 'This simulation is already running. Redirecting you to the existing run.';
   }
   return formatLimitError(error);
 }
@@ -395,7 +395,6 @@ export function StrategyChatPage() {
       }
 
       const message = formatLimitError(error);
-      window.alert(message);
 
       setMessages((prev) =>
         prev.map((m) =>
