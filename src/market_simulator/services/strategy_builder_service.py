@@ -224,6 +224,10 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bmoving\s+average\b",
         r"\bsma\b",
         r"\bcapital\b",
+        r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
+        r"\b(entry|exit)\s+rule\b",
+        r"\bfast\s+window\b",
+        r"\bslow\s+window\b",
     ]
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in supported_patterns)
 
@@ -604,6 +608,42 @@ def _extract_sma_crossover_pair(text: str) -> tuple[int, int] | None:
     return None
 
 
+def _extract_entry_fast_window_edit(text: str) -> int | None:
+    patterns = [
+        r"change\s+entry\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
+        r"set\s+entry\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
+        r"entry\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
+    ]
+    return _extract_int(text, patterns)
+
+
+def _extract_entry_slow_window_edit(text: str) -> int | None:
+    patterns = [
+        r"change\s+entry\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
+        r"set\s+entry\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
+        r"entry\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
+    ]
+    return _extract_int(text, patterns)
+
+
+def _extract_exit_fast_window_edit(text: str) -> int | None:
+    patterns = [
+        r"change\s+exit\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
+        r"set\s+exit\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
+        r"exit\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
+    ]
+    return _extract_int(text, patterns)
+
+
+def _extract_exit_slow_window_edit(text: str) -> int | None:
+    patterns = [
+        r"change\s+exit\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
+        r"set\s+exit\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
+        r"exit\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
+    ]
+    return _extract_int(text, patterns)
+
+
 def _build_strategy_name(
     symbol: str,
     entry_rule: dict,
@@ -753,6 +793,42 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         final_exit.get("threshold"),
         "exit threshold",
     )
+    _record_change(
+        changes,
+        base_entry.get("type"),
+        final_entry.get("type"),
+        "entry rule",
+    )
+    _record_change(
+        changes,
+        base_exit.get("type"),
+        final_exit.get("type"),
+        "exit rule",
+    )
+    _record_change(
+        changes,
+        base_entry.get("fast_window"),
+        final_entry.get("fast_window"),
+        "entry fast window",
+    )
+    _record_change(
+        changes,
+        base_entry.get("slow_window"),
+        final_entry.get("slow_window"),
+        "entry slow window",
+    )
+    _record_change(
+        changes,
+        base_exit.get("fast_window"),
+        final_exit.get("fast_window"),
+        "exit fast window",
+    )
+    _record_change(
+        changes,
+        base_exit.get("slow_window"),
+        final_exit.get("slow_window"),
+        "exit slow window",
+    )
 
     return changes
 
@@ -874,6 +950,11 @@ def _generate_strategy_draft(
     rsi_exit_threshold_edit = _extract_rsi_exit_threshold_edit(prompt)
     sma_pair = _extract_sma_crossover_pair(prompt)
 
+    entry_fast_window_edit = _extract_entry_fast_window_edit(prompt)
+    entry_slow_window_edit = _extract_entry_slow_window_edit(prompt)
+    exit_fast_window_edit = _extract_exit_fast_window_edit(prompt)
+    exit_slow_window_edit = _extract_exit_slow_window_edit(prompt)
+
     if rsi_buy:
         lookback, threshold = rsi_buy
         entry_rule = {
@@ -940,7 +1021,7 @@ def _generate_strategy_draft(
         }
         assumptions.append("Interpreted 'mean reversion' as RSI(14) below 30 / above 70.")
 
-    if entry_rule is None:
+    if entry_rule is None and not has_current_config:
         entry_rule = {
             "kind": "atomic",
             "type": "rsi_below",
@@ -950,7 +1031,7 @@ def _generate_strategy_draft(
         }
         warnings.append("Entry rule defaulted to RSI(14) below 30.")
 
-    if exit_rule is None:
+    if exit_rule is None and not has_current_config:
         exit_rule = {
             "kind": "atomic",
             "type": "rsi_above",
@@ -1025,6 +1106,9 @@ def _generate_strategy_draft(
         default_config.setdefault("entry_rule", entry_rule)
         default_config.setdefault("exit_rule", exit_rule)
 
+        existing_entry_rule = dict(default_config.get("entry_rule", {}))
+        existing_exit_rule = dict(default_config.get("exit_rule", {}))
+
         risk = dict(default_config.get("risk", {}))
         risk.setdefault("cooldown_bars", 0)
         default_config["risk"] = risk
@@ -1042,8 +1126,21 @@ def _generate_strategy_draft(
             allocation.setdefault("max_position_pct", 1.0)
             default_config["allocation"] = allocation
 
-        existing_entry_rule = dict(default_config.get("entry_rule", {}))
-        existing_exit_rule = dict(default_config.get("exit_rule", {}))
+        if entry_fast_window_edit is not None or entry_slow_window_edit is not None:
+            if existing_entry_rule.get("type") in {"sma_cross_above", "sma_cross_below"}:
+                if entry_fast_window_edit is not None:
+                    existing_entry_rule["fast_window"] = entry_fast_window_edit
+                if entry_slow_window_edit is not None:
+                    existing_entry_rule["slow_window"] = entry_slow_window_edit
+                default_config["entry_rule"] = existing_entry_rule
+
+        if exit_fast_window_edit is not None or exit_slow_window_edit is not None:
+            if existing_exit_rule.get("type") in {"sma_cross_above", "sma_cross_below"}:
+                if exit_fast_window_edit is not None:
+                    existing_exit_rule["fast_window"] = exit_fast_window_edit
+                if exit_slow_window_edit is not None:
+                    existing_exit_rule["slow_window"] = exit_slow_window_edit
+                default_config["exit_rule"] = existing_exit_rule
 
         if rsi_entry_threshold_edit is not None:
             if existing_entry_rule.get("type") == "rsi_below":
@@ -1065,8 +1162,6 @@ def _generate_strategy_draft(
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
             or "sma" in prompt_lower
-            or "entry" in prompt_lower
-            or "buy" in prompt_lower
         ):
             default_config["entry_rule"] = entry_rule
 
@@ -1090,8 +1185,6 @@ def _generate_strategy_draft(
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
             or "sma" in prompt_lower
-            or "exit" in prompt_lower
-            or "sell" in prompt_lower
         ):
             default_config["exit_rule"] = exit_rule
 
@@ -1112,11 +1205,25 @@ def _generate_strategy_draft(
             risk["cooldown_bars"] = cooldown_bars
         default_config["risk"] = risk
 
-        default_config["name"] = _build_strategy_name(
-            default_config["tradable_symbol"],
-            default_config["entry_rule"],
-            default_config["exit_rule"],
-        )
+        if (
+            default_config.get("tradable_symbol") != base_config.get("tradable_symbol")
+            or default_config.get("entry_rule") != base_config.get("entry_rule")
+            or default_config.get("exit_rule") != base_config.get("exit_rule")
+        ):
+            default_config["name"] = _build_strategy_name(
+                default_config["tradable_symbol"],
+                default_config["entry_rule"],
+                default_config["exit_rule"],
+            )
+        else:
+            default_config["name"] = base_config.get(
+                "name",
+                _build_strategy_name(
+                    default_config["tradable_symbol"],
+                    default_config["entry_rule"],
+                    default_config["exit_rule"],
+                ),
+            )
 
     config = _merge_dict(base_config, default_config)
 
@@ -1253,7 +1360,7 @@ def generate_strategy_builder_response(
             ),
         )
 
-    if has_current_config and not changes:
+    if has_current_config and req.context and req.context.current_config == config:
         if _looks_like_edit_request(prompt) and not _is_supported_edit_request(prompt):
             message = (
                 "I understood this as a requested strategy edit, but that edit type is not supported yet. "
