@@ -230,6 +230,34 @@ def test_generate_strategy_builder_draft_parses_seasonality_strategy_multiple_mo
     assert config["exit_rule"]["rule"]["month_values"] == [11, 12]
 
 
+def test_generate_strategy_builder_draft_parses_relative_strength_strategy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a relative strength strategy for QQQ versus SPY over 20 days with 3% threshold",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["entry_rule"]["type"] == "relative_return_above"
+    assert config["entry_rule"]["symbol"] == "QQQ"
+    assert config["entry_rule"]["reference_symbol"] == "SPY"
+    assert config["entry_rule"]["lookback"] == 20
+    assert config["entry_rule"]["threshold"] == 0.03
+
+    assert config["exit_rule"]["kind"] == "not"
+    assert config["exit_rule"]["rule"]["type"] == "relative_return_above"
+    assert config["exit_rule"]["rule"]["symbol"] == "QQQ"
+    assert config["exit_rule"]["rule"]["reference_symbol"] == "SPY"
+    assert config["exit_rule"]["rule"]["lookback"] == 20
+    assert config["exit_rule"]["rule"]["threshold"] == 0.03
+
+
 def test_generate_strategy_builder_draft_parses_using_symbol_as_benchmark_phrase(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -607,6 +635,75 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_seasonali
     assert config["exit_rule"]["kind"] == "not"
     assert config["exit_rule"]["rule"]["type"] == "month_in"
     assert config["exit_rule"]["rule"]["month_values"] == [11]
+    assert config["benchmark_symbol"] == "SPY"
+    assert config["risk"]["stop_loss_pct"] == 0.08
+
+
+def test_generate_strategy_builder_draft_switches_existing_strategy_to_relative_strength(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change this strategy to relative strength versus SPY over 20 days with 3% threshold",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["type"] == "relative_return_above"
+    assert config["entry_rule"]["symbol"] == "QQQ"
+    assert config["entry_rule"]["reference_symbol"] == "SPY"
+    assert config["entry_rule"]["lookback"] == 20
+    assert config["entry_rule"]["threshold"] == 0.03
+
+    assert config["exit_rule"]["kind"] == "not"
+    assert config["exit_rule"]["rule"]["type"] == "relative_return_above"
+    assert config["exit_rule"]["rule"]["symbol"] == "QQQ"
+    assert config["exit_rule"]["rule"]["reference_symbol"] == "SPY"
+    assert config["exit_rule"]["rule"]["lookback"] == 20
+    assert config["exit_rule"]["rule"]["threshold"] == 0.03
+
     assert config["benchmark_symbol"] == "SPY"
     assert config["risk"]["stop_loss_pct"] == 0.08
 
@@ -1124,6 +1221,23 @@ def test_generate_strategy_builder_returns_structured_plan_limits_answer(client)
     assert body["answer_data"]["max_backtest_years"] is not None
 
 
+def test_generate_strategy_builder_returns_structured_supported_strategy_types_answer(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "What strategy types or indicators are supported?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "ANSWER"
+    assert body["answer_data"]["answer_type"] == "SUPPORTED_STRATEGY_TYPES"
+    assert "MACD" in body["message"]
+    assert "KD" in body["message"]
+    assert "seasonality" in body["message"]
+    assert "relative strength" in body["message"]
+
+
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -1188,6 +1302,10 @@ def test_generate_strategy_builder_returns_structured_validation_error_for_unsup
     assert body["response_type"] == "VALIDATION_ERROR"
     assert body["validation_data"]["validation_type"] == "UNSUPPORTED_EDIT"
     assert body["validation_data"]["suggested_action"] is not None
+    assert "MACD" in body["validation_data"]["suggested_action"]
+    assert "KD" in body["validation_data"]["suggested_action"]
+    assert "seasonality" in body["validation_data"]["suggested_action"]
+    assert "relative strength" in body["validation_data"]["suggested_action"]
 
 
 def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(client):
@@ -1243,6 +1361,10 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert body["response_type"] == "ANSWER"
     assert body["guidance_data"]["guidance_type"] == "NO_CHANGE"
     assert len(body["guidance_data"]["suggested_actions"]) > 0
+    assert "Switch to MACD" in body["guidance_data"]["suggested_actions"]
+    assert "Switch to KD / stochastic" in body["guidance_data"]["suggested_actions"]
+    assert "Switch to seasonality by month" in body["guidance_data"]["suggested_actions"]
+    assert "Switch to relative strength" in body["guidance_data"]["suggested_actions"]
 
 
 def test_generate_strategy_builder_returns_guidance_data_for_unsupported_edit_target(client):

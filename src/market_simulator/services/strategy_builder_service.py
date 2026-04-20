@@ -229,6 +229,9 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bseasonality\b",
         r"\bmonth\b",
         r"\bmonths\b",
+        r"\brelative\s+strength\b",
+        r"\brelative\s+return\b",
+        r"\boutperform\b",
         r"\bcapital\b",
         r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
         r"\b(entry|exit)\s+rule\b",
@@ -337,6 +340,27 @@ def _build_answer_message(
             },
         )
 
+    if (
+        "strategy type" in prompt_lower
+        or "strategy types" in prompt_lower
+        or "indicator" in prompt_lower
+        or "indicators" in prompt_lower
+        or "rule type" in prompt_lower
+        or "rule types" in prompt_lower
+    ):
+        return (
+            "Right now the builder supports RSI mean reversion, moving-average crossover edits, "
+            "MACD, KD/stochastic, seasonality by calendar month, and relative strength versus another ETF. "
+            "It also supports benchmark, stop loss, take profit, allocation, cooldown, capital, and date edits.",
+            {
+                "answer_type": StrategyBuilderAnswerType.SUPPORTED_STRATEGY_TYPES,
+                "supported_symbols": [],
+                "supported_data_start": None,
+                "supported_data_end": None,
+                "max_backtest_years": max_backtest_years,
+            },
+        )
+
     return (
         "I can help answer ETF coverage questions, create a new draft, update your current draft, "
         "or explain why a requested edit cannot be applied.",
@@ -413,7 +437,10 @@ def _build_validation_data(
             "supported_data_start": None,
             "supported_data_end": None,
             "max_backtest_years": None,
-            "suggested_action": "Try benchmark, stop loss, take profit, allocation, cooldown, RSI, moving averages, capital, or dates.",
+            "suggested_action": (
+                "Try benchmark, stop loss, take profit, allocation, cooldown, RSI, moving averages, "
+                "MACD, KD/stochastic, seasonality by month, relative strength, capital, or dates."
+            ),
         }
 
     return {
@@ -438,6 +465,10 @@ def _build_guidance_data(
         "Change cooldown",
         "Adjust RSI thresholds",
         "Switch moving-average rules",
+        "Switch to MACD",
+        "Switch to KD / stochastic",
+        "Switch to seasonality by month",
+        "Switch to relative strength",
         "Change capital",
         "Change dates",
     ]
@@ -678,6 +709,97 @@ def _extract_month_values(text: str) -> list[int] | None:
         return None
 
     return sorted(found)
+
+
+def _extract_relative_strength_rules(
+    text: str,
+    *,
+    tradable_symbol: str,
+    fallback_reference_symbol: str,
+) -> tuple[dict, dict, list[str]] | None:
+    text_lower = text.lower()
+    if not any(
+        phrase in text_lower
+        for phrase in ("relative strength", "relative return", "outperform")
+    ):
+        return None
+
+    assumptions: list[str] = []
+
+    reference_symbol = None
+    reference_match = re.search(
+        r"(?:vs|versus|against|compared to|relative to)\s+([A-Z]{2,5})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if reference_match:
+        candidate = reference_match.group(1).upper()
+        if candidate in SUPPORTED_SYMBOLS and candidate != tradable_symbol:
+            reference_symbol = candidate
+
+    if reference_symbol is None:
+        symbols = _extract_symbols(text)
+        for symbol in symbols:
+            if symbol != tradable_symbol:
+                reference_symbol = symbol
+                break
+
+    if reference_symbol is None:
+        if fallback_reference_symbol != tradable_symbol:
+            reference_symbol = fallback_reference_symbol
+            assumptions.append(
+                f"Used {reference_symbol} as the reference symbol by default."
+            )
+        else:
+            reference_symbol = "SPY" if tradable_symbol != "SPY" else "QQQ"
+            assumptions.append(
+                f"Used {reference_symbol} as the reference symbol by default."
+            )
+
+    lookback = _extract_int(
+        text,
+        [
+            r"over\s+(\d+)\s+days?",
+            r"lookback\s+(\d+)",
+            r"(\d+)[-\s]?day",
+        ],
+    )
+    if lookback is None:
+        lookback = 20
+        assumptions.append("Used 20-day lookback for relative strength by default.")
+
+    threshold = _extract_percent(
+        text,
+        [
+            r"with\s+(\d+(?:\.\d+)?)%\s+threshold",
+            r"above\s+(\d+(?:\.\d+)?)%",
+            r"by\s+(\d+(?:\.\d+)?)%",
+        ],
+    )
+    if threshold is None:
+        threshold = 0.03
+        assumptions.append("Used 3.0% threshold for relative strength by default.")
+
+    base_rule = {
+        "kind": "atomic",
+        "type": "relative_return_above",
+        "symbol": tradable_symbol,
+        "reference_symbol": reference_symbol,
+        "lookback": lookback,
+        "threshold": threshold,
+    }
+
+    entry_rule = dict(base_rule)
+    exit_rule = {
+        "kind": "not",
+        "rule": dict(base_rule),
+    }
+
+    assumptions.append(
+        "Interpreted relative strength language as entering when the tradable symbol outperforms the reference symbol over the selected lookback window."
+    )
+
+    return entry_rule, exit_rule, assumptions
 
 
 def _has_partial_sma_window_edit(
@@ -1143,6 +1265,23 @@ def _generate_strategy_draft(
             "Interpreted seasonality/month language as entering only during the selected calendar months."
         )
 
+    relative_strength_rules = _extract_relative_strength_rules(
+        prompt,
+        tradable_symbol=(
+            current_config.get("tradable_symbol", tradable_symbol)
+            if has_current_config
+            else tradable_symbol
+        ),
+        fallback_reference_symbol=(
+            current_config.get("benchmark_symbol", benchmark_symbol)
+            if has_current_config
+            else benchmark_symbol
+        ),
+    )
+    if relative_strength_rules is not None:
+        entry_rule, exit_rule, relative_strength_assumptions = relative_strength_rules
+        assumptions.extend(relative_strength_assumptions)
+
     if "mean reversion" in prompt_lower and entry_rule is None and exit_rule is None:
         entry_rule = {
             "kind": "atomic",
@@ -1307,6 +1446,9 @@ def _generate_strategy_draft(
             or "seasonality" in prompt_lower
             or "month" in prompt_lower
             or "months" in prompt_lower
+            or "relative strength" in prompt_lower
+            or "relative return" in prompt_lower
+            or "outperform" in prompt_lower
         ):
             default_config["entry_rule"] = entry_rule
 
@@ -1336,6 +1478,9 @@ def _generate_strategy_draft(
             or "seasonality" in prompt_lower
             or "month" in prompt_lower
             or "months" in prompt_lower
+            or "relative strength" in prompt_lower
+            or "relative return" in prompt_lower
+            or "outperform" in prompt_lower
         ):
             default_config["exit_rule"] = exit_rule
 
@@ -1516,7 +1661,8 @@ def generate_strategy_builder_response(
             message = (
                 "I understood this as a requested strategy edit, but that edit type is not supported yet. "
                 "Right now I can help with benchmark, stop loss, take profit, allocation, cooldown, "
-                "RSI thresholds, moving-average rules, capital, and dates."
+                "RSI thresholds, moving-average rules, MACD, KD/stochastic, seasonality by month, "
+                "relative strength, capital, and dates."
             )
             return _build_response(
                 response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
@@ -1535,7 +1681,9 @@ def generate_strategy_builder_response(
             message=(
                 "I reviewed your request, but it did not change the current draft. "
                 "You can ask for a specific edit like changing benchmark, stop loss, "
-                "take profit, allocation, cooldown, RSI thresholds, moving-average rules, capital, or dates."
+                "take profit, allocation, cooldown, RSI thresholds, moving-average rules, switching to MACD, "
+                "switching to KD/stochastic, switching to seasonality by month, switching to relative strength, "
+                "capital, or dates."
             ),
             guidance_data=_build_guidance_data(
                 guidance_type=StrategyBuilderGuidanceType.NO_CHANGE,
