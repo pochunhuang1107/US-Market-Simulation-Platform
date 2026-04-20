@@ -314,6 +314,20 @@ export type StrategyBuilderResponseType =
   | 'UPDATE_DRAFT'
   | 'VALIDATION_ERROR';
 
+export type StrategyBuilderAnswerType =
+  | 'SUPPORTED_SYMBOLS'
+  | 'DATA_COVERAGE'
+  | 'PLAN_LIMITS'
+  | 'GENERAL';
+
+export interface StrategyBuilderAnswerData {
+  answer_type: StrategyBuilderAnswerType;
+  supported_symbols: string[];
+  supported_data_start?: string | null;
+  supported_data_end?: string | null;
+  max_backtest_years?: number | null;
+}
+
 export interface StrategyBuilderGenerateResponse {
   response_type: StrategyBuilderResponseType;
   message: string;
@@ -322,6 +336,7 @@ export interface StrategyBuilderGenerateResponse {
   warnings: string[];
   assumptions: string[];
   changes: string[];
+  answer_data?: StrategyBuilderAnswerData | null;
 }
 
 export interface MeUserResponse {

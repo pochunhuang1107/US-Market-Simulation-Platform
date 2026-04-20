@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from market_simulator.api.schemas.strategy_builder import (
+    StrategyBuilderAnswerType,
     StrategyBuilderGenerateRequest,
     StrategyBuilderResponseType,
 )
@@ -276,30 +277,64 @@ def _looks_like_question(prompt: str) -> bool:
     )
 
 
-def _build_answer_message(*, prompt: str, max_backtest_years: int) -> str:
+def _build_answer_message(
+    *,
+    prompt: str,
+    max_backtest_years: int,
+) -> tuple[str, dict[str, Any]]:
     settings = get_settings()
     prompt_lower = prompt.lower()
 
     if "symbol" in prompt_lower or "etf" in prompt_lower:
-        symbols = ", ".join(sorted(settings.supported_etf_symbols))
-        return f"Supported ETF symbols right now are: {symbols}."
+        symbols = sorted(settings.supported_etf_symbols)
+        return (
+            f"Supported ETF symbols right now are: {', '.join(symbols)}.",
+            {
+                "answer_type": StrategyBuilderAnswerType.SUPPORTED_SYMBOLS,
+                "supported_symbols": symbols,
+                "supported_data_start": None,
+                "supported_data_end": None,
+                "max_backtest_years": None,
+            },
+        )
 
     if "date" in prompt_lower or "range" in prompt_lower or "history" in prompt_lower:
         return (
             "Supported data coverage is "
             f"{settings.supported_data_start.isoformat()} to {settings.supported_data_end.isoformat()}, "
-            f"and your current plan allows up to {max_backtest_years} years per backtest."
+            f"and your current plan allows up to {max_backtest_years} years per backtest.",
+            {
+                "answer_type": StrategyBuilderAnswerType.DATA_COVERAGE,
+                "supported_symbols": [],
+                "supported_data_start": settings.supported_data_start.isoformat(),
+                "supported_data_end": settings.supported_data_end.isoformat(),
+                "max_backtest_years": max_backtest_years,
+            },
         )
 
     if "limit" in prompt_lower or "plan" in prompt_lower:
         return (
             "The builder applies plan guardrails such as max prompt length, daily prompt limits, "
-            f"and a maximum backtest window of {max_backtest_years} years."
+            f"and a maximum backtest window of {max_backtest_years} years.",
+            {
+                "answer_type": StrategyBuilderAnswerType.PLAN_LIMITS,
+                "supported_symbols": [],
+                "supported_data_start": None,
+                "supported_data_end": None,
+                "max_backtest_years": max_backtest_years,
+            },
         )
 
     return (
         "I can help answer ETF coverage questions, create a new draft, update your current draft, "
-        "or explain why a requested edit cannot be applied."
+        "or explain why a requested edit cannot be applied.",
+        {
+            "answer_type": StrategyBuilderAnswerType.GENERAL,
+            "supported_symbols": [],
+            "supported_data_start": None,
+            "supported_data_end": None,
+            "max_backtest_years": max_backtest_years,
+        },
     )
 
 
@@ -312,6 +347,7 @@ def _build_response(
     warnings: list[str] | None = None,
     assumptions: list[str] | None = None,
     changes: list[str] | None = None,
+    answer_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "response_type": response_type,
@@ -321,6 +357,7 @@ def _build_response(
         "warnings": warnings or [],
         "assumptions": assumptions or [],
         "changes": changes or [],
+        "answer_data": answer_data,
     }
 
 
@@ -1053,12 +1090,14 @@ def generate_strategy_builder_response(
     has_current_config = _has_current_config(req)
 
     if _looks_like_question(prompt):
+        answer_message, answer_data = _build_answer_message(
+            prompt=prompt,
+            max_backtest_years=max_backtest_years,
+        )
         return _build_response(
             response_type=StrategyBuilderResponseType.ANSWER,
-            message=_build_answer_message(
-                prompt=prompt,
-                max_backtest_years=max_backtest_years,
-            ),
+            message=answer_message,
+            answer_data=answer_data,
         )
 
     try:

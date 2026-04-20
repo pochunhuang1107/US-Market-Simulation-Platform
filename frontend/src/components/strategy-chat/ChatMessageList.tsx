@@ -1,39 +1,6 @@
 import { StrategyDraftCard } from './StrategyDraftCard';
 import type { ChatMessage } from './types';
 
-function parseSupportedSymbols(text: string): string[] {
-  const match = text.match(/Supported ETF symbols right now are:\s*(.+)\./i);
-  if (!match) return [];
-  return match[1]
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function parseCoverageAnswer(
-  text: string
-): { startDate: string; endDate: string; maxYears: string } | null {
-  const match = text.match(
-    /Supported data coverage is\s+(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2}),\s+and your current plan allows up to\s+(\d+)\s+years?/i
-  );
-  if (!match) return null;
-
-  return {
-    startDate: match[1],
-    endDate: match[2],
-    maxYears: match[3]
-  };
-}
-
-function parsePlanLimitAnswer(text: string): { maxYears: string } | null {
-  const match = text.match(/maximum backtest window of\s+(\d+)\s+years?/i);
-  if (!match) return null;
-
-  return {
-    maxYears: match[1]
-  };
-}
-
 function AssistantMessageCard({
   tone,
   title,
@@ -91,23 +58,31 @@ function InfoPill({
   );
 }
 
-function StrategyAnswerCard({ text }: { text: string }) {
-  const symbols = parseSupportedSymbols(text);
-  const coverage = parseCoverageAnswer(text);
-  const planLimits = parsePlanLimitAnswer(text);
-
-  if (symbols.length > 0) {
+function StrategyAnswerCard({
+  text,
+  answerData
+}: {
+  text: string;
+  answerData?: ChatMessage extends infer _T
+    ? {
+        answer_type: string;
+        supported_symbols?: string[];
+        supported_data_start?: string | null;
+        supported_data_end?: string | null;
+        max_backtest_years?: number | null;
+      } | null
+    : never;
+}) {
+  if (answerData?.answer_type === 'SUPPORTED_SYMBOLS' && answerData.supported_symbols?.length) {
     return (
       <div className="w-full max-w-5xl rounded-[32px] border border-cyan-500/30 bg-cyan-500/10 p-5 text-cyan-100">
         <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
           Strategy Assistant
         </div>
         <h3 className="text-lg font-semibold text-cyan-50">Supported ETF symbols</h3>
-        <p className="mt-2 text-sm leading-6 text-cyan-100/90">
-          This platform is currently ETF-first. Here are the supported symbols available in the builder.
-        </p>
+        <p className="mt-2 text-sm leading-6 text-cyan-100/90">{text}</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          {symbols.map((symbol) => (
+          {answerData.supported_symbols.map((symbol) => (
             <span
               key={symbol}
               className="rounded-full border border-cyan-400/30 bg-slate-950/20 px-3 py-1 text-xs font-semibold tracking-[0.14em] text-cyan-50"
@@ -120,26 +95,29 @@ function StrategyAnswerCard({ text }: { text: string }) {
     );
   }
 
-  if (coverage) {
+  if (
+    answerData?.answer_type === 'DATA_COVERAGE' &&
+    answerData.supported_data_start &&
+    answerData.supported_data_end &&
+    answerData.max_backtest_years
+  ) {
     return (
       <div className="w-full max-w-5xl rounded-[32px] border border-cyan-500/30 bg-cyan-500/10 p-5 text-cyan-100">
         <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
           Strategy Assistant
         </div>
         <h3 className="text-lg font-semibold text-cyan-50">Coverage and plan window</h3>
-        <p className="mt-2 text-sm leading-6 text-cyan-100/90">
-          Here is the currently supported ETF data window and your plan’s maximum backtest range.
-        </p>
+        <p className="mt-2 text-sm leading-6 text-cyan-100/90">{text}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <InfoPill label="Supported Start" value={coverage.startDate} />
-          <InfoPill label="Supported End" value={coverage.endDate} />
-          <InfoPill label="Plan Max Years" value={coverage.maxYears} />
+          <InfoPill label="Supported Start" value={answerData.supported_data_start} />
+          <InfoPill label="Supported End" value={answerData.supported_data_end} />
+          <InfoPill label="Plan Max Years" value={String(answerData.max_backtest_years)} />
         </div>
       </div>
     );
   }
 
-  if (planLimits) {
+  if (answerData?.answer_type === 'PLAN_LIMITS' && answerData.max_backtest_years) {
     return (
       <div className="w-full max-w-5xl rounded-[32px] border border-cyan-500/30 bg-cyan-500/10 p-5 text-cyan-100">
         <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
@@ -147,7 +125,7 @@ function StrategyAnswerCard({ text }: { text: string }) {
         </div>
         <h3 className="text-lg font-semibold text-cyan-50">Current plan limits</h3>
         <div className="mt-4 grid gap-3 md:grid-cols-1">
-          <InfoPill label="Plan Max Years" value={planLimits.maxYears} />
+          <InfoPill label="Plan Max Years" value={String(answerData.max_backtest_years)} />
         </div>
         <p className="mt-4 text-sm leading-6 text-cyan-100/90">{text}</p>
       </div>
@@ -203,7 +181,10 @@ export function ChatMessageList({
         if (responseType === 'ANSWER') {
           return (
             <div key={message.id} className="flex justify-start">
-              <StrategyAnswerCard text={message.text} />
+              <StrategyAnswerCard
+                text={message.text}
+                answerData={message.draft?.answer_data ?? null}
+              />
             </div>
           );
         }

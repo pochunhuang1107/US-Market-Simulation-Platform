@@ -28,6 +28,21 @@ class StrategyBuilderResponseType(str, Enum):
     VALIDATION_ERROR = "VALIDATION_ERROR"
 
 
+class StrategyBuilderAnswerType(str, Enum):
+    SUPPORTED_SYMBOLS = "SUPPORTED_SYMBOLS"
+    DATA_COVERAGE = "DATA_COVERAGE"
+    PLAN_LIMITS = "PLAN_LIMITS"
+    GENERAL = "GENERAL"
+
+
+class StrategyBuilderAnswerData(BaseModel):
+    answer_type: StrategyBuilderAnswerType
+    supported_symbols: list[str] = Field(default_factory=list)
+    supported_data_start: str | None = None
+    supported_data_end: str | None = None
+    max_backtest_years: int | None = None
+
+
 class StrategyBuilderGenerateResponse(BaseModel):
     response_type: StrategyBuilderResponseType
     message: str
@@ -36,3 +51,4 @@ class StrategyBuilderGenerateResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     changes: list[str] = Field(default_factory=list)
+    answer_data: StrategyBuilderAnswerData | None = None

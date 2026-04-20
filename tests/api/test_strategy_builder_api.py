@@ -798,3 +798,47 @@ def test_generate_strategy_builder_returns_validation_error_for_unsupported_edit
     assert body["response_type"] == "VALIDATION_ERROR"
     assert "not supported yet" in body["message"]
     assert "benchmark" in body["message"]
+
+
+def test_generate_strategy_builder_returns_structured_supported_symbols_answer(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "What ETF symbols are currently supported?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "ANSWER"
+    assert body["answer_data"]["answer_type"] == "SUPPORTED_SYMBOLS"
+    assert "QQQ" in body["answer_data"]["supported_symbols"]
+
+
+def test_generate_strategy_builder_returns_structured_data_coverage_answer(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "What date range is supported?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "ANSWER"
+    assert body["answer_data"]["answer_type"] == "DATA_COVERAGE"
+    assert body["answer_data"]["supported_data_start"] is not None
+    assert body["answer_data"]["supported_data_end"] is not None
+    assert body["answer_data"]["max_backtest_years"] is not None
+
+
+def test_generate_strategy_builder_returns_structured_plan_limits_answer(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "What are my plan limits?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "ANSWER"
+    assert body["answer_data"]["answer_type"] == "PLAN_LIMITS"
+    assert body["answer_data"]["max_backtest_years"] is not None
