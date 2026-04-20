@@ -802,6 +802,78 @@ def _extract_relative_strength_rules(
     return entry_rule, exit_rule, assumptions
 
 
+def _extract_relative_strength_reference_symbol_edit(text: str) -> str | None:
+    patterns = [
+        r"change\s+relative\s+(?:strength|return)\s+reference(?:\s+symbol)?\s+to\s+([A-Z]{2,5})",
+        r"set\s+relative\s+(?:strength|return)\s+reference(?:\s+symbol)?\s+to\s+([A-Z]{2,5})",
+        r"change\s+relative\s+(?:strength|return)\s+(?:vs|versus|against|relative to)\s+([A-Z]{2,5})",
+        r"set\s+relative\s+(?:strength|return)\s+(?:vs|versus|against|relative to)\s+([A-Z]{2,5})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def _extract_relative_strength_lookback_edit(text: str) -> int | None:
+    patterns = [
+        r"change\s+relative\s+(?:strength|return)\s+lookback\s+to\s+(\d+)",
+        r"set\s+relative\s+(?:strength|return)\s+lookback\s+to\s+(\d+)",
+        r"change\s+relative\s+(?:strength|return)\s+to\s+\d+\s+days?",
+        r"set\s+relative\s+(?:strength|return)\s+to\s+\d+\s+days?",
+        r"relative\s+(?:strength|return)\s+over\s+(\d+)\s+days?",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match and match.groups():
+            return int(match.group(1))
+    return None
+
+
+def _extract_relative_strength_threshold_edit(text: str) -> float | None:
+    return _extract_percent(
+        text,
+        [
+            r"change\s+relative\s+(?:strength|return)\s+threshold\s+to\s+(\d+(?:\.\d+)?)%",
+            r"set\s+relative\s+(?:strength|return)\s+threshold\s+to\s+(\d+(?:\.\d+)?)%",
+            r"relative\s+(?:strength|return)\s+threshold\s+to\s+(\d+(?:\.\d+)?)%",
+        ],
+    )
+
+
+def _has_partial_relative_strength_edit(
+    *,
+    reference_symbol_edit: str | None,
+    lookback_edit: int | None,
+    threshold_edit: float | None,
+) -> bool:
+    return any(
+        value is not None
+        for value in (
+            reference_symbol_edit,
+            lookback_edit,
+            threshold_edit,
+        )
+    )
+
+
+def _is_relative_strength_entry_rule(rule: dict) -> bool:
+    return (
+        rule.get("kind") == "atomic"
+        and rule.get("type") == "relative_return_above"
+    )
+
+
+def _is_relative_strength_exit_rule(rule: dict) -> bool:
+    nested_rule = rule.get("rule", {})
+    return (
+        rule.get("kind") == "not"
+        and nested_rule.get("kind") == "atomic"
+        and nested_rule.get("type") == "relative_return_above"
+    )
+
+
 def _has_partial_sma_window_edit(
     *,
     entry_fast_window_edit: int | None,
@@ -928,6 +1000,12 @@ def _format_pct(value: Any) -> str:
     return f"{float(value) * 100:.1f}%"
 
 
+def _format_month_values(value: Any) -> str:
+    if not value:
+        return "none"
+    return ", ".join(str(month) for month in value)
+
+
 def _record_change(changes: list[str], before: Any, after: Any, label: str, formatter=str) -> None:
     if before == after:
         return
@@ -948,6 +1026,8 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     final_entry = config.get("entry_rule", {}) or {}
     base_exit = base_config.get("exit_rule", {}) or {}
     final_exit = config.get("exit_rule", {}) or {}
+    base_exit_nested = base_exit.get("rule", {}) if base_exit.get("kind") == "not" else {}
+    final_exit_nested = final_exit.get("rule", {}) if final_exit.get("kind") == "not" else {}
 
     _record_change(
         changes,
@@ -1030,6 +1110,53 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         final_exit.get("slow_window"),
         "exit slow window",
     )
+    _record_change(
+        changes,
+        base_entry.get("month_values"),
+        final_entry.get("month_values"),
+        "seasonality months",
+        _format_month_values,
+    )
+    _record_change(
+        changes,
+        base_entry.get("reference_symbol"),
+        final_entry.get("reference_symbol"),
+        "relative strength reference symbol",
+    )
+    _record_change(
+        changes,
+        base_entry.get("lookback"),
+        final_entry.get("lookback"),
+        "relative strength lookback",
+    )
+    _record_change(
+        changes,
+        base_entry.get("threshold"),
+        final_entry.get("threshold"),
+        "relative strength threshold",
+        _format_pct,
+    )
+
+    if base_exit_nested or final_exit_nested:
+        _record_change(
+            changes,
+            base_exit_nested.get("reference_symbol"),
+            final_exit_nested.get("reference_symbol"),
+            "relative strength exit reference symbol",
+        )
+        _record_change(
+            changes,
+            base_exit_nested.get("lookback"),
+            final_exit_nested.get("lookback"),
+            "relative strength exit lookback",
+        )
+        _record_change(
+            changes,
+            base_exit_nested.get("threshold"),
+            final_exit_nested.get("threshold"),
+            "relative strength exit threshold",
+            _format_pct,
+        )
 
     return changes
 
@@ -1244,6 +1371,16 @@ def _generate_strategy_draft(
 
     month_values = _extract_month_values(prompt)
 
+    relative_strength_reference_symbol_edit = _extract_relative_strength_reference_symbol_edit(prompt)
+    relative_strength_lookback_edit = _extract_relative_strength_lookback_edit(prompt)
+    relative_strength_threshold_edit = _extract_relative_strength_threshold_edit(prompt)
+
+    has_partial_relative_strength_edit = _has_partial_relative_strength_edit(
+        reference_symbol_edit=relative_strength_reference_symbol_edit,
+        lookback_edit=relative_strength_lookback_edit,
+        threshold_edit=relative_strength_threshold_edit,
+    )
+
     if (
         ("seasonality" in prompt_lower or "month" in prompt_lower or "months" in prompt_lower)
         and month_values is not None
@@ -1387,6 +1524,31 @@ def _generate_strategy_draft(
         existing_entry_rule = dict(default_config.get("entry_rule", {}))
         existing_exit_rule = dict(default_config.get("exit_rule", {}))
 
+        if has_partial_relative_strength_edit:
+            if _is_relative_strength_entry_rule(existing_entry_rule) and _is_relative_strength_exit_rule(existing_exit_rule):
+                updated_entry_rule = dict(existing_entry_rule)
+                updated_exit_rule = dict(existing_exit_rule)
+                updated_exit_nested_rule = dict(updated_exit_rule.get("rule", {}))
+
+                if relative_strength_reference_symbol_edit is not None:
+                    updated_entry_rule["reference_symbol"] = relative_strength_reference_symbol_edit
+                    updated_exit_nested_rule["reference_symbol"] = relative_strength_reference_symbol_edit
+
+                if relative_strength_lookback_edit is not None:
+                    updated_entry_rule["lookback"] = relative_strength_lookback_edit
+                    updated_exit_nested_rule["lookback"] = relative_strength_lookback_edit
+
+                if relative_strength_threshold_edit is not None:
+                    updated_entry_rule["threshold"] = relative_strength_threshold_edit
+                    updated_exit_nested_rule["threshold"] = relative_strength_threshold_edit
+
+                updated_exit_rule["rule"] = updated_exit_nested_rule
+                default_config["entry_rule"] = updated_entry_rule
+                default_config["exit_rule"] = updated_exit_rule
+
+                existing_entry_rule = updated_entry_rule
+                existing_exit_rule = updated_exit_rule
+
         risk = dict(default_config.get("risk", {}))
         risk.setdefault("cooldown_bars", 0)
         default_config["risk"] = risk
@@ -1435,7 +1597,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_entry_threshold_edit,
                 }
 
-        elif entry_rule is not None and not has_partial_sma_window_edit and (
+        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -1467,7 +1629,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_exit_threshold_edit,
                 }
 
-        elif exit_rule is not None and not has_partial_sma_window_edit and (
+        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower

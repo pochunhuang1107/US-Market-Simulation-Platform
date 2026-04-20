@@ -708,6 +708,256 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_relative_
     assert config["risk"]["stop_loss_pct"] == 0.08
 
 
+def test_generate_strategy_builder_draft_updates_seasonality_months_and_records_change(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change months to January and February",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-month-in-to-not-month-in",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "month_in",
+                        "month_values": [11],
+                    },
+                    "exit_rule": {
+                        "kind": "not",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "month_in",
+                            "month_values": [11],
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["month_values"] == [1, 2]
+    assert config["exit_rule"]["rule"]["month_values"] == [1, 2]
+    assert "Updated seasonality months from 11 to 1, 2." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_updates_relative_strength_reference_symbol(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change relative strength reference to TLT",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-relative-strength-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "relative_return_above",
+                        "symbol": "QQQ",
+                        "reference_symbol": "SPY",
+                        "lookback": 20,
+                        "threshold": 0.03,
+                    },
+                    "exit_rule": {
+                        "kind": "not",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "relative_return_above",
+                            "symbol": "QQQ",
+                            "reference_symbol": "SPY",
+                            "lookback": 20,
+                            "threshold": 0.03,
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["reference_symbol"] == "TLT"
+    assert config["exit_rule"]["rule"]["reference_symbol"] == "TLT"
+    assert "Updated relative strength reference symbol from SPY to TLT." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_updates_relative_strength_lookback(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change relative strength lookback to 60",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-relative-strength-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "relative_return_above",
+                        "symbol": "QQQ",
+                        "reference_symbol": "SPY",
+                        "lookback": 20,
+                        "threshold": 0.03,
+                    },
+                    "exit_rule": {
+                        "kind": "not",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "relative_return_above",
+                            "symbol": "QQQ",
+                            "reference_symbol": "SPY",
+                            "lookback": 20,
+                            "threshold": 0.03,
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["lookback"] == 60
+    assert config["exit_rule"]["rule"]["lookback"] == 60
+    assert "Updated relative strength lookback from 20 to 60." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_updates_relative_strength_threshold(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change relative strength threshold to 5%",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-relative-strength-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "relative_return_above",
+                        "symbol": "QQQ",
+                        "reference_symbol": "SPY",
+                        "lookback": 20,
+                        "threshold": 0.03,
+                    },
+                    "exit_rule": {
+                        "kind": "not",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "relative_return_above",
+                            "symbol": "QQQ",
+                            "reference_symbol": "SPY",
+                            "lookback": 20,
+                            "threshold": 0.03,
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["threshold"] == 0.05
+    assert config["exit_rule"]["rule"]["threshold"] == 0.05
+    assert "Updated relative strength threshold from 3.0% to 5.0%." in body["changes"]
+
+
 def test_generate_strategy_builder_draft_applies_sequential_stop_loss_take_profit_allocation_benchmark_and_cooldown_edits(client):
     response = client.post(
         "/strategy-builder/generate",
