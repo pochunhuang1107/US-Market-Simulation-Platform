@@ -1125,3 +1125,25 @@ def test_generate_strategy_builder_does_not_replace_exit_rule_with_fallback_rsi_
 
     assert config["exit_rule"]["type"] != "rsi_above"
     assert config["exit_rule"]["symbol"] == "SPY"
+
+
+def test_generate_strategy_builder_draft_defaults_position_management_to_none(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create an SMA crossover strategy for SPY"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    config = body["config"]
+
+    assert config["tradable_symbol"] == "SPY"
+    assert config["allocation"]["entry_value"] == 1.0
+    assert config["allocation"]["max_position_pct"] == 1.0
+    assert config["core_overlay"]["enabled"] is False
+
+    # Critical alignment check:
+    # missing position_management should stay absent/null in generated drafts
+    assert "position_management" not in config or config["position_management"] is None
