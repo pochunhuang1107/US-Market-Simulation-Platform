@@ -19,6 +19,8 @@ def _extract_requested_symbols_from_prompt(prompt: str) -> set[str]:
         "MACD",
         "KD",
         "STOCHASTIC",
+        "MONTH",
+        "MONTHS",
         "AND",
         "OR",
         "NOT",

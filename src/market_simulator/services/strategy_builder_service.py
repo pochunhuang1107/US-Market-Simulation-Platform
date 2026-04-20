@@ -226,6 +226,9 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bmacd\b",
         r"\bkd\b",
         r"\bstochastic\b",
+        r"\bseasonality\b",
+        r"\bmonth\b",
+        r"\bmonths\b",
         r"\bcapital\b",
         r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
         r"\b(entry|exit)\s+rule\b",
@@ -647,6 +650,36 @@ def _extract_exit_slow_window_edit(text: str) -> int | None:
     return _extract_int(text, patterns)
 
 
+_MONTH_NAME_TO_NUMBER = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+
+
+def _extract_month_values(text: str) -> list[int] | None:
+    found: list[int] = []
+
+    for month_name, month_number in _MONTH_NAME_TO_NUMBER.items():
+        if re.search(rf"\b{month_name}\b", text, flags=re.IGNORECASE):
+            if month_number not in found:
+                found.append(month_number)
+
+    if not found:
+        return None
+
+    return sorted(found)
+
+
 def _has_partial_sma_window_edit(
     *,
     entry_fast_window_edit: int | None,
@@ -670,9 +703,34 @@ def _build_strategy_name(
     entry_rule: dict,
     exit_rule: dict,
 ) -> str:
-    entry_label = entry_rule["type"].replace("_", "-")
-    exit_label = exit_rule["type"].replace("_", "-")
+    entry_label = _rule_label(entry_rule)
+    exit_label = _rule_label(exit_rule)
     return f"{symbol.lower()}-{entry_label}-to-{exit_label}"
+
+
+def _rule_label(rule: dict) -> str:
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        return str(rule["type"]).replace("_", "-")
+
+    if kind == "not":
+        nested_rule = rule.get("rule", {})
+        return f"not-{_rule_label(nested_rule)}"
+
+    if kind == "group":
+        operator = str(rule.get("operator", "group")).lower()
+        return operator
+
+    if kind == "window":
+        nested_rule = rule.get("rule", {})
+        mode = str(rule.get("mode", "window")).lower()
+        return f"{mode}-window-{_rule_label(nested_rule)}"
+
+    if kind == "sequence":
+        return "sequence"
+
+    return "rule"
 
 
 def _merge_dict(base: dict, updates: dict) -> dict:
@@ -1062,6 +1120,29 @@ def _generate_strategy_draft(
             "Interpreted 'KD' as KD golden cross for entry and KD dead cross for exit."
         )
 
+    month_values = _extract_month_values(prompt)
+
+    if (
+        ("seasonality" in prompt_lower or "month" in prompt_lower or "months" in prompt_lower)
+        and month_values is not None
+    ):
+        entry_rule = {
+            "kind": "atomic",
+            "type": "month_in",
+            "month_values": month_values,
+        }
+        exit_rule = {
+            "kind": "not",
+            "rule": {
+                "kind": "atomic",
+                "type": "month_in",
+                "month_values": month_values,
+            },
+        }
+        assumptions.append(
+            "Interpreted seasonality/month language as entering only during the selected calendar months."
+        )
+
     if "mean reversion" in prompt_lower and entry_rule is None and exit_rule is None:
         entry_rule = {
             "kind": "atomic",
@@ -1223,6 +1304,9 @@ def _generate_strategy_draft(
             or "macd" in prompt_lower
             or "kd" in prompt_lower
             or "stochastic" in prompt_lower
+            or "seasonality" in prompt_lower
+            or "month" in prompt_lower
+            or "months" in prompt_lower
         ):
             default_config["entry_rule"] = entry_rule
 
@@ -1249,6 +1333,9 @@ def _generate_strategy_draft(
             or "macd" in prompt_lower
             or "kd" in prompt_lower
             or "stochastic" in prompt_lower
+            or "seasonality" in prompt_lower
+            or "month" in prompt_lower
+            or "months" in prompt_lower
         ):
             default_config["exit_rule"] = exit_rule
 
@@ -1314,8 +1401,8 @@ def _generate_strategy_draft(
             end_date_str=summary_end_date,
             assumptions=assumptions,
         ),
-        f"with entry rule {effective_entry['type']}",
-        f"and exit rule {effective_exit['type']}.",
+        f"with entry rule {_rule_label(effective_entry)}",
+        f"and exit rule {_rule_label(effective_exit)}.",
     ]
 
     if effective_benchmark != effective_symbol:

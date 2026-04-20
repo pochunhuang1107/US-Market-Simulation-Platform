@@ -188,6 +188,48 @@ def test_generate_strategy_builder_draft_parses_stochastic_strategy_as_kd(client
     assert config["exit_rule"]["type"] == "kd_dead_cross"
 
 
+def test_generate_strategy_builder_draft_parses_seasonality_strategy_single_month(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a seasonality strategy for QQQ in November",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["entry_rule"]["type"] == "month_in"
+    assert config["entry_rule"]["month_values"] == [11]
+    assert config["exit_rule"]["kind"] == "not"
+    assert config["exit_rule"]["rule"]["type"] == "month_in"
+    assert config["exit_rule"]["rule"]["month_values"] == [11]
+
+
+def test_generate_strategy_builder_draft_parses_seasonality_strategy_multiple_months(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a month strategy for SPY in November and December",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["tradable_symbol"] == "SPY"
+    assert config["entry_rule"]["type"] == "month_in"
+    assert config["entry_rule"]["month_values"] == [11, 12]
+    assert config["exit_rule"]["kind"] == "not"
+    assert config["exit_rule"]["rule"]["type"] == "month_in"
+    assert config["exit_rule"]["rule"]["month_values"] == [11, 12]
+
+
 def test_generate_strategy_builder_draft_parses_using_symbol_as_benchmark_phrase(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -504,6 +546,67 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_kd(client
     assert config["exit_rule"]["type"] == "kd_dead_cross"
     assert config["entry_rule"]["symbol"] == "QQQ"
     assert config["exit_rule"]["symbol"] == "QQQ"
+    assert config["benchmark_symbol"] == "SPY"
+    assert config["risk"]["stop_loss_pct"] == 0.08
+
+
+def test_generate_strategy_builder_draft_switches_existing_strategy_to_seasonality(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change this strategy to seasonality in November",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["type"] == "month_in"
+    assert config["entry_rule"]["month_values"] == [11]
+    assert config["exit_rule"]["kind"] == "not"
+    assert config["exit_rule"]["rule"]["type"] == "month_in"
+    assert config["exit_rule"]["rule"]["month_values"] == [11]
     assert config["benchmark_symbol"] == "SPY"
     assert config["risk"]["stop_loss_pct"] == 0.08
 
