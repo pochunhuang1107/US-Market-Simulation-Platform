@@ -908,3 +908,113 @@ def test_generate_strategy_builder_returns_structured_validation_error_for_unsup
     assert body["response_type"] == "VALIDATION_ERROR"
     assert body["validation_data"]["validation_type"] == "UNSUPPORTED_EDIT"
     assert body["validation_data"]["suggested_action"] is not None
+
+
+def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "tell me what this draft can do",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "QQQ",
+                    "reference_symbols": [],
+                    "start_date": "2021-04-14",
+                    "end_date": "2026-04-14",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "ANSWER"
+    assert body["guidance_data"]["guidance_type"] == "NO_CHANGE"
+    assert len(body["guidance_data"]["suggested_actions"]) > 0
+
+
+def test_generate_strategy_builder_returns_guidance_data_for_unsupported_edit_target(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "add bollinger bands confirmation",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "QQQ",
+                    "reference_symbols": [],
+                    "start_date": "2021-04-14",
+                    "end_date": "2026-04-14",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["guidance_data"]["guidance_type"] == "UNSUPPORTED_EDIT_TARGET"
+    assert len(body["guidance_data"]["suggested_actions"]) > 0

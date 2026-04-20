@@ -44,6 +44,12 @@ class StrategyBuilderValidationType(str, Enum):
     GENERAL = "GENERAL"
 
 
+class StrategyBuilderGuidanceType(str, Enum):
+    NO_CHANGE = "NO_CHANGE"
+    UNSUPPORTED_EDIT_TARGET = "UNSUPPORTED_EDIT_TARGET"
+    GENERAL_GUIDANCE = "GENERAL_GUIDANCE"
+
+
 class StrategyBuilderAnswerData(BaseModel):
     answer_type: StrategyBuilderAnswerType
     supported_symbols: list[str] = Field(default_factory=list)
@@ -61,6 +67,11 @@ class StrategyBuilderValidationData(BaseModel):
     suggested_action: str | None = None
 
 
+class StrategyBuilderGuidanceData(BaseModel):
+    guidance_type: StrategyBuilderGuidanceType
+    suggested_actions: list[str] = Field(default_factory=list)
+
+
 class StrategyBuilderGenerateResponse(BaseModel):
     response_type: StrategyBuilderResponseType
     message: str
@@ -71,3 +82,4 @@ class StrategyBuilderGenerateResponse(BaseModel):
     changes: list[str] = Field(default_factory=list)
     answer_data: StrategyBuilderAnswerData | None = None
     validation_data: StrategyBuilderValidationData | None = None
+    guidance_data: StrategyBuilderGuidanceData | None = None

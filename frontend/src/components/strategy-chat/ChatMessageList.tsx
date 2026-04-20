@@ -279,6 +279,38 @@ function StrategyValidationCard({
   return <AssistantMessageCard tone="warning" title="Validation guidance" text={text} />;
 }
 
+function StrategyGuidanceCard({
+  text,
+  guidanceData
+}: {
+  text: string;
+  guidanceData?: {
+    guidance_type: string;
+    suggested_actions?: string[];
+  } | null;
+}) {
+  if (guidanceData?.guidance_type && guidanceData.suggested_actions?.length) {
+    return (
+      <div className="w-full max-w-5xl rounded-[32px] border border-cyan-500/30 bg-cyan-500/10 p-5 text-cyan-100">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
+          Strategy Assistant
+        </div>
+        <h3 className="text-lg font-semibold text-cyan-50">
+          {guidanceData.guidance_type === 'NO_CHANGE' ? 'No draft changes made' : 'Draft guidance'}
+        </h3>
+        <p className="mt-2 text-sm leading-6 text-cyan-100/90">{text}</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {guidanceData.suggested_actions.map((action) => (
+            <InfoPill key={action} label="Try next" value={action} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return <AssistantMessageCard tone="info" title="Strategy Assistant" text={text} />;
+}
+
 export function ChatMessageList({
   messages,
   onRunDraft
@@ -323,6 +355,17 @@ export function ChatMessageList({
         const responseType = message.draft?.response_type;
 
         if (responseType === 'ANSWER') {
+          if (message.draft?.guidance_data) {
+            return (
+              <div key={message.id} className="flex justify-start">
+                <StrategyGuidanceCard
+                  text={message.text}
+                  guidanceData={message.draft.guidance_data}
+                />
+              </div>
+            );
+          }
+
           return (
             <div key={message.id} className="flex justify-start">
               <StrategyAnswerCard

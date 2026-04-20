@@ -6,6 +6,7 @@ from datetime import date
 from market_simulator.api.schemas.strategy_builder import (
     StrategyBuilderAnswerType,
     StrategyBuilderGenerateRequest,
+    StrategyBuilderGuidanceType,
     StrategyBuilderResponseType,
     StrategyBuilderValidationType,
 )
@@ -415,6 +416,40 @@ def _build_validation_data(
     }
 
 
+def _build_guidance_data(
+    *,
+    guidance_type: StrategyBuilderGuidanceType,
+) -> dict[str, Any]:
+    default_actions = [
+        "Change benchmark",
+        "Adjust stop loss",
+        "Adjust take profit",
+        "Change allocation",
+        "Change cooldown",
+        "Adjust RSI thresholds",
+        "Switch moving-average rules",
+        "Change capital",
+        "Change dates",
+    ]
+
+    if guidance_type == StrategyBuilderGuidanceType.UNSUPPORTED_EDIT_TARGET:
+        return {
+            "guidance_type": guidance_type,
+            "suggested_actions": default_actions,
+        }
+
+    if guidance_type == StrategyBuilderGuidanceType.NO_CHANGE:
+        return {
+            "guidance_type": guidance_type,
+            "suggested_actions": default_actions,
+        }
+
+    return {
+        "guidance_type": StrategyBuilderGuidanceType.GENERAL_GUIDANCE,
+        "suggested_actions": default_actions,
+    }
+
+
 def _build_response(
     *,
     response_type: StrategyBuilderResponseType,
@@ -426,6 +461,7 @@ def _build_response(
     changes: list[str] | None = None,
     answer_data: dict[str, Any] | None = None,
     validation_data: dict[str, Any] | None = None,
+    guidance_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "response_type": response_type,
@@ -437,6 +473,7 @@ def _build_response(
         "changes": changes or [],
         "answer_data": answer_data,
         "validation_data": validation_data,
+        "guidance_data": guidance_data,
     }
 
 
@@ -1177,6 +1214,13 @@ def generate_strategy_builder_response(
             response_type=StrategyBuilderResponseType.ANSWER,
             message=answer_message,
             answer_data=answer_data,
+            guidance_data=(
+                _build_guidance_data(
+                    guidance_type=StrategyBuilderGuidanceType.NO_CHANGE,
+                )
+                if has_current_config
+                else None
+            ),
         )
 
     try:
@@ -1223,6 +1267,9 @@ def generate_strategy_builder_response(
                     message=message,
                     max_backtest_years=max_backtest_years,
                 ),
+                guidance_data=_build_guidance_data(
+                    guidance_type=StrategyBuilderGuidanceType.UNSUPPORTED_EDIT_TARGET,
+                ),
             )
 
         return _build_response(
@@ -1231,6 +1278,9 @@ def generate_strategy_builder_response(
                 "I reviewed your request, but it did not change the current draft. "
                 "You can ask for a specific edit like changing benchmark, stop loss, "
                 "take profit, allocation, cooldown, RSI thresholds, moving-average rules, capital, or dates."
+            ),
+            guidance_data=_build_guidance_data(
+                guidance_type=StrategyBuilderGuidanceType.NO_CHANGE,
             ),
         )
 

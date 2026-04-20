@@ -345,6 +345,16 @@ export interface StrategyBuilderValidationData {
   suggested_action?: string | null;
 }
 
+export type StrategyBuilderGuidanceType =
+  | 'NO_CHANGE'
+  | 'UNSUPPORTED_EDIT_TARGET'
+  | 'GENERAL_GUIDANCE';
+
+export interface StrategyBuilderGuidanceData {
+  guidance_type: StrategyBuilderGuidanceType;
+  suggested_actions: string[];
+}
+
 export interface StrategyBuilderGenerateResponse {
   response_type: StrategyBuilderResponseType;
   message: string;
@@ -355,6 +365,7 @@ export interface StrategyBuilderGenerateResponse {
   changes: string[];
   answer_data?: StrategyBuilderAnswerData | null;
   validation_data?: StrategyBuilderValidationData | null;
+  guidance_data?: StrategyBuilderGuidanceData | null;
 }
 
 export interface MeUserResponse {
