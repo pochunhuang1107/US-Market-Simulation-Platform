@@ -610,38 +610,56 @@ def _extract_sma_crossover_pair(text: str) -> tuple[int, int] | None:
 
 def _extract_entry_fast_window_edit(text: str) -> int | None:
     patterns = [
-        r"change\s+entry\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
-        r"set\s+entry\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
-        r"entry\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
+        r"change\s+entry(?:\s+rule)?(?:\s+sma)?\s+fast\s+window\s+to\s+(\d+)",
+        r"set\s+entry(?:\s+rule)?(?:\s+sma)?\s+fast\s+window\s+to\s+(\d+)",
+        r"entry(?:\s+rule)?(?:\s+sma)?\s+fast\s+window\s+to\s+(\d+)",
     ]
     return _extract_int(text, patterns)
 
 
 def _extract_entry_slow_window_edit(text: str) -> int | None:
     patterns = [
-        r"change\s+entry\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
-        r"set\s+entry\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
-        r"entry\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
+        r"change\s+entry(?:\s+rule)?(?:\s+sma)?\s+slow\s+window\s+to\s+(\d+)",
+        r"set\s+entry(?:\s+rule)?(?:\s+sma)?\s+slow\s+window\s+to\s+(\d+)",
+        r"entry(?:\s+rule)?(?:\s+sma)?\s+slow\s+window\s+to\s+(\d+)",
     ]
     return _extract_int(text, patterns)
 
 
 def _extract_exit_fast_window_edit(text: str) -> int | None:
     patterns = [
-        r"change\s+exit\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
-        r"set\s+exit\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
-        r"exit\s+(?:rule\s+)?fast\s+window\s+to\s+(\d+)",
+        r"change\s+exit(?:\s+rule)?(?:\s+sma)?\s+fast\s+window\s+to\s+(\d+)",
+        r"set\s+exit(?:\s+rule)?(?:\s+sma)?\s+fast\s+window\s+to\s+(\d+)",
+        r"exit(?:\s+rule)?(?:\s+sma)?\s+fast\s+window\s+to\s+(\d+)",
     ]
     return _extract_int(text, patterns)
 
 
 def _extract_exit_slow_window_edit(text: str) -> int | None:
     patterns = [
-        r"change\s+exit\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
-        r"set\s+exit\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
-        r"exit\s+(?:rule\s+)?slow\s+window\s+to\s+(\d+)",
+        r"change\s+exit(?:\s+rule)?(?:\s+sma)?\s+slow\s+window\s+to\s+(\d+)",
+        r"set\s+exit(?:\s+rule)?(?:\s+sma)?\s+slow\s+window\s+to\s+(\d+)",
+        r"exit(?:\s+rule)?(?:\s+sma)?\s+slow\s+window\s+to\s+(\d+)",
     ]
     return _extract_int(text, patterns)
+
+
+def _has_partial_sma_window_edit(
+    *,
+    entry_fast_window_edit: int | None,
+    entry_slow_window_edit: int | None,
+    exit_fast_window_edit: int | None,
+    exit_slow_window_edit: int | None,
+) -> bool:
+    return any(
+        value is not None
+        for value in (
+            entry_fast_window_edit,
+            entry_slow_window_edit,
+            exit_fast_window_edit,
+            exit_slow_window_edit,
+        )
+    )
 
 
 def _build_strategy_name(
@@ -955,6 +973,13 @@ def _generate_strategy_draft(
     exit_fast_window_edit = _extract_exit_fast_window_edit(prompt)
     exit_slow_window_edit = _extract_exit_slow_window_edit(prompt)
 
+    has_partial_sma_window_edit = _has_partial_sma_window_edit(
+        entry_fast_window_edit=entry_fast_window_edit,
+        entry_slow_window_edit=entry_slow_window_edit,
+        exit_fast_window_edit=exit_fast_window_edit,
+        exit_slow_window_edit=exit_slow_window_edit,
+    )
+
     if rsi_buy:
         lookback, threshold = rsi_buy
         entry_rule = {
@@ -1157,7 +1182,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_entry_threshold_edit,
                 }
 
-        elif entry_rule is not None and (
+        elif entry_rule is not None and not has_partial_sma_window_edit and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -1180,7 +1205,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_exit_threshold_edit,
                 }
 
-        elif exit_rule is not None and (
+        elif exit_rule is not None and not has_partial_sma_window_edit and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower

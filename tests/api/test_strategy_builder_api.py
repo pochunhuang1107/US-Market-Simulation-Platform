@@ -1127,6 +1127,177 @@ def test_generate_strategy_builder_does_not_replace_exit_rule_with_fallback_rsi_
     assert config["exit_rule"]["symbol"] == "SPY"
 
 
+def test_generate_strategy_builder_updates_only_entry_sma_fast_window_with_sma_phrase(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change entry SMA fast window to 8",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "spy-sma-cross-above-to-sma-cross-below",
+                    "tradable_symbol": "SPY",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2021-04-17",
+                    "end_date": "2026-04-17",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "sma_cross_above",
+                        "symbol": "SPY",
+                        "fast_window": 5,
+                        "slow_window": 10,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "sma_cross_below",
+                        "symbol": "SPY",
+                        "fast_window": 5,
+                        "slow_window": 10,
+                    },
+                    "risk": {"cooldown_bars": 0},
+                    "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    config = body["config"]
+    assert config["entry_rule"]["type"] == "sma_cross_above"
+    assert config["entry_rule"]["fast_window"] == 8
+    assert config["entry_rule"]["slow_window"] == 10
+
+    assert config["exit_rule"]["type"] == "sma_cross_below"
+    assert config["exit_rule"]["fast_window"] == 5
+    assert config["exit_rule"]["slow_window"] == 10
+
+
+def test_generate_strategy_builder_updates_only_entry_sma_slow_window_with_sma_phrase(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change entry SMA slow window to 21",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "spy-sma-cross-above-to-sma-cross-below",
+                    "tradable_symbol": "SPY",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2021-04-17",
+                    "end_date": "2026-04-17",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "sma_cross_above",
+                        "symbol": "SPY",
+                        "fast_window": 5,
+                        "slow_window": 10,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "sma_cross_below",
+                        "symbol": "SPY",
+                        "fast_window": 5,
+                        "slow_window": 10,
+                    },
+                    "risk": {"cooldown_bars": 0},
+                    "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    config = body["config"]
+    assert config["entry_rule"]["type"] == "sma_cross_above"
+    assert config["entry_rule"]["fast_window"] == 5
+    assert config["entry_rule"]["slow_window"] == 21
+
+    assert config["exit_rule"]["type"] == "sma_cross_below"
+    assert config["exit_rule"]["fast_window"] == 5
+    assert config["exit_rule"]["slow_window"] == 10
+
+
+def test_generate_strategy_builder_updates_only_exit_sma_fast_window_with_sma_phrase(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change exit SMA fast window to 7",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "spy-sma-cross-above-to-sma-cross-below",
+                    "tradable_symbol": "SPY",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2021-04-17",
+                    "end_date": "2026-04-17",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "sma_cross_above",
+                        "symbol": "SPY",
+                        "fast_window": 5,
+                        "slow_window": 10,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "sma_cross_below",
+                        "symbol": "SPY",
+                        "fast_window": 5,
+                        "slow_window": 10,
+                    },
+                    "risk": {"cooldown_bars": 0},
+                    "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    config = body["config"]
+    assert config["entry_rule"]["type"] == "sma_cross_above"
+    assert config["entry_rule"]["fast_window"] == 5
+    assert config["entry_rule"]["slow_window"] == 10
+
+    assert config["exit_rule"]["type"] == "sma_cross_below"
+    assert config["exit_rule"]["fast_window"] == 7
+    assert config["exit_rule"]["slow_window"] == 10
+
+
 def test_generate_strategy_builder_draft_defaults_position_management_to_none(client):
     response = client.post(
         "/strategy-builder/generate",
