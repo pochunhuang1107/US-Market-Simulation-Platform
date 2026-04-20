@@ -4,6 +4,7 @@ import { useLocation, useParams } from 'react-router-dom';
 import { RunCharts } from '../components/run-detail/RunCharts';
 import { RunHeader } from '../components/run-detail/RunHeader';
 import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
+import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
 import { MetricCard } from '../components/shared/MetricCard';
 import { StateCard } from '../components/shared/StateCard';
 import { fetchRun, fetchRunDashboard, saveDraftRunAsStrategy } from '../lib/api';
@@ -60,6 +61,8 @@ export function RunDetailPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isSavingDraftStrategy, setIsSavingDraftStrategy] = useState(false);
+  const [isSaveStrategyModalOpen, setIsSaveStrategyModalOpen] = useState(false);
+  const [saveStrategyError, setSaveStrategyError] = useState<string | null>(null);
   const [notice, setNotice] = useState<PageNotice | null>(
     (location.state as { notice?: PageNotice } | null)?.notice ?? null
   );
@@ -167,40 +170,38 @@ export function RunDetailPage() {
     };
   }, [runId]);
 
-  async function handleSaveDraftStrategy() {
+  const suggestedStrategyName =
+    typeof run?.request_payload?.draft_config === 'object' &&
+    run?.request_payload?.draft_config &&
+    typeof (run.request_payload.draft_config as Record<string, unknown>).name === 'string'
+      ? ((run.request_payload.draft_config as Record<string, unknown>).name as string)
+      : 'My strategy';
+
+  async function handleSaveDraftStrategy(payload: { name: string; description: string }) {
     if (!runId || !run) return;
     if (run.strategy_id) return;
 
-    const suggestedName =
-      typeof run.request_payload?.draft_config === 'object' &&
-      run.request_payload?.draft_config &&
-      typeof (run.request_payload.draft_config as Record<string, unknown>).name === 'string'
-        ? ((run.request_payload.draft_config as Record<string, unknown>).name as string)
-        : 'My strategy';
-
-    const name = window.prompt('Enter a name for this strategy', suggestedName)?.trim();
-    if (!name) return;
-
+    setSaveStrategyError(null);
     setIsSavingDraftStrategy(true);
 
     try {
       await saveDraftRunAsStrategy(runId, {
-        name,
-        description: `Saved from run ${runId}`,
+        name: payload.name,
+        description: payload.description || `Saved from run ${runId}`,
         strategy_type: 'SINGLE_ASSET'
       });
 
       const refreshedRun = await fetchRun(runId);
       setRun(refreshedRun);
+      setIsSaveStrategyModalOpen(false);
       setNotice({
         tone: 'success',
         message: 'Strategy saved successfully.'
       });
     } catch (error) {
-      setNotice({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Failed to save strategy'
-      });
+      setSaveStrategyError(
+        error instanceof Error ? error.message : 'Failed to save strategy'
+      );
     } finally {
       setIsSavingDraftStrategy(false);
     }
@@ -296,29 +297,47 @@ export function RunDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
+    <>
+      <div className="space-y-6">
+        {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
 
-      {run ? (
-        <RunHeader
-          run={run}
-          canSaveDraftStrategy={run.status === 'SUCCEEDED' && !run.strategy_id}
-          isSavingDraftStrategy={isSavingDraftStrategy}
-          onSaveDraftStrategy={() => {
-            void handleSaveDraftStrategy();
-          }}
-        />
-      ) : null}
+        {run ? (
+          <RunHeader
+            run={run}
+            canSaveDraftStrategy={run.status === 'SUCCEEDED' && !run.strategy_id}
+            isSavingDraftStrategy={isSavingDraftStrategy}
+            onSaveDraftStrategy={() => {
+              setSaveStrategyError(null);
+              setIsSaveStrategyModalOpen(true);
+            }}
+          />
+        ) : null}
 
-      <RunCharts chartData={data.chart_data} />
+        <RunCharts chartData={data.chart_data} />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {summaryMetrics.map((metric) => (
-          <MetricCard key={metric.label} label={metric.label} value={metric.value} tone={metric.tone} />
-        ))}
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {summaryMetrics.map((metric) => (
+            <MetricCard key={metric.label} label={metric.label} value={metric.value} tone={metric.tone} />
+          ))}
+        </div>
+
+        <RunMetaPanel run={data.run} />
       </div>
 
-      <RunMetaPanel run={data.run} />
-    </div>
+      <SaveStrategyModal
+        isOpen={isSaveStrategyModalOpen}
+        initialName={suggestedStrategyName}
+        isSaving={isSavingDraftStrategy}
+        errorMessage={saveStrategyError}
+        onClose={() => {
+          if (isSavingDraftStrategy) return;
+          setSaveStrategyError(null);
+          setIsSaveStrategyModalOpen(false);
+        }}
+        onSubmit={(payload) => {
+          void handleSaveDraftStrategy(payload);
+        }}
+      />
+    </>
   );
 }
