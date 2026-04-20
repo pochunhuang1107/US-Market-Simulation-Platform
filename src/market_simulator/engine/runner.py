@@ -87,9 +87,10 @@ def run_simulation(bundle, strategy):
         # === POSITION MANAGEMENT CONFIG (NEW) ===
         pm = getattr(strategy, "position_management", None)
 
-        scale_in_fraction = pm.scale_in_fraction if pm else 0.25
-        scale_out_fraction = pm.scale_out_fraction if pm else 0.5
-        profit_reduce_threshold = pm.profit_reduce_threshold if pm else 0.05
+        position_management_enabled = pm is not None
+        scale_in_fraction = pm.scale_in_fraction if pm else 1.0
+        scale_out_fraction = pm.scale_out_fraction if pm else 1.0
+        profit_reduce_threshold = pm.profit_reduce_threshold if pm else None
 
         # risk / exits for overlay sleeve only
         if portfolio.position.in_position and action == "":
@@ -97,7 +98,9 @@ def run_simulation(bundle, strategy):
             profit_pct = close / portfolio.position.avg_entry_price - 1.0
 
             if (
-                profit_pct > profit_reduce_threshold
+                position_management_enabled
+                and profit_reduce_threshold is not None
+                and profit_pct > profit_reduce_threshold
                 and action == ""
                 and portfolio.position.shares > 1
             ):
@@ -292,7 +295,7 @@ def run_simulation(bundle, strategy):
             and (i - portfolio.last_exit_bar_index) <= strategy.risk.cooldown_bars
         )
 
-        # === SCALE-IN ENTRY ===
+        # === ENTRY ===
         if entry_signal and (not in_cooldown) and (action == ""):
 
             increment_pct = scale_in_fraction
