@@ -1160,7 +1160,8 @@ def test_create_run_rejects_draft_config_outside_plan_limit(
     )
 
     assert response.status_code == 400
-    assert "exceeds your plan limit" in response.json()["detail"]
+    assert "current plan limit" in response.json()["detail"]
+    assert "shorten the range" in response.json()["detail"]
 
 
 def test_create_run_rejects_draft_config_with_unsupported_symbol(
@@ -1216,7 +1217,8 @@ def test_create_run_rejects_draft_config_with_unsupported_symbol(
     )
 
     assert response.status_code == 400
-    assert "Unsupported symbol" in response.json()["detail"]
+    assert "not supported yet" in response.json()["detail"]
+    assert "ETF-first" in response.json()["detail"]
 
 
 def test_create_run_rejects_duplicate_active_draft_run(
@@ -1353,4 +1355,5 @@ def test_save_draft_run_as_strategy_revalidates_draft_config(
     )
 
     assert response.status_code == 400
-    assert "Unsupported symbol" in response.json()["detail"]
+    assert "not supported yet" in response.json()["detail"]
+    assert "ETF-first" in response.json()["detail"]

@@ -5,6 +5,7 @@ from datetime import date
 import pytest
 import market_simulator.services.strategy_builder_service as builder_service
 from market_simulator.settings import get_settings
+from market_simulator.db.models import Plan
 
 
 @pytest.fixture(autouse=True)
@@ -710,3 +711,90 @@ def test_generate_strategy_builder_summary_mentions_default_platform_range_when_
     body = response.json()
 
     assert "using the default platform range" in body["summary"]
+
+
+def test_generate_strategy_builder_returns_friendlier_unsupported_symbol_message(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create a strategy for AAPL"},
+    )
+
+    assert response.status_code == 400
+    assert "not supported yet" in response.json()["detail"]
+    assert "ETF-first" in response.json()["detail"]
+
+
+def test_generate_strategy_builder_returns_friendlier_plan_limit_message(
+    client,
+    db_session,
+):
+    plan = db_session.query(Plan).filter(Plan.code == "TEST_PRO").one()
+    plan.max_backtest_years = 5
+    db_session.commit()
+    db_session.refresh(plan)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a strategy for QQQ from 2018-01-02 to 2026-04-14",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "current plan limit" in response.json()["detail"]
+    assert "shorten the range" in response.json()["detail"]
+
+
+def test_generate_strategy_builder_returns_validation_error_for_unsupported_edit_type(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "add bollinger bands confirmation",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "QQQ",
+                    "reference_symbols": [],
+                    "start_date": "2021-04-14",
+                    "end_date": "2026-04-14",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert "not supported yet" in body["message"]
+    assert "benchmark" in body["message"]

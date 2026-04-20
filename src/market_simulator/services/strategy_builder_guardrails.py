@@ -45,9 +45,10 @@ def validate_strategy_builder_request(
         symbol for symbol in requested_symbols if symbol not in supported_symbols
     )
     if unsupported_requested:
+        joined = ", ".join(unsupported_requested)
         raise ValueError(
-            "Unsupported symbol(s) for current ETF coverage: "
-            + ", ".join(unsupported_requested)
+            f"{joined} {'is' if len(unsupported_requested) == 1 else 'are'} not supported yet. "
+            "This platform is currently ETF-first, so please use supported ETF symbols."
         )
 
     validate_draft_config(

@@ -198,6 +198,33 @@ def _has_date_edit_intent(text: str) -> bool:
     )
 
 
+def _looks_like_edit_request(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(change|set|update|add|remove|delete|use|replace|switch|make)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _is_supported_edit_request(text: str) -> bool:
+    supported_patterns = [
+        r"\b(start\s+date|end\s+date)\b",
+        r"\bbenchmark\b",
+        r"\bstop\s+loss\b",
+        r"\btake\s+profit\b",
+        r"\ballocation\b",
+        r"\bcooldown\b",
+        r"\brsi\b",
+        r"\bmean\s+reversion\b",
+        r"\bmoving\s+average\b",
+        r"\bsma\b",
+        r"\bcapital\b",
+    ]
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in supported_patterns)
+
+
 def _looks_like_question(prompt: str) -> bool:
     text = prompt.strip().lower()
 
@@ -1049,18 +1076,28 @@ def generate_strategy_builder_response(
         return _build_response(
             response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
             message=(
-                "I could not apply that date change. Please use ISO format like "
-                "2021-04-14, and make sure the new range stays within your plan limits."
+                "I could not apply that date change. Please use ISO format like 2021-04-14, "
+                "and make sure the new range stays within supported ETF data coverage and your current plan limit."
             ),
         )
 
     if has_current_config and not changes:
+        if _looks_like_edit_request(prompt) and not _is_supported_edit_request(prompt):
+            return _build_response(
+                response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+                message=(
+                    "I understood this as a requested strategy edit, but that edit type is not supported yet. "
+                    "Right now I can help with benchmark, stop loss, take profit, allocation, cooldown, "
+                    "RSI thresholds, moving-average rules, capital, and dates."
+                ),
+            )
+
         return _build_response(
             response_type=StrategyBuilderResponseType.ANSWER,
             message=(
                 "I reviewed your request, but it did not change the current draft. "
                 "You can ask for a specific edit like changing benchmark, stop loss, "
-                "take profit, allocation, cooldown, RSI thresholds, or dates."
+                "take profit, allocation, cooldown, RSI thresholds, moving-average rules, capital, or dates."
             ),
         )
 

@@ -135,7 +135,8 @@ def test_builder_rejects_unsupported_symbol_for_current_data_coverage(
     )
 
     assert response.status_code == 400
-    assert "Unsupported symbol" in response.json()["detail"]
+    assert "not supported yet" in response.json()["detail"]
+    assert "ETF-first" in response.json()["detail"]
 
 
 def test_builder_rejects_backtest_window_over_plan_limit(client, db_session, current_user_ctx):
@@ -156,7 +157,8 @@ def test_builder_rejects_backtest_window_over_plan_limit(client, db_session, cur
     )
 
     assert response.status_code == 400
-    assert "exceeds your plan limit" in response.json()["detail"]
+    assert "current plan limit" in response.json()["detail"]
+    assert "shorten the range" in response.json()["detail"]
 
 
 def test_builder_records_prompt_events_for_accepted_and_rejected_requests(

@@ -10,12 +10,13 @@ from market_simulator.settings import get_settings
 
 
 def _parse_iso_date(value: Any, field_name: str) -> date:
+    label = "start date" if field_name == "start_date" else "end date"
     if not isinstance(value, str):
-        raise ValueError(f"{field_name} must be a valid ISO date")
+        raise ValueError(f"The {label} must use ISO format like 2021-04-14.")
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise ValueError(f"{field_name} must be a valid ISO date") from exc
+        raise ValueError(f"The {label} must use ISO format like 2021-04-14.") from exc
 
 
 def validate_draft_config(
@@ -24,7 +25,7 @@ def validate_draft_config(
     max_backtest_years: int,
 ) -> None:
     if not isinstance(config, dict):
-        raise ValueError("draft_config must be an object")
+        raise ValueError("The generated draft config was invalid. Please try again.")
 
     try:
         StrategyV2.model_validate(config)
@@ -33,8 +34,12 @@ def validate_draft_config(
         location = ".".join(str(part) for part in first_error.get("loc", []))
         message = first_error.get("msg", "Invalid strategy config")
         if location:
-            raise ValueError(f"Invalid strategy config at {location}: {message}") from exc
-        raise ValueError(f"Invalid strategy config: {message}") from exc
+            raise ValueError(
+                f"I could not build a valid strategy draft because {location} was invalid: {message}."
+            ) from exc
+        raise ValueError(
+            f"I could not build a valid strategy draft: {message}."
+        ) from exc
 
     settings = get_settings()
     supported_symbols = set(settings.supported_etf_symbols)
@@ -77,25 +82,27 @@ def validate_draft_config(
         {symbol for symbol in symbols_to_check if symbol not in supported_symbols}
     )
     if unsupported_symbols:
+        joined = ", ".join(unsupported_symbols)
         raise ValueError(
-            "Unsupported symbol(s) for current ETF coverage: "
-            + ", ".join(unsupported_symbols)
+            f"{joined} {'is' if len(unsupported_symbols) == 1 else 'are'} not supported yet. "
+            "This platform is currently ETF-first, so please use supported ETF symbols."
         )
 
     start_date = _parse_iso_date(config.get("start_date"), "start_date")
     end_date = _parse_iso_date(config.get("end_date"), "end_date")
 
     if end_date < start_date:
-        raise ValueError("end_date must be on or after start_date")
+        raise ValueError("The end date must be on or after the start date.")
 
     if start_date < settings.supported_data_start or end_date > settings.supported_data_end:
         raise ValueError(
-            "Requested backtest range is outside supported data coverage "
-            f"({settings.supported_data_start.isoformat()} to {settings.supported_data_end.isoformat()})"
+            "That date range is outside supported ETF data coverage "
+            f"({settings.supported_data_start.isoformat()} to {settings.supported_data_end.isoformat()})."
         )
 
     backtest_years = (end_date - start_date).days / 365.25
     if backtest_years > max_backtest_years:
         raise ValueError(
-            f"Requested backtest window exceeds your plan limit of {max_backtest_years} years"
+            f"That date range exceeds your current plan limit of {max_backtest_years} years. "
+            "Please shorten the range and try again."
         )
