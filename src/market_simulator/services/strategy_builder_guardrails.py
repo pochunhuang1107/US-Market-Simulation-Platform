@@ -17,6 +17,8 @@ def _extract_requested_symbols_from_prompt(prompt: str) -> set[str]:
         "SMA",
         "EMA",
         "MACD",
+        "KD",
+        "STOCHASTIC",
         "AND",
         "OR",
         "NOT",

@@ -224,6 +224,8 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bmoving\s+average\b",
         r"\bsma\b",
         r"\bmacd\b",
+        r"\bkd\b",
+        r"\bstochastic\b",
         r"\bcapital\b",
         r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
         r"\b(entry|exit)\s+rule\b",
@@ -1045,6 +1047,21 @@ def _generate_strategy_draft(
             "Interpreted 'MACD' as MACD bullish cross for entry and MACD bearish cross for exit."
         )
 
+    if "kd" in prompt_lower or "stochastic" in prompt_lower:
+        entry_rule = {
+            "kind": "atomic",
+            "type": "kd_golden_cross",
+            "symbol": tradable_symbol,
+        }
+        exit_rule = {
+            "kind": "atomic",
+            "type": "kd_dead_cross",
+            "symbol": tradable_symbol,
+        }
+        assumptions.append(
+            "Interpreted 'KD' as KD golden cross for entry and KD dead cross for exit."
+        )
+
     if "mean reversion" in prompt_lower and entry_rule is None and exit_rule is None:
         entry_rule = {
             "kind": "atomic",
@@ -1204,6 +1221,8 @@ def _generate_strategy_draft(
             or "moving average" in prompt_lower
             or "sma" in prompt_lower
             or "macd" in prompt_lower
+            or "kd" in prompt_lower
+            or "stochastic" in prompt_lower
         ):
             default_config["entry_rule"] = entry_rule
 
@@ -1228,6 +1247,8 @@ def _generate_strategy_draft(
             or "moving average" in prompt_lower
             or "sma" in prompt_lower
             or "macd" in prompt_lower
+            or "kd" in prompt_lower
+            or "stochastic" in prompt_lower
         ):
             default_config["exit_rule"] = exit_rule
 
