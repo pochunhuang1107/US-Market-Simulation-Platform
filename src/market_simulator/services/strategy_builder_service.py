@@ -7,6 +7,7 @@ from market_simulator.api.schemas.strategy_builder import (
     StrategyBuilderAnswerType,
     StrategyBuilderGenerateRequest,
     StrategyBuilderResponseType,
+    StrategyBuilderValidationType,
 )
 from market_simulator.models.strategy_v2 import StrategyV2
 from datetime import timedelta
@@ -338,6 +339,82 @@ def _build_answer_message(
     )
 
 
+def _build_validation_data(
+    *,
+    message: str,
+    max_backtest_years: int,
+) -> dict[str, Any]:
+    settings = get_settings()
+
+    unsupported_match = re.findall(r"\b[A-Z]{2,6}\b", message)
+    if "not supported yet" in message and "ETF-first" in message:
+        unsupported_symbols = [
+            token
+            for token in unsupported_match
+            if token in {"SPY", "QQQ", "IWM", "DIA", "VTI"} or token not in settings.supported_etf_symbols
+        ]
+        inferred = [
+            token for token in unsupported_symbols if token not in settings.supported_etf_symbols
+        ]
+        return {
+            "validation_type": StrategyBuilderValidationType.UNSUPPORTED_SYMBOL,
+            "unsupported_symbols": inferred,
+            "supported_data_start": None,
+            "supported_data_end": None,
+            "max_backtest_years": None,
+            "suggested_action": "Try a supported ETF symbol instead.",
+        }
+
+    if "outside supported ETF data coverage" in message:
+        return {
+            "validation_type": StrategyBuilderValidationType.DATA_COVERAGE,
+            "unsupported_symbols": [],
+            "supported_data_start": settings.supported_data_start.isoformat(),
+            "supported_data_end": settings.supported_data_end.isoformat(),
+            "max_backtest_years": None,
+            "suggested_action": "Choose a date range inside the supported ETF data window.",
+        }
+
+    if "current plan limit" in message and "shorten the range" in message:
+        return {
+            "validation_type": StrategyBuilderValidationType.PLAN_LIMIT,
+            "unsupported_symbols": [],
+            "supported_data_start": None,
+            "supported_data_end": None,
+            "max_backtest_years": max_backtest_years,
+            "suggested_action": "Shorten the date range and try again.",
+        }
+
+    if "must use ISO format like 2021-04-14" in message:
+        return {
+            "validation_type": StrategyBuilderValidationType.INVALID_DATE_FORMAT,
+            "unsupported_symbols": [],
+            "supported_data_start": None,
+            "supported_data_end": None,
+            "max_backtest_years": None,
+            "suggested_action": "Use ISO format like 2021-04-14.",
+        }
+
+    if "edit type is not supported yet" in message:
+        return {
+            "validation_type": StrategyBuilderValidationType.UNSUPPORTED_EDIT,
+            "unsupported_symbols": [],
+            "supported_data_start": None,
+            "supported_data_end": None,
+            "max_backtest_years": None,
+            "suggested_action": "Try benchmark, stop loss, take profit, allocation, cooldown, RSI, moving averages, capital, or dates.",
+        }
+
+    return {
+        "validation_type": StrategyBuilderValidationType.GENERAL,
+        "unsupported_symbols": [],
+        "supported_data_start": None,
+        "supported_data_end": None,
+        "max_backtest_years": None,
+        "suggested_action": None,
+    }
+
+
 def _build_response(
     *,
     response_type: StrategyBuilderResponseType,
@@ -348,6 +425,7 @@ def _build_response(
     assumptions: list[str] | None = None,
     changes: list[str] | None = None,
     answer_data: dict[str, Any] | None = None,
+    validation_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "response_type": response_type,
@@ -358,6 +436,7 @@ def _build_response(
         "assumptions": assumptions or [],
         "changes": changes or [],
         "answer_data": answer_data,
+        "validation_data": validation_data,
     }
 
 
@@ -1106,28 +1185,43 @@ def generate_strategy_builder_response(
             max_backtest_years=max_backtest_years,
         )
     except ValueError as exc:
+        message = str(exc)
         return _build_response(
             response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
-            message=str(exc),
+            message=message,
+            validation_data=_build_validation_data(
+                message=message,
+                max_backtest_years=max_backtest_years,
+            ),
         )
 
     if has_current_config and _has_date_edit_intent(prompt) and not changes:
+        message = (
+            "I could not apply that date change. Please use ISO format like 2021-04-14, "
+            "and make sure the new range stays within supported ETF data coverage and your current plan limit."
+        )
         return _build_response(
             response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
-            message=(
-                "I could not apply that date change. Please use ISO format like 2021-04-14, "
-                "and make sure the new range stays within supported ETF data coverage and your current plan limit."
+            message=message,
+            validation_data=_build_validation_data(
+                message=message,
+                max_backtest_years=max_backtest_years,
             ),
         )
 
     if has_current_config and not changes:
         if _looks_like_edit_request(prompt) and not _is_supported_edit_request(prompt):
+            message = (
+                "I understood this as a requested strategy edit, but that edit type is not supported yet. "
+                "Right now I can help with benchmark, stop loss, take profit, allocation, cooldown, "
+                "RSI thresholds, moving-average rules, capital, and dates."
+            )
             return _build_response(
                 response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
-                message=(
-                    "I understood this as a requested strategy edit, but that edit type is not supported yet. "
-                    "Right now I can help with benchmark, stop loss, take profit, allocation, cooldown, "
-                    "RSI thresholds, moving-average rules, capital, and dates."
+                message=message,
+                validation_data=_build_validation_data(
+                    message=message,
+                    max_backtest_years=max_backtest_years,
                 ),
             )
 

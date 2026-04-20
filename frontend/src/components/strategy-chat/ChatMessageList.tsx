@@ -43,17 +43,34 @@ function AssistantMessageCard({
 
 function InfoPill({
   label,
-  value
+  value,
+  tone = 'info'
 }: {
   label: string;
   value: string;
+  tone?: 'info' | 'warning';
 }) {
+  const borderClass =
+    tone === 'warning'
+      ? 'border-amber-500/20 bg-slate-950/20'
+      : 'border-cyan-500/20 bg-slate-950/20';
+
+  const labelClass =
+    tone === 'warning'
+      ? 'text-amber-200'
+      : 'text-cyan-200';
+
+  const valueClass =
+    tone === 'warning'
+      ? 'text-amber-50'
+      : 'text-cyan-50';
+
   return (
-    <div className="rounded-2xl border border-cyan-500/20 bg-slate-950/20 px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200">
+    <div className={`rounded-2xl border px-4 py-3 ${borderClass}`}>
+      <div className={`text-[11px] font-semibold uppercase tracking-[0.22em] ${labelClass}`}>
         {label}
       </div>
-      <div className="mt-1 text-sm text-cyan-50">{value}</div>
+      <div className={`mt-1 text-sm ${valueClass}`}>{value}</div>
     </div>
   );
 }
@@ -63,15 +80,13 @@ function StrategyAnswerCard({
   answerData
 }: {
   text: string;
-  answerData?: ChatMessage extends infer _T
-    ? {
-        answer_type: string;
-        supported_symbols?: string[];
-        supported_data_start?: string | null;
-        supported_data_end?: string | null;
-        max_backtest_years?: number | null;
-      } | null
-    : never;
+  answerData?: {
+    answer_type: string;
+    supported_symbols?: string[];
+    supported_data_start?: string | null;
+    supported_data_end?: string | null;
+    max_backtest_years?: number | null;
+  } | null;
 }) {
   if (answerData?.answer_type === 'SUPPORTED_SYMBOLS' && answerData.supported_symbols?.length) {
     return (
@@ -135,6 +150,135 @@ function StrategyAnswerCard({
   return <AssistantMessageCard tone="info" title="Strategy Assistant" text={text} />;
 }
 
+function StrategyValidationCard({
+  text,
+  validationData
+}: {
+  text: string;
+  validationData?: {
+    validation_type: string;
+    unsupported_symbols?: string[];
+    supported_data_start?: string | null;
+    supported_data_end?: string | null;
+    max_backtest_years?: number | null;
+    suggested_action?: string | null;
+  } | null;
+}) {
+  if (
+    validationData?.validation_type === 'UNSUPPORTED_SYMBOL' &&
+    validationData.unsupported_symbols?.length
+  ) {
+    return (
+      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+          Validation guidance
+        </div>
+        <h3 className="text-lg font-semibold text-amber-50">Unsupported symbol</h3>
+        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {validationData.unsupported_symbols.map((symbol) => (
+            <span
+              key={symbol}
+              className="rounded-full border border-amber-400/30 bg-slate-950/20 px-3 py-1 text-xs font-semibold tracking-[0.14em] text-amber-50"
+            >
+              {symbol}
+            </span>
+          ))}
+        </div>
+        {validationData.suggested_action ? (
+          <div className="mt-4">
+            <InfoPill label="Suggested action" value={validationData.suggested_action} tone="warning" />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (
+    validationData?.validation_type === 'DATA_COVERAGE' &&
+    validationData.supported_data_start &&
+    validationData.supported_data_end
+  ) {
+    return (
+      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+          Validation guidance
+        </div>
+        <h3 className="text-lg font-semibold text-amber-50">Date range outside coverage</h3>
+        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <InfoPill label="Supported Start" value={validationData.supported_data_start} tone="warning" />
+          <InfoPill label="Supported End" value={validationData.supported_data_end} tone="warning" />
+        </div>
+        {validationData.suggested_action ? (
+          <div className="mt-4">
+            <InfoPill label="Suggested action" value={validationData.suggested_action} tone="warning" />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (
+    validationData?.validation_type === 'PLAN_LIMIT' &&
+    validationData.max_backtest_years
+  ) {
+    return (
+      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+          Validation guidance
+        </div>
+        <h3 className="text-lg font-semibold text-amber-50">Plan limit exceeded</h3>
+        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <InfoPill label="Plan Max Years" value={String(validationData.max_backtest_years)} tone="warning" />
+          <InfoPill
+            label="Suggested action"
+            value={validationData.suggested_action ?? 'Shorten the date range and try again.'}
+            tone="warning"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (validationData?.validation_type === 'INVALID_DATE_FORMAT') {
+    return (
+      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+          Validation guidance
+        </div>
+        <h3 className="text-lg font-semibold text-amber-50">Invalid date format</h3>
+        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        {validationData.suggested_action ? (
+          <div className="mt-4">
+            <InfoPill label="Suggested action" value={validationData.suggested_action} tone="warning" />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (validationData?.validation_type === 'UNSUPPORTED_EDIT') {
+    return (
+      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+          Validation guidance
+        </div>
+        <h3 className="text-lg font-semibold text-amber-50">Unsupported edit type</h3>
+        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        {validationData.suggested_action ? (
+          <div className="mt-4">
+            <InfoPill label="Suggested action" value={validationData.suggested_action} tone="warning" />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return <AssistantMessageCard tone="warning" title="Validation guidance" text={text} />;
+}
+
 export function ChatMessageList({
   messages,
   onRunDraft
@@ -189,19 +333,20 @@ export function ChatMessageList({
           );
         }
 
-        const tone =
-          responseType === 'VALIDATION_ERROR'
-            ? 'warning'
-            : 'default';
-
-        const title =
-          responseType === 'VALIDATION_ERROR'
-            ? 'Validation guidance'
-            : 'Strategy Assistant';
+        if (responseType === 'VALIDATION_ERROR') {
+          return (
+            <div key={message.id} className="flex justify-start">
+              <StrategyValidationCard
+                text={message.text}
+                validationData={message.draft?.validation_data ?? null}
+              />
+            </div>
+          );
+        }
 
         return (
           <div key={message.id} className="flex justify-start">
-            <AssistantMessageCard tone={tone} title={title} text={message.text} />
+            <AssistantMessageCard tone="default" title="Strategy Assistant" text={message.text} />
           </div>
         );
       })}

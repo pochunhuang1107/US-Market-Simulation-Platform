@@ -842,3 +842,69 @@ def test_generate_strategy_builder_returns_structured_plan_limits_answer(client)
     assert body["response_type"] == "ANSWER"
     assert body["answer_data"]["answer_type"] == "PLAN_LIMITS"
     assert body["answer_data"]["max_backtest_years"] is not None
+
+
+def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create a strategy for AAPL"},
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "not supported yet" in detail
+
+
+def test_generate_strategy_builder_returns_structured_validation_error_for_unsupported_edit_type(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "add bollinger bands confirmation",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "QQQ",
+                    "reference_symbols": [],
+                    "start_date": "2021-04-14",
+                    "end_date": "2026-04-14",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["validation_data"]["validation_type"] == "UNSUPPORTED_EDIT"
+    assert body["validation_data"]["suggested_action"] is not None

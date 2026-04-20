@@ -328,6 +328,23 @@ export interface StrategyBuilderAnswerData {
   max_backtest_years?: number | null;
 }
 
+export type StrategyBuilderValidationType =
+  | 'UNSUPPORTED_SYMBOL'
+  | 'DATA_COVERAGE'
+  | 'PLAN_LIMIT'
+  | 'INVALID_DATE_FORMAT'
+  | 'UNSUPPORTED_EDIT'
+  | 'GENERAL';
+
+export interface StrategyBuilderValidationData {
+  validation_type: StrategyBuilderValidationType;
+  unsupported_symbols: string[];
+  supported_data_start?: string | null;
+  supported_data_end?: string | null;
+  max_backtest_years?: number | null;
+  suggested_action?: string | null;
+}
+
 export interface StrategyBuilderGenerateResponse {
   response_type: StrategyBuilderResponseType;
   message: string;
@@ -337,6 +354,7 @@ export interface StrategyBuilderGenerateResponse {
   assumptions: string[];
   changes: string[];
   answer_data?: StrategyBuilderAnswerData | null;
+  validation_data?: StrategyBuilderValidationData | null;
 }
 
 export interface MeUserResponse {

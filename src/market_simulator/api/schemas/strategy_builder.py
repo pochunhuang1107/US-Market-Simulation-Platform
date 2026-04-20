@@ -35,12 +35,30 @@ class StrategyBuilderAnswerType(str, Enum):
     GENERAL = "GENERAL"
 
 
+class StrategyBuilderValidationType(str, Enum):
+    UNSUPPORTED_SYMBOL = "UNSUPPORTED_SYMBOL"
+    DATA_COVERAGE = "DATA_COVERAGE"
+    PLAN_LIMIT = "PLAN_LIMIT"
+    INVALID_DATE_FORMAT = "INVALID_DATE_FORMAT"
+    UNSUPPORTED_EDIT = "UNSUPPORTED_EDIT"
+    GENERAL = "GENERAL"
+
+
 class StrategyBuilderAnswerData(BaseModel):
     answer_type: StrategyBuilderAnswerType
     supported_symbols: list[str] = Field(default_factory=list)
     supported_data_start: str | None = None
     supported_data_end: str | None = None
     max_backtest_years: int | None = None
+
+
+class StrategyBuilderValidationData(BaseModel):
+    validation_type: StrategyBuilderValidationType
+    unsupported_symbols: list[str] = Field(default_factory=list)
+    supported_data_start: str | None = None
+    supported_data_end: str | None = None
+    max_backtest_years: int | None = None
+    suggested_action: str | None = None
 
 
 class StrategyBuilderGenerateResponse(BaseModel):
@@ -52,3 +70,4 @@ class StrategyBuilderGenerateResponse(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     changes: list[str] = Field(default_factory=list)
     answer_data: StrategyBuilderAnswerData | None = None
+    validation_data: StrategyBuilderValidationData | None = None
