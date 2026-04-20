@@ -350,7 +350,8 @@ def _build_answer_message(
     ):
         return (
             "Right now the builder supports RSI mean reversion, moving-average crossover edits, "
-            "MACD, KD/stochastic, seasonality by calendar month, and relative strength versus another ETF. "
+            "MACD, KD/stochastic, seasonality by calendar month, relative strength versus another ETF, "
+            "and explicit combined entry/exit rules using AND/OR. "
             "It also supports benchmark, stop loss, take profit, allocation, cooldown, capital, and date edits.",
             {
                 "answer_type": StrategyBuilderAnswerType.SUPPORTED_STRATEGY_TYPES,
@@ -842,6 +843,210 @@ def _extract_relative_strength_threshold_edit(text: str) -> float | None:
     )
 
 
+def _extract_entry_exit_rule_clauses(text: str) -> tuple[str | None, str | None]:
+    match = re.search(
+        r"(?:entry|buy)\s+when\s+(.+?)(?:,\s*|\s+)(?:and\s+)?(?:exit|sell)\s+when\s+(.+)$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None, None
+
+    entry_clause = match.group(1).strip(" .,")
+    exit_clause = match.group(2).strip(" .,")
+    return entry_clause, exit_clause
+
+
+def _split_clause_conditions(text: str) -> tuple[str | None, list[str]] | None:
+    has_and = bool(re.search(r"\band\b", text, flags=re.IGNORECASE))
+    has_or = bool(re.search(r"\bor\b", text, flags=re.IGNORECASE))
+
+    if has_and and has_or:
+        return None
+
+    if has_and:
+        operator = "AND"
+        parts = re.split(r"\band\b", text, flags=re.IGNORECASE)
+    elif has_or:
+        operator = "OR"
+        parts = re.split(r"\bor\b", text, flags=re.IGNORECASE)
+    else:
+        operator = None
+        parts = [text]
+
+    cleaned = [part.strip(" ,.") for part in parts if part.strip(" ,.")]
+    if not cleaned:
+        return None
+
+    return operator, cleaned
+
+
+def _extract_sma_pair_any_direction(text: str) -> tuple[int, int] | None:
+    patterns = [
+        r"(\d+)\s*(?:day|d)?\s*sma\s*(?:cross(?:es)?|crossing)?\s*(?:above|below)\s*(\d+)\s*(?:day|d)?\s*sma",
+        r"(\d+)\s*/\s*(\d+)\s*sma",
+        r"(\d+)\s*(?:day|d)?\s+(?:and|\/)\s*(\d+)\s*(?:day|d)?\s+sma",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            fast_window = int(match.group(1))
+            slow_window = int(match.group(2))
+            if fast_window != slow_window:
+                return fast_window, slow_window
+    return None
+
+
+def _build_atomic_rule_from_clause(
+    clause_text: str,
+    *,
+    tradable_symbol: str,
+    fallback_reference_symbol: str,
+    side: str,
+) -> tuple[dict | None, list[str]]:
+    assumptions: list[str] = []
+    clause_lower = clause_text.lower()
+
+    if "rsi" in clause_lower:
+        rsi_below = _extract_rsi_rule(clause_text, direction="below")
+        rsi_above = _extract_rsi_rule(clause_text, direction="above")
+
+        if rsi_below is not None:
+            lookback, threshold = rsi_below
+            return (
+                {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": tradable_symbol,
+                    "lookback": lookback,
+                    "threshold": threshold,
+                },
+                assumptions,
+            )
+
+        if rsi_above is not None:
+            lookback, threshold = rsi_above
+            return (
+                {
+                    "kind": "atomic",
+                    "type": "rsi_above",
+                    "symbol": tradable_symbol,
+                    "lookback": lookback,
+                    "threshold": threshold,
+                },
+                assumptions,
+            )
+
+        return None, assumptions
+
+    if "moving average" in clause_lower or "sma" in clause_lower:
+        pair = _extract_sma_pair_any_direction(clause_text)
+        fast_window, slow_window = pair if pair else (20, 50)
+
+        if pair is None:
+            assumptions.append("Used default moving-average windows 20/50 inside a combined rule clause.")
+
+        if "below" in clause_lower:
+            rule_type = "sma_cross_below"
+        elif "above" in clause_lower:
+            rule_type = "sma_cross_above"
+        else:
+            rule_type = "sma_cross_above" if side == "entry" else "sma_cross_below"
+
+        return (
+            {
+                "kind": "atomic",
+                "type": rule_type,
+                "symbol": tradable_symbol,
+                "fast_window": fast_window,
+                "slow_window": slow_window,
+            },
+            assumptions,
+        )
+
+    if "macd" in clause_lower:
+        return (
+            {
+                "kind": "atomic",
+                "type": "macd_bullish_cross" if side == "entry" else "macd_bearish_cross",
+                "symbol": tradable_symbol,
+            },
+            assumptions,
+        )
+
+    if "kd" in clause_lower or "stochastic" in clause_lower:
+        return (
+            {
+                "kind": "atomic",
+                "type": "kd_golden_cross" if side == "entry" else "kd_dead_cross",
+                "symbol": tradable_symbol,
+            },
+            assumptions,
+        )
+
+    month_values = _extract_month_values(clause_text)
+    if month_values is not None and (
+        "seasonality" in clause_lower or "month" in clause_lower or "months" in clause_lower
+    ):
+        return (
+            {
+                "kind": "atomic",
+                "type": "month_in",
+                "month_values": month_values,
+            },
+            assumptions,
+        )
+
+    relative_strength_rules = _extract_relative_strength_rules(
+        clause_text,
+        tradable_symbol=tradable_symbol,
+        fallback_reference_symbol=fallback_reference_symbol,
+    )
+    if relative_strength_rules is not None:
+        entry_rule, _, relative_strength_assumptions = relative_strength_rules
+        assumptions.extend(relative_strength_assumptions)
+        return entry_rule, assumptions
+
+    return None, assumptions
+
+
+def _build_rule_from_clause(
+    clause_text: str,
+    *,
+    tradable_symbol: str,
+    fallback_reference_symbol: str,
+    side: str,
+) -> tuple[dict | None, list[str]]:
+    split_result = _split_clause_conditions(clause_text)
+    if split_result is None:
+        return None, []
+
+    operator, parts = split_result
+    rules: list[dict] = []
+    assumptions: list[str] = []
+
+    for part in parts:
+        rule, rule_assumptions = _build_atomic_rule_from_clause(
+            part,
+            tradable_symbol=tradable_symbol,
+            fallback_reference_symbol=fallback_reference_symbol,
+            side=side,
+        )
+        if rule is None:
+            return None, []
+        rules.append(rule)
+        assumptions.extend(rule_assumptions)
+
+    if len(rules) == 1:
+        return rules[0], assumptions
+
+    return {
+        "kind": "group",
+        "operator": operator,
+        "rules": rules,
+    }, assumptions
+
+
 def _has_partial_relative_strength_edit(
     *,
     reference_symbol_edit: str | None,
@@ -1076,14 +1281,14 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     )
     _record_change(
         changes,
-        base_entry.get("type"),
-        final_entry.get("type"),
+        _rule_label(base_entry) if base_entry else None,
+        _rule_label(final_entry) if final_entry else None,
         "entry rule",
     )
     _record_change(
         changes,
-        base_exit.get("type"),
-        final_exit.get("type"),
+        _rule_label(base_exit) if base_exit else None,
+        _rule_label(final_exit) if final_exit else None,
         "exit rule",
     )
     _record_change(
@@ -1418,6 +1623,52 @@ def _generate_strategy_draft(
     if relative_strength_rules is not None:
         entry_rule, exit_rule, relative_strength_assumptions = relative_strength_rules
         assumptions.extend(relative_strength_assumptions)
+
+    entry_clause, exit_clause = _extract_entry_exit_rule_clauses(prompt)
+    if entry_clause is not None and exit_clause is not None:
+        composite_entry_rule, composite_entry_assumptions = _build_rule_from_clause(
+            entry_clause,
+            tradable_symbol=(
+                current_config.get("tradable_symbol", tradable_symbol)
+                if has_current_config
+                else tradable_symbol
+            ),
+            fallback_reference_symbol=(
+                current_config.get("benchmark_symbol", benchmark_symbol)
+                if has_current_config
+                else benchmark_symbol
+            ),
+            side="entry",
+        )
+        composite_exit_rule, composite_exit_assumptions = _build_rule_from_clause(
+            exit_clause,
+            tradable_symbol=(
+                current_config.get("tradable_symbol", tradable_symbol)
+                if has_current_config
+                else tradable_symbol
+            ),
+            fallback_reference_symbol=(
+                current_config.get("benchmark_symbol", benchmark_symbol)
+                if has_current_config
+                else benchmark_symbol
+            ),
+            side="exit",
+        )
+
+        if composite_entry_rule is None or composite_exit_rule is None:
+            raise ValueError(
+                "I could not deterministically parse that combined entry/exit rule request. "
+                "Use explicit clauses like 'entry when RSI below 30 and MACD' and "
+                "'exit when RSI above 70 or MACD'."
+            )
+
+        entry_rule = composite_entry_rule
+        exit_rule = composite_exit_rule
+        assumptions.extend(composite_entry_assumptions)
+        assumptions.extend(composite_exit_assumptions)
+        assumptions.append(
+            "Interpreted explicit entry/exit clauses as combined rules using AND/OR."
+        )
 
     if "mean reversion" in prompt_lower and entry_rule is None and exit_rule is None:
         entry_rule = {

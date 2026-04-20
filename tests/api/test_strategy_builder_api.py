@@ -258,6 +258,36 @@ def test_generate_strategy_builder_draft_parses_relative_strength_strategy(clien
     assert config["exit_rule"]["rule"]["threshold"] == 0.03
 
 
+def test_generate_strategy_builder_draft_parses_composite_entry_and_exit_rules(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a strategy for QQQ with entry when RSI below 30 and MACD "
+                "and exit when RSI above 70 or MACD"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "AND"
+    assert len(config["entry_rule"]["rules"]) == 2
+    assert config["entry_rule"]["rules"][0]["type"] == "rsi_below"
+    assert config["entry_rule"]["rules"][1]["type"] == "macd_bullish_cross"
+
+    assert config["exit_rule"]["kind"] == "group"
+    assert config["exit_rule"]["operator"] == "OR"
+    assert len(config["exit_rule"]["rules"]) == 2
+    assert config["exit_rule"]["rules"][0]["type"] == "rsi_above"
+    assert config["exit_rule"]["rules"][1]["type"] == "macd_bearish_cross"
+
+
 def test_generate_strategy_builder_draft_parses_using_symbol_as_benchmark_phrase(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -706,6 +736,80 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_relative_
 
     assert config["benchmark_symbol"] == "SPY"
     assert config["risk"]["stop_loss_pct"] == 0.08
+
+
+def test_generate_strategy_builder_draft_switches_existing_strategy_to_composite_rules(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "change this strategy to entry when RSI below 25 and MACD "
+                "and exit when RSI above 65 or MACD"
+            ),
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "AND"
+    assert config["entry_rule"]["rules"][0]["type"] == "rsi_below"
+    assert config["entry_rule"]["rules"][0]["threshold"] == 25
+    assert config["entry_rule"]["rules"][1]["type"] == "macd_bullish_cross"
+
+    assert config["exit_rule"]["kind"] == "group"
+    assert config["exit_rule"]["operator"] == "OR"
+    assert config["exit_rule"]["rules"][0]["type"] == "rsi_above"
+    assert config["exit_rule"]["rules"][0]["threshold"] == 65
+    assert config["exit_rule"]["rules"][1]["type"] == "macd_bearish_cross"
+
+    assert config["benchmark_symbol"] == "SPY"
+    assert config["risk"]["stop_loss_pct"] == 0.08
+    assert any("Updated entry rule" in change for change in body["changes"])
+    assert any("Updated exit rule" in change for change in body["changes"])
 
 
 def test_generate_strategy_builder_draft_updates_seasonality_months_and_records_change(client):
@@ -1486,6 +1590,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "KD" in body["message"]
     assert "seasonality" in body["message"]
     assert "relative strength" in body["message"]
+    assert "AND/OR" in body["message"]
 
 
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
