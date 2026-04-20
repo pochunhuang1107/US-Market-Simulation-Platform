@@ -780,6 +780,105 @@ def test_get_run_dashboard_returns_nested_run_strategy_metadata(
     assert body["run"]["strategy_version_number"] == version.version_number
 
 
+def test_get_run_chart_data_preserves_trade_marker_actions(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+
+    run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "trade marker labels"},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"total_return_pct": 12.3},
+        artifact_dir="data/local_artifacts/runs/test-trade-markers",
+        artifact_manifest_json={"summary": "dummy"},
+    )
+
+    def fake_load_chart_data(_):
+        return {
+            "equity_curve": [],
+            "drawdown_curve": [],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [
+                {
+                    "date": "2024-01-02",
+                    "side": "BUY",
+                    "shares": 100.0,
+                    "price": 100.0,
+                    "reason": None,
+                },
+                {
+                    "date": "2024-01-10",
+                    "side": "BUY_ADD",
+                    "shares": 25.0,
+                    "price": 102.0,
+                    "reason": None,
+                },
+                {
+                    "date": "2024-01-15",
+                    "side": "SELL_REDUCE",
+                    "shares": 50.0,
+                    "price": 105.0,
+                    "reason": "exit_signal",
+                },
+                {
+                    "date": "2024-01-20",
+                    "side": "SELL_ALL",
+                    "shares": 75.0,
+                    "price": 107.0,
+                    "reason": "exit_signal",
+                },
+            ],
+        }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.chart_service.load_chart_data",
+        fake_load_chart_data,
+    )
+
+    response = client.get(f"/runs/{run.id}/chart-data")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["run_id"] == str(run.id)
+
+    markers = body["trade_markers"]
+    assert [marker["side"] for marker in markers] == [
+        "BUY",
+        "BUY_ADD",
+        "SELL_REDUCE",
+        "SELL_ALL",
+    ]
+    assert markers[0]["shares"] == 100.0
+    assert markers[1]["shares"] == 25.0
+    assert markers[2]["reason"] == "exit_signal"
+    assert markers[3]["price"] == 107.0
+
+
 def test_compare_runs_chart_requires_at_least_two_runs(
     client,
     db_session,
