@@ -946,6 +946,149 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_window_ru
     assert any("Updated exit rule" in change for change in body["changes"])
 
 
+def test_generate_strategy_builder_draft_updates_entry_window_bars_and_mode(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change entry window to 10 bars and change entry window mode to all",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-window-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "window",
+                        "window_bars": 5,
+                        "mode": "ANY",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "rsi_below",
+                            "lookback": 14,
+                            "threshold": 30,
+                        },
+                    },
+                    "exit_rule": {
+                        "kind": "window",
+                        "window_bars": 3,
+                        "mode": "ALL",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "rsi_above",
+                            "lookback": 14,
+                            "threshold": 70,
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "window"
+    assert config["entry_rule"]["window_bars"] == 10
+    assert config["entry_rule"]["mode"] == "ALL"
+    assert config["entry_rule"]["rule"]["type"] == "rsi_below"
+
+    assert config["exit_rule"]["kind"] == "window"
+    assert config["exit_rule"]["window_bars"] == 3
+    assert config["exit_rule"]["mode"] == "ALL"
+
+    assert "Updated entry window bars from 5 to 10." in body["changes"]
+    assert "Updated entry window mode from ANY to ALL." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_updates_exit_window_bars(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change exit window to 6 bars",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-window-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "window",
+                        "window_bars": 5,
+                        "mode": "ANY",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "rsi_below",
+                            "lookback": 14,
+                            "threshold": 30,
+                        },
+                    },
+                    "exit_rule": {
+                        "kind": "window",
+                        "window_bars": 3,
+                        "mode": "ALL",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "rsi_above",
+                            "lookback": 14,
+                            "threshold": 70,
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["exit_rule"]["kind"] == "window"
+    assert config["exit_rule"]["window_bars"] == 6
+    assert config["exit_rule"]["mode"] == "ALL"
+    assert "Updated exit window bars from 3 to 6." in body["changes"]
+
+
 def test_generate_strategy_builder_draft_switches_existing_strategy_to_sequence_rules(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -1016,6 +1159,166 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_sequence_
 
     assert any("Updated entry rule" in change for change in body["changes"])
     assert any("Updated exit rule" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_draft_updates_entry_sequence_bars(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change entry sequence to 8 bars",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-sequence-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "sequence",
+                        "window_bars": 5,
+                        "steps": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "sequence",
+                        "window_bars": 4,
+                        "steps": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "sequence"
+    assert config["entry_rule"]["window_bars"] == 8
+    assert config["entry_rule"]["steps"][1]["type"] == "macd_bullish_cross"
+    assert "Updated entry sequence bars from 5 to 8." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_updates_entry_sequence_second_step_to_kd(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change second step of entry sequence to KD",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-sequence-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "sequence",
+                        "window_bars": 5,
+                        "steps": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "sequence",
+                        "window_bars": 4,
+                        "steps": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "sequence"
+    assert config["entry_rule"]["steps"][0]["type"] == "rsi_below"
+    assert config["entry_rule"]["steps"][1]["type"] == "kd_golden_cross"
+    assert "Updated entry sequence second step from macd_bullish_cross|symbol=QQQ to kd_golden_cross|symbol=QQQ." in body["changes"]
 
 
 def test_generate_strategy_builder_draft_adds_macd_confirmation_to_existing_strategy(client):
@@ -2099,6 +2402,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "within N bars" in body["message"]
     assert "then Y within N bars" in body["message"]
     assert "confirmation filters" in body["message"]
+    assert "window bars/modes and sequence bars/steps" in body["message"]
 
 
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
@@ -2232,6 +2536,8 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Add KD / stochastic confirmation" in body["guidance_data"]["suggested_actions"]
     assert "Add relative strength confirmation" in body["guidance_data"]["suggested_actions"]
     assert "Remove confirmation filters" in body["guidance_data"]["suggested_actions"]
+    assert "Change window bars / mode" in body["guidance_data"]["suggested_actions"]
+    assert "Change sequence bars / steps" in body["guidance_data"]["suggested_actions"]
 
 
 def test_generate_strategy_builder_returns_guidance_data_for_unsupported_edit_target(client):

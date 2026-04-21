@@ -242,6 +242,10 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bwithin\s+\d+\s+bars?\b",
         r"\bthen\b",
         r"\bsequence\b",
+        r"\b(entry|exit)\s+window\b",
+        r"\bwindow\s+mode\b",
+        r"\b(entry|exit)\s+sequence\b",
+        r"\b(first|second)\s+step\s+of\s+(entry|exit)\s+sequence\b",
         r"\bcapital\b",
         r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
         r"\b(entry|exit)\s+rule\b",
@@ -1271,6 +1275,94 @@ def _remove_confirmation_rule(
     }
 
 
+def _extract_temporal_bars_edit(
+    text: str,
+    *,
+    side: str,
+    rule_kind: str,
+) -> int | None:
+    patterns = [
+        rf"change\s+{side}\s+{rule_kind}\s+from\s+\d+\s+bars?\s+to\s+(\d+)\s+bars?",
+        rf"change\s+{side}\s+{rule_kind}\s+to\s+(\d+)\s+bars?",
+        rf"set\s+{side}\s+{rule_kind}\s+to\s+(\d+)\s+bars?",
+        rf"{side}\s+{rule_kind}\s+to\s+(\d+)\s+bars?",
+    ]
+    return _extract_int(text, patterns)
+
+
+def _extract_temporal_mode_edit(
+    text: str,
+    *,
+    side: str,
+) -> str | None:
+    patterns = [
+        rf"change\s+{side}\s+window\s+mode\s+to\s+(any|all)",
+        rf"set\s+{side}\s+window\s+mode\s+to\s+(any|all)",
+        rf"{side}\s+window\s+mode\s+(?:to\s+)?(any|all)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def _extract_sequence_step_edit(
+    text: str,
+    *,
+    side: str,
+    ordinal: str,
+) -> str | None:
+    patterns = [
+        rf"change\s+{ordinal}\s+step\s+of\s+{side}\s+sequence\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+        rf"set\s+{ordinal}\s+step\s+of\s+{side}\s+sequence\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+        rf"{side}\s+sequence\s+{ordinal}\s+step\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip(" ,.")
+    return None
+
+
+def _has_temporal_rule_edit(
+    *,
+    entry_window_bars_edit: int | None,
+    exit_window_bars_edit: int | None,
+    entry_window_mode_edit: str | None,
+    exit_window_mode_edit: str | None,
+    entry_sequence_bars_edit: int | None,
+    exit_sequence_bars_edit: int | None,
+    entry_sequence_first_step_edit: str | None,
+    entry_sequence_second_step_edit: str | None,
+    exit_sequence_first_step_edit: str | None,
+    exit_sequence_second_step_edit: str | None,
+) -> bool:
+    return any(
+        value is not None
+        for value in (
+            entry_window_bars_edit,
+            exit_window_bars_edit,
+            entry_window_mode_edit,
+            exit_window_mode_edit,
+            entry_sequence_bars_edit,
+            exit_sequence_bars_edit,
+            entry_sequence_first_step_edit,
+            entry_sequence_second_step_edit,
+            exit_sequence_first_step_edit,
+            exit_sequence_second_step_edit,
+        )
+    )
+
+
+def _is_window_rule(rule: dict) -> bool:
+    return rule.get("kind") == "window"
+
+
+def _is_sequence_rule(rule: dict) -> bool:
+    return rule.get("kind") == "sequence"
+
+
 def _has_partial_relative_strength_edit(
     *,
     reference_symbol_edit: str | None,
@@ -1589,6 +1681,75 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         "seasonality months",
         _format_month_values,
     )
+
+    if base_entry.get("kind") == "window" and final_entry.get("kind") == "window":
+        _record_change(
+            changes,
+            base_entry.get("window_bars"),
+            final_entry.get("window_bars"),
+            "entry window bars",
+        )
+        _record_change(
+            changes,
+            base_entry.get("mode"),
+            final_entry.get("mode"),
+            "entry window mode",
+        )
+
+    if base_exit.get("kind") == "window" and final_exit.get("kind") == "window":
+        _record_change(
+            changes,
+            base_exit.get("window_bars"),
+            final_exit.get("window_bars"),
+            "exit window bars",
+        )
+        _record_change(
+            changes,
+            base_exit.get("mode"),
+            final_exit.get("mode"),
+            "exit window mode",
+        )
+
+    if base_entry.get("kind") == "sequence" and final_entry.get("kind") == "sequence":
+        _record_change(
+            changes,
+            base_entry.get("window_bars"),
+            final_entry.get("window_bars"),
+            "entry sequence bars",
+        )
+        _record_change(
+            changes,
+            _rule_signature((base_entry.get("steps") or [None, None])[0]),
+            _rule_signature((final_entry.get("steps") or [None, None])[0]),
+            "entry sequence first step",
+        )
+        _record_change(
+            changes,
+            _rule_signature((base_entry.get("steps") or [None, None])[1]),
+            _rule_signature((final_entry.get("steps") or [None, None])[1]),
+            "entry sequence second step",
+        )
+
+    if base_exit.get("kind") == "sequence" and final_exit.get("kind") == "sequence":
+        _record_change(
+            changes,
+            base_exit.get("window_bars"),
+            final_exit.get("window_bars"),
+            "exit sequence bars",
+        )
+        _record_change(
+            changes,
+            _rule_signature((base_exit.get("steps") or [None, None])[0]),
+            _rule_signature((final_exit.get("steps") or [None, None])[0]),
+            "exit sequence first step",
+        )
+        _record_change(
+            changes,
+            _rule_signature((base_exit.get("steps") or [None, None])[1]),
+            _rule_signature((final_exit.get("steps") or [None, None])[1]),
+            "exit sequence second step",
+        )
+
     _record_change(
         changes,
         base_entry.get("reference_symbol"),
@@ -1861,6 +2022,68 @@ def _generate_strategy_draft(
         and (add_confirmation_intent or remove_confirmation_intent)
     )
 
+    entry_window_bars_edit = _extract_temporal_bars_edit(
+        prompt,
+        side="entry",
+        rule_kind="window",
+    )
+    exit_window_bars_edit = _extract_temporal_bars_edit(
+        prompt,
+        side="exit",
+        rule_kind="window",
+    )
+    entry_window_mode_edit = _extract_temporal_mode_edit(
+        prompt,
+        side="entry",
+    )
+    exit_window_mode_edit = _extract_temporal_mode_edit(
+        prompt,
+        side="exit",
+    )
+    entry_sequence_bars_edit = _extract_temporal_bars_edit(
+        prompt,
+        side="entry",
+        rule_kind="sequence",
+    )
+    exit_sequence_bars_edit = _extract_temporal_bars_edit(
+        prompt,
+        side="exit",
+        rule_kind="sequence",
+    )
+    entry_sequence_first_step_edit = _extract_sequence_step_edit(
+        prompt,
+        side="entry",
+        ordinal="first",
+    )
+    entry_sequence_second_step_edit = _extract_sequence_step_edit(
+        prompt,
+        side="entry",
+        ordinal="second",
+    )
+    exit_sequence_first_step_edit = _extract_sequence_step_edit(
+        prompt,
+        side="exit",
+        ordinal="first",
+    )
+    exit_sequence_second_step_edit = _extract_sequence_step_edit(
+        prompt,
+        side="exit",
+        ordinal="second",
+    )
+
+    has_temporal_rule_edit_intent = _has_temporal_rule_edit(
+        entry_window_bars_edit=entry_window_bars_edit,
+        exit_window_bars_edit=exit_window_bars_edit,
+        entry_window_mode_edit=entry_window_mode_edit,
+        exit_window_mode_edit=exit_window_mode_edit,
+        entry_sequence_bars_edit=entry_sequence_bars_edit,
+        exit_sequence_bars_edit=exit_sequence_bars_edit,
+        entry_sequence_first_step_edit=entry_sequence_first_step_edit,
+        entry_sequence_second_step_edit=entry_sequence_second_step_edit,
+        exit_sequence_first_step_edit=exit_sequence_first_step_edit,
+        exit_sequence_second_step_edit=exit_sequence_second_step_edit,
+    )
+
     if has_confirmation_edit_intent and not has_current_config:
         raise ValueError(
             "Confirmation filters currently require an existing draft. "
@@ -2106,6 +2329,90 @@ def _generate_strategy_draft(
                 existing_entry_rule = updated_entry_rule
                 existing_exit_rule = updated_exit_rule
 
+        if has_temporal_rule_edit_intent:
+            current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
+            current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
+
+            if entry_window_bars_edit is not None and _is_window_rule(existing_entry_rule):
+                existing_entry_rule["window_bars"] = entry_window_bars_edit
+                default_config["entry_rule"] = existing_entry_rule
+
+            if entry_window_mode_edit is not None and _is_window_rule(existing_entry_rule):
+                existing_entry_rule["mode"] = entry_window_mode_edit
+                default_config["entry_rule"] = existing_entry_rule
+
+            if exit_window_bars_edit is not None and _is_window_rule(existing_exit_rule):
+                existing_exit_rule["window_bars"] = exit_window_bars_edit
+                default_config["exit_rule"] = existing_exit_rule
+
+            if exit_window_mode_edit is not None and _is_window_rule(existing_exit_rule):
+                existing_exit_rule["mode"] = exit_window_mode_edit
+                default_config["exit_rule"] = existing_exit_rule
+
+            if entry_sequence_bars_edit is not None and _is_sequence_rule(existing_entry_rule):
+                existing_entry_rule["window_bars"] = entry_sequence_bars_edit
+                default_config["entry_rule"] = existing_entry_rule
+
+            if exit_sequence_bars_edit is not None and _is_sequence_rule(existing_exit_rule):
+                existing_exit_rule["window_bars"] = exit_sequence_bars_edit
+                default_config["exit_rule"] = existing_exit_rule
+
+            if entry_sequence_first_step_edit is not None and _is_sequence_rule(existing_entry_rule):
+                updated_step, step_assumptions = _build_atomic_rule_from_clause(
+                    entry_sequence_first_step_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="entry",
+                )
+                if updated_step is not None and len(existing_entry_rule.get("steps", [])) >= 1:
+                    updated_steps = list(existing_entry_rule.get("steps", []))
+                    updated_steps[0] = updated_step
+                    existing_entry_rule["steps"] = updated_steps
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(step_assumptions)
+
+            if entry_sequence_second_step_edit is not None and _is_sequence_rule(existing_entry_rule):
+                updated_step, step_assumptions = _build_atomic_rule_from_clause(
+                    entry_sequence_second_step_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="entry",
+                )
+                if updated_step is not None and len(existing_entry_rule.get("steps", [])) >= 2:
+                    updated_steps = list(existing_entry_rule.get("steps", []))
+                    updated_steps[1] = updated_step
+                    existing_entry_rule["steps"] = updated_steps
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(step_assumptions)
+
+            if exit_sequence_first_step_edit is not None and _is_sequence_rule(existing_exit_rule):
+                updated_step, step_assumptions = _build_atomic_rule_from_clause(
+                    exit_sequence_first_step_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="exit",
+                )
+                if updated_step is not None and len(existing_exit_rule.get("steps", [])) >= 1:
+                    updated_steps = list(existing_exit_rule.get("steps", []))
+                    updated_steps[0] = updated_step
+                    existing_exit_rule["steps"] = updated_steps
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(step_assumptions)
+
+            if exit_sequence_second_step_edit is not None and _is_sequence_rule(existing_exit_rule):
+                updated_step, step_assumptions = _build_atomic_rule_from_clause(
+                    exit_sequence_second_step_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="exit",
+                )
+                if updated_step is not None and len(existing_exit_rule.get("steps", [])) >= 2:
+                    updated_steps = list(existing_exit_rule.get("steps", []))
+                    updated_steps[1] = updated_step
+                    existing_exit_rule["steps"] = updated_steps
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(step_assumptions)
+
         risk = dict(default_config.get("risk", {}))
         risk.setdefault("cooldown_bars", 0)
         default_config["risk"] = risk
@@ -2154,7 +2461,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_entry_threshold_edit,
                 }
 
-        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and (
+        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -2186,7 +2493,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_exit_threshold_edit,
                 }
 
-        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and (
+        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
