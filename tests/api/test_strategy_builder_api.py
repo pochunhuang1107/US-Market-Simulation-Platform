@@ -288,6 +288,68 @@ def test_generate_strategy_builder_draft_parses_composite_entry_and_exit_rules(c
     assert config["exit_rule"]["rules"][1]["type"] == "macd_bearish_cross"
 
 
+def test_generate_strategy_builder_draft_parses_window_entry_and_exit_rules(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a strategy for QQQ with entry when any RSI below 30 within 5 bars "
+                "and exit when all RSI above 70 within 3 bars"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "window"
+    assert config["entry_rule"]["mode"] == "ANY"
+    assert config["entry_rule"]["window_bars"] == 5
+    assert config["entry_rule"]["rule"]["type"] == "rsi_below"
+    assert config["entry_rule"]["rule"]["threshold"] == 30
+
+    assert config["exit_rule"]["kind"] == "window"
+    assert config["exit_rule"]["mode"] == "ALL"
+    assert config["exit_rule"]["window_bars"] == 3
+    assert config["exit_rule"]["rule"]["type"] == "rsi_above"
+    assert config["exit_rule"]["rule"]["threshold"] == 70
+
+
+def test_generate_strategy_builder_draft_parses_sequence_entry_and_exit_rules(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a strategy for QQQ with entry when RSI below 30 then MACD within 5 bars "
+                "and exit when RSI above 70 then MACD within 4 bars"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "sequence"
+    assert config["entry_rule"]["window_bars"] == 5
+    assert len(config["entry_rule"]["steps"]) == 2
+    assert config["entry_rule"]["steps"][0]["type"] == "rsi_below"
+    assert config["entry_rule"]["steps"][0]["threshold"] == 30
+    assert config["entry_rule"]["steps"][1]["type"] == "macd_bullish_cross"
+
+    assert config["exit_rule"]["kind"] == "sequence"
+    assert config["exit_rule"]["window_bars"] == 4
+    assert len(config["exit_rule"]["steps"]) == 2
+    assert config["exit_rule"]["steps"][0]["type"] == "rsi_above"
+    assert config["exit_rule"]["steps"][0]["threshold"] == 70
+    assert config["exit_rule"]["steps"][1]["type"] == "macd_bearish_cross"
+
+
 def test_generate_strategy_builder_draft_parses_using_symbol_as_benchmark_phrase(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -808,6 +870,150 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_composite
 
     assert config["benchmark_symbol"] == "SPY"
     assert config["risk"]["stop_loss_pct"] == 0.08
+    assert any("Updated entry rule" in change for change in body["changes"])
+    assert any("Updated exit rule" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_draft_switches_existing_strategy_to_window_rules(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "change this strategy to entry when any RSI below 25 within 5 bars "
+                "and exit when all RSI above 65 within 3 bars"
+            ),
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "window"
+    assert config["entry_rule"]["mode"] == "ANY"
+    assert config["entry_rule"]["window_bars"] == 5
+    assert config["entry_rule"]["rule"]["type"] == "rsi_below"
+    assert config["entry_rule"]["rule"]["threshold"] == 25
+
+    assert config["exit_rule"]["kind"] == "window"
+    assert config["exit_rule"]["mode"] == "ALL"
+    assert config["exit_rule"]["window_bars"] == 3
+    assert config["exit_rule"]["rule"]["type"] == "rsi_above"
+    assert config["exit_rule"]["rule"]["threshold"] == 65
+
+    assert any("Updated entry rule" in change for change in body["changes"])
+    assert any("Updated exit rule" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_draft_switches_existing_strategy_to_sequence_rules(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "change this strategy to entry when RSI below 25 then MACD within 5 bars "
+                "and exit when RSI above 65 then MACD within 4 bars"
+            ),
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "sequence"
+    assert config["entry_rule"]["window_bars"] == 5
+    assert config["entry_rule"]["steps"][0]["type"] == "rsi_below"
+    assert config["entry_rule"]["steps"][0]["threshold"] == 25
+    assert config["entry_rule"]["steps"][1]["type"] == "macd_bullish_cross"
+
+    assert config["exit_rule"]["kind"] == "sequence"
+    assert config["exit_rule"]["window_bars"] == 4
+    assert config["exit_rule"]["steps"][0]["type"] == "rsi_above"
+    assert config["exit_rule"]["steps"][0]["threshold"] == 65
+    assert config["exit_rule"]["steps"][1]["type"] == "macd_bearish_cross"
+
     assert any("Updated entry rule" in change for change in body["changes"])
     assert any("Updated exit rule" in change for change in body["changes"])
 
@@ -1591,6 +1797,8 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "seasonality" in body["message"]
     assert "relative strength" in body["message"]
     assert "AND/OR" in body["message"]
+    assert "within N bars" in body["message"]
+    assert "then Y within N bars" in body["message"]
 
 
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):

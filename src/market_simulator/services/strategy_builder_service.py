@@ -232,6 +232,9 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\brelative\s+strength\b",
         r"\brelative\s+return\b",
         r"\boutperform\b",
+        r"\bwithin\s+\d+\s+bars?\b",
+        r"\bthen\b",
+        r"\bsequence\b",
         r"\bcapital\b",
         r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
         r"\b(entry|exit)\s+rule\b",
@@ -351,7 +354,8 @@ def _build_answer_message(
         return (
             "Right now the builder supports RSI mean reversion, moving-average crossover edits, "
             "MACD, KD/stochastic, seasonality by calendar month, relative strength versus another ETF, "
-            "and explicit combined entry/exit rules using AND/OR. "
+            "explicit combined entry/exit rules using AND/OR, temporal window rules using any/all within N bars, "
+            "and two-step sequence rules using X then Y within N bars. "
             "It also supports benchmark, stop loss, take profit, allocation, cooldown, capital, and date edits.",
             {
                 "answer_type": StrategyBuilderAnswerType.SUPPORTED_STRATEGY_TYPES,
@@ -440,7 +444,8 @@ def _build_validation_data(
             "max_backtest_years": None,
             "suggested_action": (
                 "Try benchmark, stop loss, take profit, allocation, cooldown, RSI, moving averages, "
-                "MACD, KD/stochastic, seasonality by month, relative strength, capital, or dates."
+                "MACD, KD/stochastic, seasonality by month, relative strength, combined AND/OR rules, "
+                "any/all within N bars, X then Y sequence rules, capital, or dates."
             ),
         }
 
@@ -470,6 +475,9 @@ def _build_guidance_data(
         "Switch to KD / stochastic",
         "Switch to seasonality by month",
         "Switch to relative strength",
+        "Use combined AND / OR rules",
+        "Use any / all within N bars",
+        "Use X then Y sequence rules",
         "Change capital",
         "Change dates",
     ]
@@ -1010,6 +1018,36 @@ def _build_atomic_rule_from_clause(
     return None, assumptions
 
 
+def _extract_window_rule_clause(text: str) -> tuple[str, str, int] | None:
+    match = re.search(
+        r"^(any|all)\s+(.+?)\s+within\s+(\d+)\s+bars?$",
+        text.strip(),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    mode = match.group(1).upper()
+    inner_clause = match.group(2).strip(" ,.")
+    window_bars = int(match.group(3))
+    return mode, inner_clause, window_bars
+
+
+def _extract_sequence_rule_clause(text: str) -> tuple[str, str, int] | None:
+    match = re.search(
+        r"^(.+?)\s+then\s+(.+?)\s+within\s+(\d+)\s+bars?$",
+        text.strip(),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    first_clause = match.group(1).strip(" ,.")
+    second_clause = match.group(2).strip(" ,.")
+    window_bars = int(match.group(3))
+    return first_clause, second_clause, window_bars
+
+
 def _build_rule_from_clause(
     clause_text: str,
     *,
@@ -1017,6 +1055,58 @@ def _build_rule_from_clause(
     fallback_reference_symbol: str,
     side: str,
 ) -> tuple[dict | None, list[str]]:
+    sequence_rule = _extract_sequence_rule_clause(clause_text)
+    if sequence_rule is not None:
+        first_clause, second_clause, window_bars = sequence_rule
+
+        first_rule, first_assumptions = _build_atomic_rule_from_clause(
+            first_clause,
+            tradable_symbol=tradable_symbol,
+            fallback_reference_symbol=fallback_reference_symbol,
+            side=side,
+        )
+        second_rule, second_assumptions = _build_atomic_rule_from_clause(
+            second_clause,
+            tradable_symbol=tradable_symbol,
+            fallback_reference_symbol=fallback_reference_symbol,
+            side=side,
+        )
+
+        if first_rule is None or second_rule is None:
+            return None, []
+
+        return (
+            {
+                "kind": "sequence",
+                "window_bars": window_bars,
+                "steps": [first_rule, second_rule],
+            },
+            [*first_assumptions, *second_assumptions],
+        )
+
+    window_rule = _extract_window_rule_clause(clause_text)
+    if window_rule is not None:
+        mode, inner_clause, window_bars = window_rule
+
+        inner_rule, inner_assumptions = _build_rule_from_clause(
+            inner_clause,
+            tradable_symbol=tradable_symbol,
+            fallback_reference_symbol=fallback_reference_symbol,
+            side=side,
+        )
+        if inner_rule is None:
+            return None, []
+
+        return (
+            {
+                "kind": "window",
+                "window_bars": window_bars,
+                "mode": mode,
+                "rule": inner_rule,
+            },
+            inner_assumptions,
+        )
+
     split_result = _split_clause_conditions(clause_text)
     if split_result is None:
         return None, []
@@ -1040,11 +1130,14 @@ def _build_rule_from_clause(
     if len(rules) == 1:
         return rules[0], assumptions
 
-    return {
-        "kind": "group",
-        "operator": operator,
-        "rules": rules,
-    }, assumptions
+    return (
+        {
+            "kind": "group",
+            "operator": operator,
+            "rules": rules,
+        },
+        assumptions,
+    )
 
 
 def _has_partial_relative_strength_edit(
@@ -2075,7 +2168,8 @@ def generate_strategy_builder_response(
                 "I understood this as a requested strategy edit, but that edit type is not supported yet. "
                 "Right now I can help with benchmark, stop loss, take profit, allocation, cooldown, "
                 "RSI thresholds, moving-average rules, MACD, KD/stochastic, seasonality by month, "
-                "relative strength, capital, and dates."
+                "relative strength, combined AND/OR rules, any/all within N bars, X then Y sequence rules, "
+                "capital, and dates."
             )
             return _build_response(
                 response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
@@ -2096,6 +2190,7 @@ def generate_strategy_builder_response(
                 "You can ask for a specific edit like changing benchmark, stop loss, "
                 "take profit, allocation, cooldown, RSI thresholds, moving-average rules, switching to MACD, "
                 "switching to KD/stochastic, switching to seasonality by month, switching to relative strength, "
+                "using combined AND/OR rules, using any/all within N bars, using X then Y sequence rules, "
                 "capital, or dates."
             ),
             guidance_data=_build_guidance_data(
