@@ -112,6 +112,37 @@ def test_generate_strategy_builder_draft_parses_benchmark_take_profit_capital_an
     assert config["risk"]["cooldown_bars"] == 5
 
 
+def test_generate_strategy_builder_draft_parses_partial_take_profit_position_management_and_core_allocation(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a strategy for QQQ with partial take profit at 10% sell 50% max 2 times, "
+                "scale in to 25%, scale out to 50%, profit reduce threshold to 5%, "
+                "and core allocation at 60%"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["risk"]["partial_take_profit"]["trigger_profit_pct"] == 0.10
+    assert config["risk"]["partial_take_profit"]["sell_fraction_of_position"] == 0.50
+    assert config["risk"]["partial_take_profit"]["max_triggers"] == 2
+
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["scale_out_fraction"] == 0.50
+    assert config["position_management"]["profit_reduce_threshold"] == 0.05
+
+    assert config["core_overlay"]["enabled"] is True
+    assert config["core_overlay"]["core_allocation_pct"] == 0.60
+
+    assert "take_profit_pct" not in config["risk"]
+
+
 def test_generate_strategy_builder_draft_parses_custom_moving_average_windows(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -2280,6 +2311,153 @@ def test_generate_strategy_builder_draft_can_remove_stop_loss_take_profit_and_co
     assert "Updated take profit from 15.0% to none." in body["changes"]
     assert "Updated cooldown bars from 5 to 0." in body["changes"]
 
+
+def test_generate_strategy_builder_draft_updates_partial_take_profit_position_management_and_core_allocation(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "add partial take profit at 12% sell 40% max 3 times, "
+                "set scale in to 30%, set scale out to 60%, "
+                "set profit reduce threshold to 7%, and enable core allocation at 55%"
+            ),
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                    "position_management": None,
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    assert config["risk"]["partial_take_profit"]["trigger_profit_pct"] == 0.12
+    assert config["risk"]["partial_take_profit"]["sell_fraction_of_position"] == 0.40
+    assert config["risk"]["partial_take_profit"]["max_triggers"] == 3
+
+    assert config["position_management"]["scale_in_fraction"] == 0.30
+    assert config["position_management"]["scale_out_fraction"] == 0.60
+    assert config["position_management"]["profit_reduce_threshold"] == 0.07
+
+    assert config["core_overlay"]["enabled"] is True
+    assert config["core_overlay"]["core_allocation_pct"] == 0.55
+
+    assert "Updated partial take profit trigger from none to 12.0%." in body["changes"]
+    assert "Updated scale in fraction from none to 30.0%." in body["changes"]
+    assert "Updated core allocation from disabled to enabled." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_can_remove_partial_take_profit_position_management_and_core_allocation(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove partial take profit, remove position management, and disable core allocation",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-managed-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "partial_take_profit": {
+                            "trigger_profit_pct": 0.10,
+                            "sell_fraction_of_position": 0.50,
+                            "max_triggers": 2,
+                        },
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": True,
+                        "core_allocation_pct": 0.60,
+                    },
+                    "position_management": {
+                        "scale_in_fraction": 0.25,
+                        "scale_out_fraction": 0.50,
+                        "profit_reduce_threshold": 0.05,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert "partial_take_profit" not in config["risk"]
+    assert "position_management" not in config or config["position_management"] is None
+    assert config["core_overlay"]["enabled"] is False
+    assert config["core_overlay"]["core_allocation_pct"] == 0.0
+
+    assert "Updated partial take profit trigger from 10.0% to none." in body["changes"]
+    assert "Updated scale in fraction from 25.0% to none." in body["changes"]
+    assert "Updated core allocation from enabled to disabled." in body["changes"]
+
+
 def test_generate_strategy_builder_returns_answer_for_info_question(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -2713,6 +2891,9 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "confirmation filters" in body["message"]
     assert "window bars/modes and sequence bars/steps" in body["message"]
     assert "group operators and group conditions" in body["message"]
+    assert "partial take profit" in body["message"]
+    assert "position management" in body["message"]
+    assert "core allocation / core overlay" in body["message"]
 
 
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
@@ -2851,6 +3032,9 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Change group operator" in body["guidance_data"]["suggested_actions"]
     assert "Change group conditions" in body["guidance_data"]["suggested_actions"]
     assert "Change window inner rule" in body["guidance_data"]["suggested_actions"]
+    assert "Adjust partial take profit" in body["guidance_data"]["suggested_actions"]
+    assert "Adjust position management" in body["guidance_data"]["suggested_actions"]
+    assert "Enable / disable core allocation" in body["guidance_data"]["suggested_actions"]
 
 
 def test_generate_strategy_builder_returns_guidance_data_for_unsupported_edit_target(client):

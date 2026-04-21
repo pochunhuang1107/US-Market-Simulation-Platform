@@ -249,6 +249,13 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\b(entry|exit)\s+group\s+operator\b",
         r"\b(first|second)\s+condition\s+of\s+(entry|exit)\s+group\b",
         r"\b(entry|exit)\s+window\s+inner\s+rule\b",
+        r"\bpartial\s+take\s+profit\b",
+        r"\bscale\s+in\b",
+        r"\bscale\s+out\b",
+        r"\bprofit\s+reduce\s+threshold\b",
+        r"\bposition\s+management\b",
+        r"\bcore\s+allocation\b",
+        r"\bcore\s+overlay\b",
         r"\bcapital\b",
         r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
         r"\b(entry|exit)\s+rule\b",
@@ -1590,7 +1597,7 @@ def _extract_allocation_value_edit(text: str) -> float | None:
     patterns = [
         r"change\s+allocation\s+to\s+(\d+(?:\.\d+)?)%",
         r"set\s+allocation\s+to\s+(\d+(?:\.\d+)?)%",
-        r"allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+        r"(?<!core\s)allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
         r"allocate\s+(\d+(?:\.\d+)?)%",
         r"(\d+(?:\.\d+)?)%\s+of\s+equity",
     ]
@@ -1643,6 +1650,176 @@ def _has_cooldown_removal(text: str) -> bool:
     )
 
 
+def _has_partial_take_profit_removal(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:remove|clear|delete|disable|no)\s+partial\s+take\s+profit|without\s+partial\s+take\s+profit",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _extract_partial_take_profit(
+    text: str,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    assumptions: list[str] = []
+
+    if "partial take profit" not in text.lower():
+        return None, assumptions
+
+    trigger_profit_pct = _extract_percent(
+        text,
+        [
+            r"partial\s+take\s+profit\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+            r"partial\s+take\s+profit\s+trigger\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+        ],
+    )
+    if trigger_profit_pct is None:
+        trigger_profit_pct = 0.10
+        assumptions.append("Used 10.0% trigger for partial take profit by default.")
+
+    sell_fraction_of_position = _extract_percent(
+        text,
+        [
+            r"sell\s+(\d+(?:\.\d+)?)%",
+            r"reduce\s+(\d+(?:\.\d+)?)%",
+        ],
+    )
+    if sell_fraction_of_position is None:
+        sell_fraction_of_position = 0.50
+        assumptions.append("Used 50.0% sell fraction for partial take profit by default.")
+
+    max_triggers = _extract_int(
+        text,
+        [
+            r"max\s+(\d+)\s+times?",
+            r"max\s+triggers?\s+(\d+)",
+        ],
+    )
+    if max_triggers is None:
+        max_triggers = 1
+        assumptions.append("Used max 1 trigger for partial take profit by default.")
+
+    return (
+        {
+            "trigger_profit_pct": trigger_profit_pct,
+            "sell_fraction_of_position": sell_fraction_of_position,
+            "max_triggers": max_triggers,
+        },
+        assumptions,
+    )
+
+
+def _extract_scale_in_fraction_edit(text: str) -> float | None:
+    return _extract_percent(
+        text,
+        [
+            r"scale\s+in\s+(?:to|at)\s+(\d+(?:\.\d+)?)%",
+            r"set\s+scale\s+in\s+to\s+(\d+(?:\.\d+)?)%",
+        ],
+    )
+
+
+def _extract_scale_out_fraction_edit(text: str) -> float | None:
+    return _extract_percent(
+        text,
+        [
+            r"scale\s+out\s+(?:to|at)\s+(\d+(?:\.\d+)?)%",
+            r"set\s+scale\s+out\s+to\s+(\d+(?:\.\d+)?)%",
+        ],
+    )
+
+
+def _extract_profit_reduce_threshold_edit(text: str) -> float | None:
+    return _extract_percent(
+        text,
+        [
+            r"profit\s+reduce\s+threshold\s+(?:to|at)\s+(\d+(?:\.\d+)?)%",
+            r"set\s+profit\s+reduce\s+threshold\s+to\s+(\d+(?:\.\d+)?)%",
+        ],
+    )
+
+
+def _has_position_management_removal(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:remove|clear|delete|disable|no)\s+position\s+management|without\s+position\s+management",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _build_position_management(
+    *,
+    existing: dict[str, Any] | None,
+    scale_in_fraction: float | None,
+    scale_out_fraction: float | None,
+    profit_reduce_threshold: float | None,
+) -> dict[str, Any] | None:
+    if (
+        scale_in_fraction is None
+        and scale_out_fraction is None
+        and profit_reduce_threshold is None
+        and existing is None
+    ):
+        return None
+
+    base = dict(
+        existing
+        or {
+            "scale_in_fraction": 0.25,
+            "scale_out_fraction": 0.5,
+            "profit_reduce_threshold": 0.05,
+        }
+    )
+
+    if scale_in_fraction is not None:
+        base["scale_in_fraction"] = scale_in_fraction
+    if scale_out_fraction is not None:
+        base["scale_out_fraction"] = scale_out_fraction
+    if profit_reduce_threshold is not None:
+        base["profit_reduce_threshold"] = profit_reduce_threshold
+
+    return base
+
+
+def _extract_core_allocation_pct(text: str) -> float | None:
+    return _extract_percent(
+        text,
+        [
+            r"core\s+allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+            r"enable\s+core\s+allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+            r"core\s+overlay\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+        ],
+    )
+
+
+def _has_core_overlay_disable(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:disable|remove|clear|delete|no)\s+core\s+(?:allocation|overlay)|without\s+core\s+(?:allocation|overlay)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _has_core_overlay_enable(text: str) -> bool:
+    return bool(
+        re.search(
+            r"enable\s+core\s+(?:allocation|overlay)|core\s+(?:allocation|overlay)\s+(?:at|to)\s+\d+(?:\.\d+)?%",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _format_enabled(value: Any) -> str:
+    return "enabled" if bool(value) else "disabled"
+
+
 def _format_pct(value: Any) -> str:
     if value is None:
         return "none"
@@ -1677,6 +1854,12 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     final_exit = config.get("exit_rule", {}) or {}
     base_exit_nested = base_exit.get("rule", {}) if base_exit.get("kind") == "not" else {}
     final_exit_nested = final_exit.get("rule", {}) if final_exit.get("kind") == "not" else {}
+    base_partial_take_profit = base_risk.get("partial_take_profit", {}) or {}
+    final_partial_take_profit = final_risk.get("partial_take_profit", {}) or {}
+    base_position_management = base_config.get("position_management", {}) or {}
+    final_position_management = config.get("position_management", {}) or {}
+    base_core_overlay = base_config.get("core_overlay", {}) or {}
+    final_core_overlay = config.get("core_overlay", {}) or {}
 
     _record_change(
         changes,
@@ -1710,6 +1893,26 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         base_risk.get("cooldown_bars", 0),
         final_risk.get("cooldown_bars", 0),
         "cooldown bars",
+    )
+    _record_change(
+        changes,
+        base_partial_take_profit.get("trigger_profit_pct"),
+        final_partial_take_profit.get("trigger_profit_pct"),
+        "partial take profit trigger",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_partial_take_profit.get("sell_fraction_of_position"),
+        final_partial_take_profit.get("sell_fraction_of_position"),
+        "partial take profit sell fraction",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_partial_take_profit.get("max_triggers"),
+        final_partial_take_profit.get("max_triggers"),
+        "partial take profit max triggers",
     )
     _record_change(
         changes,
@@ -1889,6 +2092,41 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
 
     _record_change(
         changes,
+        base_position_management.get("scale_in_fraction"),
+        final_position_management.get("scale_in_fraction"),
+        "scale in fraction",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_position_management.get("scale_out_fraction"),
+        final_position_management.get("scale_out_fraction"),
+        "scale out fraction",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_position_management.get("profit_reduce_threshold"),
+        final_position_management.get("profit_reduce_threshold"),
+        "profit reduce threshold",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_core_overlay.get("enabled", False),
+        final_core_overlay.get("enabled", False),
+        "core allocation",
+        _format_enabled,
+    )
+    _record_change(
+        changes,
+        base_core_overlay.get("core_allocation_pct", 0.0),
+        final_core_overlay.get("core_allocation_pct", 0.0),
+        "core allocation percentage",
+        _format_pct,
+    )
+    _record_change(
+        changes,
         base_entry.get("reference_symbol"),
         final_entry.get("reference_symbol"),
         "relative strength reference symbol",
@@ -2025,7 +2263,7 @@ def _generate_strategy_draft(
     take_profit_pct = None if take_profit_removed else _extract_percent(
         prompt,
         [
-            r"take\s+profit\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
+            r"(?<!partial\s)take\s+profit\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
             r"(\d+(?:\.\d+)?)%\s+take\s+profit",
         ],
     )
@@ -2038,6 +2276,29 @@ def _generate_strategy_draft(
     if cooldown_bars is None:
         cooldown_bars = 0
         assumptions.append("Used cooldown of 0 bars by default.")
+
+    partial_take_profit_removed = _has_partial_take_profit_removal(prompt)
+    partial_take_profit, partial_take_profit_assumptions = (
+        (None, [])
+        if partial_take_profit_removed
+        else _extract_partial_take_profit(prompt)
+    )
+    assumptions.extend(partial_take_profit_assumptions)
+
+    scale_in_fraction_edit = _extract_scale_in_fraction_edit(prompt)
+    scale_out_fraction_edit = _extract_scale_out_fraction_edit(prompt)
+    profit_reduce_threshold_edit = _extract_profit_reduce_threshold_edit(prompt)
+    position_management_removed = _has_position_management_removal(prompt)
+    has_position_management_edit = (
+        position_management_removed
+        or scale_in_fraction_edit is not None
+        or scale_out_fraction_edit is not None
+        or profit_reduce_threshold_edit is not None
+    )
+
+    core_allocation_pct = _extract_core_allocation_pct(prompt)
+    core_overlay_disabled = _has_core_overlay_disable(prompt)
+    core_overlay_enabled = _has_core_overlay_enable(prompt) or core_allocation_pct is not None
 
     entry_rule = None
     exit_rule = None
@@ -2445,17 +2706,34 @@ def _generate_strategy_draft(
         }
         default_config["entry_rule"] = entry_rule
         default_config["exit_rule"] = exit_rule
+        if core_overlay_enabled and core_allocation_pct is None:
+            core_allocation_pct = 0.60
+            assumptions.append("Used 60.0% core allocation by default.")
+
         default_config["risk"] = {
             "stop_loss_pct": stop_loss_pct,
             "take_profit_pct": take_profit_pct,
-            "partial_take_profit": None,
+            "partial_take_profit": partial_take_profit,
             "cooldown_bars": cooldown_bars,
         }
         default_config["core_overlay"] = {
-            "enabled": False,
-            "core_allocation_pct": 0.0,
+            "enabled": bool(core_overlay_enabled and not core_overlay_disabled),
+            "core_allocation_pct": (
+                core_allocation_pct
+                if core_overlay_enabled and not core_overlay_disabled
+                else 0.0
+            ),
         }
-        default_config["position_management"] = None
+        default_config["position_management"] = (
+            None
+            if position_management_removed
+            else _build_position_management(
+                existing=None,
+                scale_in_fraction=scale_in_fraction_edit,
+                scale_out_fraction=scale_out_fraction_edit,
+                profit_reduce_threshold=profit_reduce_threshold_edit,
+            )
+        )
     else:
         default_config.setdefault("schema_version", "2.0")
         default_config.setdefault("transaction_cost_bps", 5)
@@ -2814,7 +3092,39 @@ def _generate_strategy_draft(
                     side="exit",
                 )
 
+        if has_position_management_edit:
+            if position_management_removed:
+                default_config["position_management"] = None
+            else:
+                default_config["position_management"] = _build_position_management(
+                    existing=default_config.get("position_management") or None,
+                    scale_in_fraction=scale_in_fraction_edit,
+                    scale_out_fraction=scale_out_fraction_edit,
+                    profit_reduce_threshold=profit_reduce_threshold_edit,
+                )
+
+        if core_overlay_disabled:
+            default_config["core_overlay"] = {
+                "enabled": False,
+                "core_allocation_pct": 0.0,
+            }
+        elif core_overlay_enabled:
+            core_overlay = dict(default_config.get("core_overlay") or {})
+            core_overlay["enabled"] = True
+            if core_allocation_pct is not None:
+                core_overlay["core_allocation_pct"] = core_allocation_pct
+            elif core_overlay.get("core_allocation_pct", 0.0) == 0.0:
+                core_overlay["core_allocation_pct"] = 0.60
+                assumptions.append("Used 60.0% core allocation by default.")
+            default_config["core_overlay"] = core_overlay
+
         risk = dict(default_config.get("risk", {}))
+
+        if partial_take_profit_removed:
+            risk["partial_take_profit"] = None
+        elif partial_take_profit is not None:
+            risk["partial_take_profit"] = partial_take_profit
+
         if stop_loss_removed:
             risk["stop_loss_pct"] = None
         elif stop_loss_pct is not None:
@@ -2905,6 +3215,28 @@ def _generate_strategy_draft(
         summary_parts.append("Cooldown removed.")
     elif cooldown_edit is not None and cooldown_bars:
         summary_parts.append(f"Cooldown set to {cooldown_bars} bars.")
+
+    if partial_take_profit_removed:
+        summary_parts.append("Partial take profit removed.")
+    elif partial_take_profit is not None:
+        summary_parts.append(
+            "Partial take profit set "
+            f"at {partial_take_profit['trigger_profit_pct'] * 100:.1f}%, "
+            f"sell {partial_take_profit['sell_fraction_of_position'] * 100:.1f}%, "
+            f"max {partial_take_profit['max_triggers']} times."
+        )
+
+    if position_management_removed:
+        summary_parts.append("Position management removed.")
+    elif has_position_management_edit:
+        summary_parts.append("Position management updated.")
+
+    if core_overlay_disabled:
+        summary_parts.append("Core allocation disabled.")
+    elif core_overlay_enabled:
+        summary_parts.append(
+            f"Core allocation set to {config['core_overlay']['core_allocation_pct'] * 100:.1f}%."
+        )
 
     validated = StrategyV2.model_validate(config)
     validated_config = validated.model_dump(mode="json", exclude_none=True)
