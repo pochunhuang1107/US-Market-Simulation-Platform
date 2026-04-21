@@ -29,6 +29,8 @@ def _extract_requested_symbols_from_prompt(prompt: str) -> set[str]:
         "THEN",
         "WITHIN",
         "SEQUENCE",
+        "CONFIRMATION",
+        "FILTER",
         "AND",
         "OR",
         "NOT",

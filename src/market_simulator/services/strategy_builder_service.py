@@ -355,7 +355,8 @@ def _build_answer_message(
             "Right now the builder supports RSI mean reversion, moving-average crossover edits, "
             "MACD, KD/stochastic, seasonality by calendar month, relative strength versus another ETF, "
             "explicit combined entry/exit rules using AND/OR, temporal window rules using any/all within N bars, "
-            "and two-step sequence rules using X then Y within N bars. "
+            "two-step sequence rules using X then Y within N bars, and add/remove confirmation filters "
+            "for MACD, KD/stochastic, and relative strength on an existing draft. "
             "It also supports benchmark, stop loss, take profit, allocation, cooldown, capital, and date edits.",
             {
                 "answer_type": StrategyBuilderAnswerType.SUPPORTED_STRATEGY_TYPES,
@@ -444,8 +445,8 @@ def _build_validation_data(
             "max_backtest_years": None,
             "suggested_action": (
                 "Try benchmark, stop loss, take profit, allocation, cooldown, RSI, moving averages, "
-                "MACD, KD/stochastic, seasonality by month, relative strength, combined AND/OR rules, "
-                "any/all within N bars, X then Y sequence rules, capital, or dates."
+                "MACD, KD/stochastic, seasonality by month, relative strength, add/remove confirmation filters, "
+                "combined AND/OR rules, any/all within N bars, X then Y sequence rules, capital, or dates."
             ),
         }
 
@@ -475,6 +476,10 @@ def _build_guidance_data(
         "Switch to KD / stochastic",
         "Switch to seasonality by month",
         "Switch to relative strength",
+        "Add MACD confirmation",
+        "Add KD / stochastic confirmation",
+        "Add relative strength confirmation",
+        "Remove confirmation filters",
         "Use combined AND / OR rules",
         "Use any / all within N bars",
         "Use X then Y sequence rules",
@@ -1140,6 +1145,155 @@ def _build_rule_from_clause(
     )
 
 
+def _extract_confirmation_family(text: str) -> str | None:
+    text_lower = text.lower()
+
+    if "macd" in text_lower:
+        return "macd"
+    if "kd" in text_lower or "stochastic" in text_lower:
+        return "kd"
+    if (
+        "relative strength" in text_lower
+        or "relative return" in text_lower
+        or "outperform" in text_lower
+    ):
+        return "relative_strength"
+
+    return None
+
+
+def _has_confirmation_add_intent(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(add|include|use)\b.*\b(confirmation|filter)\b|"
+            r"\bwith\b.*\b(confirmation|filter)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _has_confirmation_remove_intent(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(remove|delete|clear|without)\b.*\b(confirmation|filter)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _build_confirmation_rules(
+    text: str,
+    *,
+    tradable_symbol: str,
+    fallback_reference_symbol: str,
+) -> tuple[dict, dict, list[str]] | None:
+    family = _extract_confirmation_family(text)
+    if family is None:
+        return None
+
+    entry_rule, entry_assumptions = _build_atomic_rule_from_clause(
+        text,
+        tradable_symbol=tradable_symbol,
+        fallback_reference_symbol=fallback_reference_symbol,
+        side="entry",
+    )
+    exit_rule, exit_assumptions = _build_atomic_rule_from_clause(
+        text,
+        tradable_symbol=tradable_symbol,
+        fallback_reference_symbol=fallback_reference_symbol,
+        side="exit",
+    )
+
+    if entry_rule is None or exit_rule is None:
+        return None
+
+    label = {
+        "macd": "MACD",
+        "kd": "KD / stochastic",
+        "relative_strength": "relative strength",
+    }[family]
+
+    assumptions = [*entry_assumptions, *exit_assumptions]
+    assumptions.append(
+        f"Interpreted {label} as a confirmation rule added on top of the existing draft."
+    )
+
+    return entry_rule, exit_rule, assumptions
+
+
+def _add_confirmation_rule(base_rule: dict, confirmation_rule: dict) -> dict:
+    if base_rule.get("kind") == "group" and base_rule.get("operator") == "AND":
+        rules = list(base_rule.get("rules", []))
+    else:
+        rules = [base_rule]
+
+    if any(rule == confirmation_rule for rule in rules):
+        return base_rule
+
+    return {
+        "kind": "group",
+        "operator": "AND",
+        "rules": [*rules, confirmation_rule],
+    }
+
+
+def _matches_confirmation_rule(
+    rule: dict,
+    *,
+    family: str,
+    side: str,
+) -> bool:
+    if rule.get("kind") != "atomic":
+        return False
+
+    if family == "macd":
+        expected_type = "macd_bullish_cross" if side == "entry" else "macd_bearish_cross"
+        return rule.get("type") == expected_type
+
+    if family == "kd":
+        expected_type = "kd_golden_cross" if side == "entry" else "kd_dead_cross"
+        return rule.get("type") == expected_type
+
+    if family == "relative_strength":
+        return rule.get("type") == "relative_return_above"
+
+    return False
+
+
+def _remove_confirmation_rule(
+    base_rule: dict,
+    *,
+    family: str,
+    side: str,
+) -> dict:
+    if base_rule.get("kind") != "group" or base_rule.get("operator") != "AND":
+        return base_rule
+
+    rules = list(base_rule.get("rules", []))
+    filtered_rules = [
+        rule
+        for rule in rules
+        if not _matches_confirmation_rule(rule, family=family, side=side)
+    ]
+
+    if len(filtered_rules) == len(rules):
+        return base_rule
+
+    if len(filtered_rules) == 1:
+        return filtered_rules[0]
+
+    if not filtered_rules:
+        return base_rule
+
+    return {
+        "kind": "group",
+        "operator": "AND",
+        "rules": filtered_rules,
+    }
+
+
 def _has_partial_relative_strength_edit(
     *,
     reference_symbol_edit: str | None,
@@ -1223,6 +1377,49 @@ def _rule_label(rule: dict) -> str:
         return "sequence"
 
     return "rule"
+
+
+def _rule_signature(rule: dict | None) -> str | None:
+    if not rule:
+        return None
+
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        parts = [str(rule.get("type", "rule"))]
+        for key in (
+            "symbol",
+            "reference_symbol",
+            "lookback",
+            "threshold",
+            "fast_window",
+            "slow_window",
+            "month_values",
+        ):
+            value = rule.get(key)
+            if value is not None:
+                parts.append(f"{key}={value}")
+        return "|".join(parts)
+
+    if kind == "not":
+        return f"NOT({_rule_signature(rule.get('rule', {}))})"
+
+    if kind == "group":
+        operator = str(rule.get("operator", "GROUP")).upper()
+        children = ",".join(_rule_signature(child) or "rule" for child in rule.get("rules", []))
+        return f"{operator}({children})"
+
+    if kind == "window":
+        return (
+            f"{rule.get('mode', 'ANY')}[{rule.get('window_bars', '?')}]"
+            f"({_rule_signature(rule.get('rule', {}))})"
+        )
+
+    if kind == "sequence":
+        children = ",".join(_rule_signature(child) or "rule" for child in rule.get("steps", []))
+        return f"SEQ[{rule.get('window_bars', '?')}]({children})"
+
+    return str(rule)
 
 
 def _merge_dict(base: dict, updates: dict) -> dict:
@@ -1374,14 +1571,14 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     )
     _record_change(
         changes,
-        _rule_label(base_entry) if base_entry else None,
-        _rule_label(final_entry) if final_entry else None,
+        _rule_signature(base_entry),
+        _rule_signature(final_entry),
         "entry rule",
     )
     _record_change(
         changes,
-        _rule_label(base_exit) if base_exit else None,
-        _rule_label(final_exit) if final_exit else None,
+        _rule_signature(base_exit),
+        _rule_signature(final_exit),
         "exit rule",
     )
     _record_change(
@@ -1679,6 +1876,21 @@ def _generate_strategy_draft(
         threshold_edit=relative_strength_threshold_edit,
     )
 
+    confirmation_family = _extract_confirmation_family(prompt)
+    add_confirmation_intent = _has_confirmation_add_intent(prompt)
+    remove_confirmation_intent = _has_confirmation_remove_intent(prompt)
+    has_confirmation_edit_intent = (
+        confirmation_family is not None
+        and (add_confirmation_intent or remove_confirmation_intent)
+    )
+
+    if has_confirmation_edit_intent and not has_current_config:
+        raise ValueError(
+            "Confirmation filters currently require an existing draft. "
+            "Create a base strategy first, then ask me to add or remove "
+            "MACD, KD/stochastic, or relative strength confirmation."
+        )
+
     if (
         ("seasonality" in prompt_lower or "month" in prompt_lower or "months" in prompt_lower)
         and month_values is not None
@@ -1716,6 +1928,30 @@ def _generate_strategy_draft(
     if relative_strength_rules is not None:
         entry_rule, exit_rule, relative_strength_assumptions = relative_strength_rules
         assumptions.extend(relative_strength_assumptions)
+
+    confirmation_rules = None
+    if has_confirmation_edit_intent:
+        confirmation_rules = _build_confirmation_rules(
+            prompt,
+            tradable_symbol=(
+                current_config.get("tradable_symbol", tradable_symbol)
+                if has_current_config
+                else tradable_symbol
+            ),
+            fallback_reference_symbol=(
+                current_config.get("benchmark_symbol", benchmark_symbol)
+                if has_current_config
+                else benchmark_symbol
+            ),
+        )
+        if confirmation_rules is None:
+            raise ValueError(
+                "I could not deterministically parse that confirmation filter. "
+                "Supported confirmation filters right now are MACD, KD/stochastic, and relative strength."
+            )
+
+        _, _, confirmation_assumptions = confirmation_rules
+        assumptions.extend(confirmation_assumptions)
 
     entry_clause, exit_clause = _extract_entry_exit_rule_clauses(prompt)
     if entry_clause is not None and exit_clause is not None:
@@ -1941,7 +2177,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_entry_threshold_edit,
                 }
 
-        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and (
+        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -1973,7 +2209,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_exit_threshold_edit,
                 }
 
-        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and (
+        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -1989,6 +2225,33 @@ def _generate_strategy_draft(
             or "outperform" in prompt_lower
         ):
             default_config["exit_rule"] = exit_rule
+
+        if has_confirmation_edit_intent:
+            current_entry_rule = dict(default_config.get("entry_rule", {}))
+            current_exit_rule = dict(default_config.get("exit_rule", {}))
+
+            if add_confirmation_intent and confirmation_rules is not None:
+                entry_confirmation_rule, exit_confirmation_rule, _ = confirmation_rules
+                default_config["entry_rule"] = _add_confirmation_rule(
+                    current_entry_rule,
+                    entry_confirmation_rule,
+                )
+                default_config["exit_rule"] = _add_confirmation_rule(
+                    current_exit_rule,
+                    exit_confirmation_rule,
+                )
+
+            elif remove_confirmation_intent and confirmation_family is not None:
+                default_config["entry_rule"] = _remove_confirmation_rule(
+                    current_entry_rule,
+                    family=confirmation_family,
+                    side="entry",
+                )
+                default_config["exit_rule"] = _remove_confirmation_rule(
+                    current_exit_rule,
+                    family=confirmation_family,
+                    side="exit",
+                )
 
         risk = dict(default_config.get("risk", {}))
         if stop_loss_removed:
@@ -2168,8 +2431,8 @@ def generate_strategy_builder_response(
                 "I understood this as a requested strategy edit, but that edit type is not supported yet. "
                 "Right now I can help with benchmark, stop loss, take profit, allocation, cooldown, "
                 "RSI thresholds, moving-average rules, MACD, KD/stochastic, seasonality by month, "
-                "relative strength, combined AND/OR rules, any/all within N bars, X then Y sequence rules, "
-                "capital, and dates."
+                "relative strength, add/remove confirmation filters, combined AND/OR rules, "
+                "any/all within N bars, X then Y sequence rules, capital, and dates."
             )
             return _build_response(
                 response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
@@ -2190,6 +2453,7 @@ def generate_strategy_builder_response(
                 "You can ask for a specific edit like changing benchmark, stop loss, "
                 "take profit, allocation, cooldown, RSI thresholds, moving-average rules, switching to MACD, "
                 "switching to KD/stochastic, switching to seasonality by month, switching to relative strength, "
+                "adding or removing MACD/KD/relative strength confirmation filters, "
                 "using combined AND/OR rules, using any/all within N bars, using X then Y sequence rules, "
                 "capital, or dates."
             ),

@@ -1018,6 +1018,282 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_sequence_
     assert any("Updated exit rule" in change for change in body["changes"])
 
 
+def test_generate_strategy_builder_draft_adds_macd_confirmation_to_existing_strategy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "add MACD confirmation",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "AND"
+    assert len(config["entry_rule"]["rules"]) == 2
+    assert config["entry_rule"]["rules"][0]["type"] == "rsi_below"
+    assert config["entry_rule"]["rules"][1]["type"] == "macd_bullish_cross"
+
+    assert config["exit_rule"]["kind"] == "group"
+    assert config["exit_rule"]["operator"] == "AND"
+    assert len(config["exit_rule"]["rules"]) == 2
+    assert config["exit_rule"]["rules"][0]["type"] == "rsi_above"
+    assert config["exit_rule"]["rules"][1]["type"] == "macd_bearish_cross"
+
+    assert any("Updated entry rule" in change for change in body["changes"])
+    assert any("Updated exit rule" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_draft_removes_macd_confirmation_from_existing_strategy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove MACD confirmation",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-with-macd-confirmation",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "atomic"
+    assert config["entry_rule"]["type"] == "rsi_below"
+    assert config["entry_rule"]["threshold"] == 30
+
+    assert config["exit_rule"]["kind"] == "atomic"
+    assert config["exit_rule"]["type"] == "rsi_above"
+    assert config["exit_rule"]["threshold"] == 70
+
+    assert any("Updated entry rule" in change for change in body["changes"])
+    assert any("Updated exit rule" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_draft_adds_kd_confirmation_to_existing_strategy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "add KD confirmation",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    config = response.json()["config"]
+
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["rules"][1]["type"] == "kd_golden_cross"
+
+    assert config["exit_rule"]["kind"] == "group"
+    assert config["exit_rule"]["rules"][1]["type"] == "kd_dead_cross"
+
+
+def test_generate_strategy_builder_draft_adds_relative_strength_confirmation_to_existing_strategy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "add relative strength confirmation versus TLT over 60 days with 5% threshold",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    config = response.json()["config"]
+
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["rules"][1]["type"] == "relative_return_above"
+    assert config["entry_rule"]["rules"][1]["reference_symbol"] == "TLT"
+    assert config["entry_rule"]["rules"][1]["lookback"] == 60
+    assert config["entry_rule"]["rules"][1]["threshold"] == 0.05
+
+    assert config["exit_rule"]["kind"] == "group"
+    assert config["exit_rule"]["rules"][1]["type"] == "relative_return_above"
+    assert config["exit_rule"]["rules"][1]["reference_symbol"] == "TLT"
+    assert config["exit_rule"]["rules"][1]["lookback"] == 60
+    assert config["exit_rule"]["rules"][1]["threshold"] == 0.05
+
+
 def test_generate_strategy_builder_draft_updates_seasonality_months_and_records_change(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -1406,11 +1682,18 @@ def test_generate_strategy_builder_returns_answer_for_info_question(client):
     assert "Supported ETF symbols" in body["message"]
 
 
-def test_generate_strategy_builder_returns_validation_error_for_over_limit_date_edit(client):
+def test_generate_strategy_builder_returns_validation_error_for_over_limit_date_edit(
+    client,
+    db_session,
+):
+    plan = db_session.query(Plan).filter(Plan.code == "TEST_PRO").one()
+    plan.max_backtest_years = 3
+    db_session.commit()
+    db_session.refresh(plan)
     response = client.post(
         "/strategy-builder/generate",
         json={
-            "prompt": "change start date to 2018-01-01",
+            "prompt": "change start date to 2020-01-01",
             "context": {
                 "mode": "NEW_VERSION",
                 "current_config": {
@@ -1460,6 +1743,22 @@ def test_generate_strategy_builder_returns_validation_error_for_over_limit_date_
     assert body["response_type"] == "VALIDATION_ERROR"
     assert body["config"] is None
     assert "plan limit" in body["message"]
+
+
+def test_generate_strategy_builder_returns_validation_error_for_confirmation_without_current_draft(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "add MACD confirmation",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert "existing draft" in body["message"]
+    assert "confirmation" in body["message"]
 
 
 def test_generate_strategy_builder_draft_uses_symbol_history_aware_default_window_for_long_history(
@@ -1799,6 +2098,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "AND/OR" in body["message"]
     assert "within N bars" in body["message"]
     assert "then Y within N bars" in body["message"]
+    assert "confirmation filters" in body["message"]
 
 
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
@@ -1928,6 +2228,10 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Switch to KD / stochastic" in body["guidance_data"]["suggested_actions"]
     assert "Switch to seasonality by month" in body["guidance_data"]["suggested_actions"]
     assert "Switch to relative strength" in body["guidance_data"]["suggested_actions"]
+    assert "Add MACD confirmation" in body["guidance_data"]["suggested_actions"]
+    assert "Add KD / stochastic confirmation" in body["guidance_data"]["suggested_actions"]
+    assert "Add relative strength confirmation" in body["guidance_data"]["suggested_actions"]
+    assert "Remove confirmation filters" in body["guidance_data"]["suggested_actions"]
 
 
 def test_generate_strategy_builder_returns_guidance_data_for_unsupported_edit_target(client):

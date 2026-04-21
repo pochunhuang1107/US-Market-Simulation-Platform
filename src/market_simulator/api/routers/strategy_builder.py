@@ -18,6 +18,7 @@ from market_simulator.services.strategy_builder_guardrails import (
     validate_strategy_builder_request,
 )
 from market_simulator.services.strategy_builder_service import (
+    _build_validation_data,
     generate_strategy_builder_response,
 )
 
@@ -112,13 +113,39 @@ def generate_strategy_draft_api(
                 max_backtest_years=entitlements.max_backtest_years,
             )
         except ValueError as exc:
+            message = str(exc)
+
             _record_rejected_prompt(
                 db,
                 user_id=user["id"],
                 prompt_chars=prompt_chars,
-                reason=str(exc),
+                reason=message,
             )
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+            has_current_config = (
+                req.context is not None
+                and isinstance(req.context.current_config, dict)
+                and bool(req.context.current_config)
+            )
+
+            if has_current_config:
+                return StrategyBuilderGenerateResponse(
+                    response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+                    message=message,
+                    config=None,
+                    summary=None,
+                    warnings=[],
+                    assumptions=[],
+                    changes=[],
+                    answer_data=None,
+                    validation_data=_build_validation_data(
+                        message=message,
+                        max_backtest_years=entitlements.max_backtest_years,
+                    ),
+                    guidance_data=None,
+                )
+
+            raise HTTPException(status_code=400, detail=message) from exc
 
     create_builder_prompt_event(
         db,
