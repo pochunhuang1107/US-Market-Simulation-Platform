@@ -143,6 +143,23 @@ def test_generate_strategy_builder_draft_parses_partial_take_profit_position_man
     assert "take_profit_pct" not in config["risk"]
 
 
+def test_generate_strategy_builder_draft_parses_transaction_cost_and_max_position(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a strategy for QQQ with transaction cost at 12 bps and max position at 40%",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["transaction_cost_bps"] == 12.0
+    assert config["allocation"]["max_position_pct"] == 0.40
+
+
 def test_generate_strategy_builder_draft_parses_custom_moving_average_windows(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -2931,6 +2948,64 @@ def test_generate_strategy_builder_draft_updates_partial_take_profit_position_ma
     assert "Updated core allocation from disabled to enabled." in body["changes"]
 
 
+def test_generate_strategy_builder_draft_updates_transaction_cost_and_max_position(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change transaction cost to 9 bps and set max position to 35%",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["transaction_cost_bps"] == 9.0
+    assert config["allocation"]["max_position_pct"] == 0.35
+    assert "Updated transaction cost from 5 to 9.0." in body["changes"]
+    assert "Updated max position from 100.0% to 35.0%." in body["changes"]
+
+
 def test_generate_strategy_builder_draft_can_remove_partial_take_profit_position_management_and_core_allocation(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -3431,6 +3506,8 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "seasonality" in body["message"]
     assert "relative strength" in body["message"]
     assert "tradable symbol changes" in body["message"]
+    assert "transaction cost" in body["message"]
+    assert "max position percentage" in body["message"]
     assert "AND/OR" in body["message"]
     assert "within N bars" in body["message"]
     assert "then Y within N bars" in body["message"]
@@ -3569,6 +3646,8 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert body["guidance_data"]["guidance_type"] == "NO_CHANGE"
     assert len(body["guidance_data"]["suggested_actions"]) > 0
     assert "Change tradable symbol" in body["guidance_data"]["suggested_actions"]
+    assert "Adjust max position" in body["guidance_data"]["suggested_actions"]
+    assert "Change transaction cost" in body["guidance_data"]["suggested_actions"]
     assert "Switch to MACD" in body["guidance_data"]["suggested_actions"]
     assert "Switch to KD / stochastic" in body["guidance_data"]["suggested_actions"]
     assert "Switch to seasonality by month" in body["guidance_data"]["suggested_actions"]

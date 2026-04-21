@@ -341,6 +341,12 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bposition\s+management\b",
         r"\bcore\s+allocation\b",
         r"\bcore\s+overlay\b",
+        r"\bmax\s+position\b",
+        r"\bmax\s+position\s+pct\b",
+        r"\btransaction\s+cost\b",
+        r"\bbps\b",
+        r"\bfee\b",
+        r"\bfees\b",
         r"\bcapital\b",
         r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
         r"\b(entry|exit)\s+rule\b",
@@ -1797,6 +1803,36 @@ def _extract_allocation_value_edit(text: str) -> float | None:
     return None
 
 
+def _extract_max_position_pct_edit(text: str) -> float | None:
+    patterns = [
+        r"change\s+max\s+position(?:\s+pct)?\s+to\s+(\d+(?:\.\d+)?)%",
+        r"set\s+max\s+position(?:\s+pct)?\s+to\s+(\d+(?:\.\d+)?)%",
+        r"max\s+position(?:\s+pct)?\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            value = float(match.group(1)) / 100.0
+            return min(max(value, 0.01), 1.0)
+    return None
+
+
+def _extract_transaction_cost_bps_edit(text: str) -> float | None:
+    patterns = [
+        r"change\s+transaction\s+cost\s+to\s+(\d+(?:\.\d+)?)\s*bps?",
+        r"set\s+transaction\s+cost\s+to\s+(\d+(?:\.\d+)?)\s*bps?",
+        r"transaction\s+cost\s+(?:at|to)\s+(\d+(?:\.\d+)?)\s*bps?",
+        r"change\s+fees?\s+to\s+(\d+(?:\.\d+)?)\s*bps?",
+        r"set\s+fees?\s+to\s+(\d+(?:\.\d+)?)\s*bps?",
+        r"fees?\s+(?:at|to)\s+(\d+(?:\.\d+)?)\s*bps?",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return float(match.group(1))
+    return None
+
+
 def _has_stop_loss_removal(text: str) -> bool:
     return bool(
         re.search(
@@ -2057,6 +2093,12 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     )
     _record_change(
         changes,
+        base_config.get("transaction_cost_bps"),
+        config.get("transaction_cost_bps"),
+        "transaction cost",
+    )
+    _record_change(
+        changes,
         base_risk.get("stop_loss_pct"),
         final_risk.get("stop_loss_pct"),
         "stop loss",
@@ -2074,6 +2116,13 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         base_allocation.get("entry_value"),
         final_allocation.get("entry_value"),
         "allocation",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_allocation.get("max_position_pct"),
+        final_allocation.get("max_position_pct"),
+        "max position",
         _format_pct,
     )
     _record_change(
@@ -2439,6 +2488,8 @@ def _generate_strategy_draft(
     assumptions.extend(capital_assumptions)
 
     allocation_edit_value = _extract_allocation_value_edit(prompt)
+    max_position_pct_edit = _extract_max_position_pct_edit(prompt)
+    transaction_cost_bps_edit = _extract_transaction_cost_bps_edit(prompt)
     allocation_value, allocation_assumptions = _extract_allocation_value(prompt)
     explicit_date_edits = _extract_explicit_date_edits(prompt)
     assumptions.extend(allocation_assumptions)
@@ -2958,11 +3009,15 @@ def _generate_strategy_draft(
         default_config["start_date"] = start_date.isoformat()
         default_config["end_date"] = end_date.isoformat()
         default_config["initial_capital"] = initial_capital
-        default_config["transaction_cost_bps"] = 5
+        default_config["transaction_cost_bps"] = (
+            transaction_cost_bps_edit if transaction_cost_bps_edit is not None else 5
+        )
         default_config["allocation"] = {
             "entry_mode": "percent_of_equity",
             "entry_value": allocation_value,
-            "max_position_pct": 1.0,
+            "max_position_pct": (
+                max_position_pct_edit if max_position_pct_edit is not None else 1.0
+            ),
         }
         default_config["entry_rule"] = entry_rule
         default_config["exit_rule"] = exit_rule
@@ -3260,11 +3315,23 @@ def _generate_strategy_draft(
         if re.search(r"(?:capital|start with|\$)", prompt_lower):
             default_config["initial_capital"] = initial_capital
 
-        if allocation_edit_value is not None or re.search(r"%\s+of\s+equity|allocation|allocate", prompt_lower):
+        if transaction_cost_bps_edit is not None:
+            default_config["transaction_cost_bps"] = transaction_cost_bps_edit
+
+        if (
+            allocation_edit_value is not None
+            or max_position_pct_edit is not None
+            or re.search(r"%\s+of\s+equity|allocation|allocate|max\s+position", prompt_lower)
+        ):
             allocation = dict(default_config.get("allocation", {}))
             allocation["entry_mode"] = "percent_of_equity"
-            allocation["entry_value"] = allocation_edit_value if allocation_edit_value is not None else allocation_value
+            if allocation_edit_value is not None or re.search(r"%\s+of\s+equity|allocation|allocate", prompt_lower):
+                allocation["entry_value"] = (
+                    allocation_edit_value if allocation_edit_value is not None else allocation_value
+                )
             allocation.setdefault("max_position_pct", 1.0)
+            if max_position_pct_edit is not None:
+                allocation["max_position_pct"] = max_position_pct_edit
             default_config["allocation"] = allocation
 
         if entry_fast_window_edit is not None or entry_slow_window_edit is not None:
@@ -3529,9 +3596,17 @@ def _generate_strategy_draft(
     if benchmark_symbol != tradable_symbol:
         summary_parts.append(f"Benchmark set to {benchmark_symbol}.")
 
+    if transaction_cost_bps_edit is not None:
+        summary_parts.append(f"Transaction cost set to {transaction_cost_bps_edit:.1f} bps.")
+
     if allocation_edit_value is not None and config.get("allocation", {}).get("entry_value") != 1.0:
         summary_parts.append(
             f"Position sizing set to {config['allocation']['entry_value'] * 100:.1f}% of equity."
+        )
+
+    if max_position_pct_edit is not None:
+        summary_parts.append(
+            f"Max position set to {config['allocation']['max_position_pct'] * 100:.1f}%."
         )
 
     if stop_loss_removed:
