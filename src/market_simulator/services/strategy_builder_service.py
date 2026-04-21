@@ -13,6 +13,13 @@ from market_simulator.api.schemas.strategy_builder import (
 from market_simulator.models.strategy_v2 import StrategyV2
 from datetime import timedelta
 from market_simulator.services.etf_metadata_service import get_etf_history_range
+from market_simulator.services.strategy_builder_capabilities import (
+    DEFAULT_GUIDANCE_ACTIONS,
+    NO_CHANGE_MESSAGE,
+    SUPPORTED_STRATEGY_TYPES_MESSAGE,
+    UNSUPPORTED_EDIT_MESSAGE,
+    UNSUPPORTED_EDIT_SUGGESTED_ACTION,
+)
 from market_simulator.settings import get_settings
 
 from typing import Any
@@ -352,12 +359,7 @@ def _build_answer_message(
         or "rule types" in prompt_lower
     ):
         return (
-            "Right now the builder supports RSI mean reversion, moving-average crossover edits, "
-            "MACD, KD/stochastic, seasonality by calendar month, relative strength versus another ETF, "
-            "explicit combined entry/exit rules using AND/OR, temporal window rules using any/all within N bars, "
-            "two-step sequence rules using X then Y within N bars, and add/remove confirmation filters "
-            "for MACD, KD/stochastic, and relative strength on an existing draft. "
-            "It also supports benchmark, stop loss, take profit, allocation, cooldown, capital, and date edits.",
+            SUPPORTED_STRATEGY_TYPES_MESSAGE,
             {
                 "answer_type": StrategyBuilderAnswerType.SUPPORTED_STRATEGY_TYPES,
                 "supported_symbols": [],
@@ -380,7 +382,7 @@ def _build_answer_message(
     )
 
 
-def _build_validation_data(
+def build_validation_data(
     *,
     message: str,
     max_backtest_years: int,
@@ -443,11 +445,7 @@ def _build_validation_data(
             "supported_data_start": None,
             "supported_data_end": None,
             "max_backtest_years": None,
-            "suggested_action": (
-                "Try benchmark, stop loss, take profit, allocation, cooldown, RSI, moving averages, "
-                "MACD, KD/stochastic, seasonality by month, relative strength, add/remove confirmation filters, "
-                "combined AND/OR rules, any/all within N bars, X then Y sequence rules, capital, or dates."
-            ),
+            "suggested_action": UNSUPPORTED_EDIT_SUGGESTED_ACTION,
         }
 
     return {
@@ -464,28 +462,7 @@ def _build_guidance_data(
     *,
     guidance_type: StrategyBuilderGuidanceType,
 ) -> dict[str, Any]:
-    default_actions = [
-        "Change benchmark",
-        "Adjust stop loss",
-        "Adjust take profit",
-        "Change allocation",
-        "Change cooldown",
-        "Adjust RSI thresholds",
-        "Switch moving-average rules",
-        "Switch to MACD",
-        "Switch to KD / stochastic",
-        "Switch to seasonality by month",
-        "Switch to relative strength",
-        "Add MACD confirmation",
-        "Add KD / stochastic confirmation",
-        "Add relative strength confirmation",
-        "Remove confirmation filters",
-        "Use combined AND / OR rules",
-        "Use any / all within N bars",
-        "Use X then Y sequence rules",
-        "Change capital",
-        "Change dates",
-    ]
+    default_actions = list(DEFAULT_GUIDANCE_ACTIONS)
 
     if guidance_type == StrategyBuilderGuidanceType.UNSUPPORTED_EDIT_TARGET:
         return {
@@ -2405,7 +2382,7 @@ def generate_strategy_builder_response(
         return _build_response(
             response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
             message=message,
-            validation_data=_build_validation_data(
+            validation_data=build_validation_data(
                 message=message,
                 max_backtest_years=max_backtest_years,
             ),
@@ -2419,7 +2396,7 @@ def generate_strategy_builder_response(
         return _build_response(
             response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
             message=message,
-            validation_data=_build_validation_data(
+            validation_data=build_validation_data(
                 message=message,
                 max_backtest_years=max_backtest_years,
             ),
@@ -2427,17 +2404,11 @@ def generate_strategy_builder_response(
 
     if has_current_config and req.context and req.context.current_config == config:
         if _looks_like_edit_request(prompt) and not _is_supported_edit_request(prompt):
-            message = (
-                "I understood this as a requested strategy edit, but that edit type is not supported yet. "
-                "Right now I can help with benchmark, stop loss, take profit, allocation, cooldown, "
-                "RSI thresholds, moving-average rules, MACD, KD/stochastic, seasonality by month, "
-                "relative strength, add/remove confirmation filters, combined AND/OR rules, "
-                "any/all within N bars, X then Y sequence rules, capital, and dates."
-            )
+            message = UNSUPPORTED_EDIT_MESSAGE
             return _build_response(
                 response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
                 message=message,
-                validation_data=_build_validation_data(
+                validation_data=build_validation_data(
                     message=message,
                     max_backtest_years=max_backtest_years,
                 ),
@@ -2448,15 +2419,7 @@ def generate_strategy_builder_response(
 
         return _build_response(
             response_type=StrategyBuilderResponseType.ANSWER,
-            message=(
-                "I reviewed your request, but it did not change the current draft. "
-                "You can ask for a specific edit like changing benchmark, stop loss, "
-                "take profit, allocation, cooldown, RSI thresholds, moving-average rules, switching to MACD, "
-                "switching to KD/stochastic, switching to seasonality by month, switching to relative strength, "
-                "adding or removing MACD/KD/relative strength confirmation filters, "
-                "using combined AND/OR rules, using any/all within N bars, using X then Y sequence rules, "
-                "capital, or dates."
-            ),
+            message=NO_CHANGE_MESSAGE,
             guidance_data=_build_guidance_data(
                 guidance_type=StrategyBuilderGuidanceType.NO_CHANGE,
             ),

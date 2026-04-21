@@ -19,6 +19,42 @@ def _parse_iso_date(value: Any, field_name: str) -> date:
         raise ValueError(f"The {label} must use ISO format like 2021-04-14.") from exc
 
 
+def _collect_rule_symbols(rule: Any) -> list[str]:
+    symbols: list[str] = []
+
+    if not isinstance(rule, dict):
+        return symbols
+
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        symbol = rule.get("symbol")
+        reference_symbol = rule.get("reference_symbol")
+        if isinstance(symbol, str):
+            symbols.append(symbol.upper())
+        if isinstance(reference_symbol, str):
+            symbols.append(reference_symbol.upper())
+        return symbols
+
+    if kind == "not":
+        return _collect_rule_symbols(rule.get("rule"))
+
+    if kind == "group":
+        for child_rule in rule.get("rules", []):
+            symbols.extend(_collect_rule_symbols(child_rule))
+        return symbols
+
+    if kind == "window":
+        return _collect_rule_symbols(rule.get("rule"))
+
+    if kind == "sequence":
+        for child_rule in rule.get("steps", []):
+            symbols.extend(_collect_rule_symbols(child_rule))
+        return symbols
+
+    return symbols
+
+
 def validate_draft_config(
     *,
     config: dict[str, Any],
@@ -61,22 +97,10 @@ def validate_draft_config(
                 symbols_to_check.append(symbol.upper())
 
     entry_rule = config.get("entry_rule") or {}
-    if isinstance(entry_rule, dict):
-        symbol = entry_rule.get("symbol")
-        reference_symbol = entry_rule.get("reference_symbol")
-        if isinstance(symbol, str):
-            symbols_to_check.append(symbol.upper())
-        if isinstance(reference_symbol, str):
-            symbols_to_check.append(reference_symbol.upper())
+    symbols_to_check.extend(_collect_rule_symbols(entry_rule))
 
     exit_rule = config.get("exit_rule") or {}
-    if isinstance(exit_rule, dict):
-        symbol = exit_rule.get("symbol")
-        reference_symbol = exit_rule.get("reference_symbol")
-        if isinstance(symbol, str):
-            symbols_to_check.append(symbol.upper())
-        if isinstance(reference_symbol, str):
-            symbols_to_check.append(reference_symbol.upper())
+    symbols_to_check.extend(_collect_rule_symbols(exit_rule))
 
     unsupported_symbols = sorted(
         {symbol for symbol in symbols_to_check if symbol not in supported_symbols}

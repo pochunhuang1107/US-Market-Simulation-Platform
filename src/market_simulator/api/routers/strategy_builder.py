@@ -18,7 +18,7 @@ from market_simulator.services.strategy_builder_guardrails import (
     validate_strategy_builder_request,
 )
 from market_simulator.services.strategy_builder_service import (
-    _build_validation_data,
+    build_validation_data,
     generate_strategy_builder_response,
 )
 
@@ -138,7 +138,7 @@ def generate_strategy_draft_api(
                     assumptions=[],
                     changes=[],
                     answer_data=None,
-                    validation_data=_build_validation_data(
+                    validation_data=build_validation_data(
                         message=message,
                         max_backtest_years=entitlements.max_backtest_years,
                     ),
