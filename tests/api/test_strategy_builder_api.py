@@ -641,6 +641,68 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_macd(clie
     assert config["risk"]["stop_loss_pct"] == 0.08
 
 
+def test_generate_strategy_builder_draft_changes_tradable_symbol_and_rewrites_atomic_rules(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change tradable symbol to SPY",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "QQQ",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["tradable_symbol"] == "SPY"
+    assert config["benchmark_symbol"] == "SPY"
+    assert config["entry_rule"]["symbol"] == "SPY"
+    assert config["exit_rule"]["symbol"] == "SPY"
+    assert config["name"].startswith("spy-")
+    assert "Updated tradable symbol from QQQ to SPY." in body["changes"]
+
+
 def test_generate_strategy_builder_draft_switches_existing_strategy_to_kd(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -2049,6 +2111,101 @@ def test_generate_strategy_builder_draft_removes_first_step_of_exit_sequence(cli
     assert any("Updated exit rule" in change for change in body["changes"])
 
 
+def test_generate_strategy_builder_draft_changes_tradable_symbol_and_rewrites_nested_rules(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change this strategy to IWM",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-nested-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "window",
+                        "window_bars": 5,
+                        "mode": "ANY",
+                        "rule": {
+                            "kind": "group",
+                            "operator": "AND",
+                            "rules": [
+                                {
+                                    "kind": "atomic",
+                                    "type": "rsi_below",
+                                    "symbol": "QQQ",
+                                    "lookback": 14,
+                                    "threshold": 30,
+                                },
+                                {
+                                    "kind": "atomic",
+                                    "type": "macd_bullish_cross",
+                                    "symbol": "QQQ",
+                                },
+                            ],
+                        },
+                    },
+                    "exit_rule": {
+                        "kind": "sequence",
+                        "window_bars": 4,
+                        "steps": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "symbol": "QQQ",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["tradable_symbol"] == "IWM"
+    assert config["benchmark_symbol"] == "SPY"
+
+    entry_group_rules = config["entry_rule"]["rule"]["rules"]
+    assert entry_group_rules[0]["symbol"] == "IWM"
+    assert entry_group_rules[1]["symbol"] == "IWM"
+
+    exit_steps = config["exit_rule"]["steps"]
+    assert exit_steps[0]["symbol"] == "IWM"
+    assert exit_steps[1]["symbol"] == "IWM"
+
+    assert "Updated tradable symbol from QQQ to IWM." in body["changes"]
+
+
 def test_generate_strategy_builder_draft_adds_macd_confirmation_to_existing_strategy(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -3273,6 +3430,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "KD" in body["message"]
     assert "seasonality" in body["message"]
     assert "relative strength" in body["message"]
+    assert "tradable symbol changes" in body["message"]
     assert "AND/OR" in body["message"]
     assert "within N bars" in body["message"]
     assert "then Y within N bars" in body["message"]
@@ -3410,6 +3568,7 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert body["response_type"] == "ANSWER"
     assert body["guidance_data"]["guidance_type"] == "NO_CHANGE"
     assert len(body["guidance_data"]["suggested_actions"]) > 0
+    assert "Change tradable symbol" in body["guidance_data"]["suggested_actions"]
     assert "Switch to MACD" in body["guidance_data"]["suggested_actions"]
     assert "Switch to KD / stochastic" in body["guidance_data"]["suggested_actions"]
     assert "Switch to seasonality by month" in body["guidance_data"]["suggested_actions"]

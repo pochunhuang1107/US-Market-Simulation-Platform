@@ -95,6 +95,87 @@ def _extract_primary_symbol(text: str) -> tuple[str, list[str]]:
     return "QQQ", assumptions
 
 
+def _extract_tradable_symbol_edit(text: str) -> str | None:
+    patterns = [
+        r"change\s+(?:this\s+strategy|strategy|tradable\s+symbol)\s+to\s+([A-Z]{2,5})",
+        r"set\s+tradable\s+symbol\s+to\s+([A-Z]{2,5})",
+        r"use\s+([A-Z]{2,5})\s+as\s+(?:the\s+)?tradable\s+symbol",
+        r"switch\s+(?:this\s+strategy\s+)?to\s+([A-Z]{2,5})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            candidate = match.group(1).upper()
+            if candidate in SUPPORTED_SYMBOLS:
+                return candidate
+    return None
+
+
+def _has_benchmark_edit_intent(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\bbenchmark\b|\bas benchmark\b|set benchmark|benchmark is|change benchmark",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _rewrite_rule_tradable_symbol(
+    rule: dict,
+    *,
+    new_symbol: str,
+) -> dict:
+    if not isinstance(rule, dict):
+        return rule
+
+    kind = rule.get("kind")
+    updated_rule = dict(rule)
+
+    if kind == "atomic":
+        if updated_rule.get("type") != "month_in":
+            updated_rule["symbol"] = new_symbol
+        return updated_rule
+
+    if kind == "not":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _rewrite_rule_tradable_symbol(
+                nested_rule,
+                new_symbol=new_symbol,
+            )
+        return updated_rule
+
+    if kind == "group":
+        updated_rule["rules"] = [
+            _rewrite_rule_tradable_symbol(child_rule, new_symbol=new_symbol)
+            if isinstance(child_rule, dict)
+            else child_rule
+            for child_rule in updated_rule.get("rules", [])
+        ]
+        return updated_rule
+
+    if kind == "window":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _rewrite_rule_tradable_symbol(
+                nested_rule,
+                new_symbol=new_symbol,
+            )
+        return updated_rule
+
+    if kind == "sequence":
+        updated_rule["steps"] = [
+            _rewrite_rule_tradable_symbol(step, new_symbol=new_symbol)
+            if isinstance(step, dict)
+            else step
+            for step in updated_rule.get("steps", [])
+        ]
+        return updated_rule
+
+    return updated_rule
+
+
 def _extract_benchmark_symbol(text: str, default_symbol: str) -> tuple[str, list[str]]:
     assumptions: list[str] = []
 
@@ -221,6 +302,7 @@ def _looks_like_edit_request(text: str) -> bool:
 def _is_supported_edit_request(text: str) -> bool:
     supported_patterns = [
         r"\b(start\s+date|end\s+date)\b",
+        r"\btradable\s+symbol\b",
         r"\bbenchmark\b",
         r"\bstop\s+loss\b",
         r"\btake\s+profit\b",
@@ -1969,6 +2051,12 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
 
     _record_change(
         changes,
+        base_config.get("tradable_symbol"),
+        config.get("tradable_symbol"),
+        "tradable symbol",
+    )
+    _record_change(
+        changes,
         base_risk.get("stop_loss_pct"),
         final_risk.get("stop_loss_pct"),
         "stop loss",
@@ -2327,6 +2415,7 @@ def _generate_strategy_draft(
         prompt,
         tradable_symbol,
     )
+    tradable_symbol_edit = _extract_tradable_symbol_edit(prompt)
     assumptions.extend(benchmark_assumptions)
 
     reference_symbols = _extract_reference_symbols(
@@ -2935,6 +3024,28 @@ def _generate_strategy_draft(
         default_config.setdefault("entry_rule", entry_rule)
         default_config.setdefault("exit_rule", exit_rule)
 
+        benchmark_edit_intent = _has_benchmark_edit_intent(prompt)
+
+        if tradable_symbol_edit is not None:
+            old_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
+            if tradable_symbol_edit != old_tradable_symbol:
+                default_config["tradable_symbol"] = tradable_symbol_edit
+                default_config["entry_rule"] = _rewrite_rule_tradable_symbol(
+                    default_config.get("entry_rule", {}),
+                    new_symbol=tradable_symbol_edit,
+                )
+                default_config["exit_rule"] = _rewrite_rule_tradable_symbol(
+                    default_config.get("exit_rule", {}),
+                    new_symbol=tradable_symbol_edit,
+                )
+
+                if default_config.get("benchmark_symbol") == old_tradable_symbol and not benchmark_edit_intent:
+                    default_config["benchmark_symbol"] = tradable_symbol_edit
+
+                assumptions.append(
+                    f"Switched tradable symbol from {old_tradable_symbol} to {tradable_symbol_edit}."
+                )
+
         existing_entry_rule = dict(default_config.get("entry_rule", {}))
         existing_exit_rule = dict(default_config.get("exit_rule", {}))
 
@@ -3143,7 +3254,7 @@ def _generate_strategy_draft(
         risk.setdefault("cooldown_bars", 0)
         default_config["risk"] = risk
 
-        if any(phrase in prompt_lower for phrase in ["benchmark", "as benchmark", "set benchmark", "benchmark is", "change benchmark"]):
+        if _has_benchmark_edit_intent(prompt):
             default_config["benchmark_symbol"] = benchmark_symbol
 
         if re.search(r"(?:capital|start with|\$)", prompt_lower):
