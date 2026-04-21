@@ -1889,6 +1889,166 @@ def test_generate_strategy_builder_draft_updates_entry_sequence_second_step_to_k
     assert "Updated entry sequence second step from macd_bullish_cross|symbol=QQQ to kd_golden_cross|symbol=QQQ." in body["changes"]
 
 
+def test_generate_strategy_builder_draft_removes_second_step_of_entry_sequence(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove second step of entry sequence",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-sequence-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "sequence",
+                        "window_bars": 5,
+                        "steps": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "sequence",
+                        "window_bars": 4,
+                        "steps": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "atomic"
+    assert config["entry_rule"]["type"] == "rsi_below"
+    assert config["exit_rule"]["kind"] == "sequence"
+    assert any("Updated entry rule" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_draft_removes_first_step_of_exit_sequence(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove first step of exit sequence",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-sequence-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "sequence",
+                        "window_bars": 5,
+                        "steps": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "sequence",
+                        "window_bars": 4,
+                        "steps": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["exit_rule"]["kind"] == "atomic"
+    assert config["exit_rule"]["type"] == "macd_bearish_cross"
+    assert config["entry_rule"]["kind"] == "sequence"
+    assert any("Updated exit rule" in change for change in body["changes"])
+
+
 def test_generate_strategy_builder_draft_adds_macd_confirmation_to_existing_strategy(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -3124,6 +3284,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "core allocation / core overlay" in body["message"]
     assert "removal of group conditions" in body["message"]
     assert "removal of window wrappers" in body["message"]
+    assert "removal of sequence steps" in body["message"]
 
 
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
@@ -3267,6 +3428,7 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Enable / disable core allocation" in body["guidance_data"]["suggested_actions"]
     assert "Remove group conditions" in body["guidance_data"]["suggested_actions"]
     assert "Remove window wrapper" in body["guidance_data"]["suggested_actions"]
+    assert "Remove sequence steps" in body["guidance_data"]["suggested_actions"]
 
 
 def test_generate_strategy_builder_returns_guidance_data_for_unsupported_edit_target(client):

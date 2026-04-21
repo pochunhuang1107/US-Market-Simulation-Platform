@@ -27,6 +27,7 @@ DEFAULT_GUIDANCE_ACTIONS = [
     "Use X then Y sequence rules",
     "Change window bars / mode",
     "Change sequence bars / steps",
+    "Remove sequence steps",
     "Adjust position management",
     "Enable / disable core allocation",
     "Change capital",
@@ -39,10 +40,10 @@ SUPPORTED_STRATEGY_TYPES_MESSAGE = (
     "explicit combined entry/exit rules using AND/OR, direct edits for group operators and group conditions, "
     "direct removal of group conditions, temporal window rules using any/all within N bars, "
     "direct edits for window inner rules, direct removal of window wrappers, "
-    "two-step sequence rules using X then Y within N bars, add/remove confirmation filters "
-    "for MACD, KD/stochastic, and relative strength on an existing draft, direct edits for "
-    "window bars/modes and sequence bars/steps, partial take profit, position management, "
-    "and core allocation / core overlay. "
+    "two-step sequence rules using X then Y within N bars, direct edits for window bars/modes "
+    "and sequence bars/steps, direct removal of sequence steps, add/remove confirmation filters "
+    "for MACD, KD/stochastic, and relative strength on an existing draft, "
+    "partial take profit, position management, and core allocation / core overlay. "
     "It also supports benchmark, stop loss, take profit, allocation, cooldown, capital, and date edits."
 )
 
@@ -51,7 +52,7 @@ UNSUPPORTED_EDIT_SUGGESTED_ACTION = (
     "MACD, KD/stochastic, seasonality by month, relative strength, add/remove confirmation filters, "
     "combined AND/OR rules, group operator or condition edits, removing group conditions, "
     "any/all within N bars, window inner-rule edits, removing a window wrapper, "
-    "X then Y sequence rules, window/sequence bars and modes, sequence step edits, "
+    "X then Y sequence rules, window/sequence bars and modes, sequence step edits, removing sequence steps, "
     "position management, core allocation, capital, or dates."
 )
 
@@ -62,7 +63,7 @@ UNSUPPORTED_EDIT_MESSAGE = (
     "relative strength, add/remove confirmation filters, combined AND/OR rules, "
     "group operator and condition edits, removing group conditions, "
     "any/all within N bars, window inner-rule edits, removing a window wrapper, "
-    "X then Y sequence rules, window/sequence bars and modes, sequence step edits, "
+    "X then Y sequence rules, window/sequence bars and modes, sequence step edits, removing sequence steps, "
     "position management, core allocation, capital, and dates."
 )
 
@@ -74,6 +75,6 @@ NO_CHANGE_MESSAGE = (
     "switching to relative strength, adding or removing MACD/KD/relative strength confirmation filters, "
     "using combined AND/OR rules, changing or removing group operator/conditions, "
     "using any/all within N bars, changing or removing the window wrapper, using X then Y sequence rules, "
-    "changing window/sequence bars or window mode, changing sequence steps, "
+    "changing window/sequence bars or window mode, changing or removing sequence steps, "
     "position management, core allocation, capital, or dates."
 )

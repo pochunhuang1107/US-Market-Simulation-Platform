@@ -251,6 +251,7 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\b(entry|exit)\s+window\s+inner\s+rule\b",
         r"\b(remove|delete)\s+(first|second)\s+condition\s+of\s+(entry|exit)\s+group\b",
         r"\b(remove|delete)\s+(entry|exit)\s+window\s+wrapper\b",
+        r"\b(remove|delete)\s+(first|second)\s+step\s+of\s+(entry|exit)\s+sequence\b",
         r"\bpartial\s+take\s+profit\b",
         r"\bscale\s+in\b",
         r"\bscale\s+out\b",
@@ -1520,6 +1521,46 @@ def _remove_window_wrapper(rule: dict) -> dict:
     return rule
 
 
+def _has_remove_sequence_step_intent(
+    text: str,
+    *,
+    side: str,
+    ordinal: str,
+) -> bool:
+    return bool(
+        re.search(
+            rf"(?:remove|delete)\s+{ordinal}\s+step\s+of\s+{side}\s+sequence",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _remove_sequence_step(
+    rule: dict,
+    *,
+    index: int,
+) -> dict:
+    if rule.get("kind") != "sequence":
+        return rule
+
+    steps = list(rule.get("steps", []))
+    if index < 0 or index >= len(steps):
+        return rule
+
+    filtered_steps = [step for i, step in enumerate(steps) if i != index]
+
+    if not filtered_steps:
+        return rule
+
+    if len(filtered_steps) == 1:
+        return filtered_steps[0]
+
+    updated_rule = dict(rule)
+    updated_rule["steps"] = filtered_steps
+    return updated_rule
+
+
 def _has_partial_relative_strength_edit(
     *,
     reference_symbol_edit: str | None,
@@ -2624,6 +2665,27 @@ def _generate_strategy_draft(
         side="exit",
     )
 
+    remove_entry_sequence_first_step = _has_remove_sequence_step_intent(
+        prompt,
+        side="entry",
+        ordinal="first",
+    )
+    remove_entry_sequence_second_step = _has_remove_sequence_step_intent(
+        prompt,
+        side="entry",
+        ordinal="second",
+    )
+    remove_exit_sequence_first_step = _has_remove_sequence_step_intent(
+        prompt,
+        side="exit",
+        ordinal="first",
+    )
+    remove_exit_sequence_second_step = _has_remove_sequence_step_intent(
+        prompt,
+        side="exit",
+        ordinal="second",
+    )
+
     has_nested_composite_removal_intent = any(
         (
             remove_entry_group_first_condition,
@@ -2632,6 +2694,10 @@ def _generate_strategy_draft(
             remove_exit_group_second_condition,
             remove_entry_window_wrapper,
             remove_exit_window_wrapper,
+            remove_entry_sequence_first_step,
+            remove_entry_sequence_second_step,
+            remove_exit_sequence_first_step,
+            remove_exit_sequence_second_step,
         )
     )
 
@@ -3225,6 +3291,26 @@ def _generate_strategy_draft(
 
             if remove_exit_window_wrapper:
                 updated_exit_rule = _remove_window_wrapper(existing_exit_rule)
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+            if remove_entry_sequence_first_step:
+                updated_entry_rule = _remove_sequence_step(existing_entry_rule, index=0)
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+            if remove_entry_sequence_second_step:
+                updated_entry_rule = _remove_sequence_step(existing_entry_rule, index=1)
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+            if remove_exit_sequence_first_step:
+                updated_exit_rule = _remove_sequence_step(existing_exit_rule, index=0)
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+            if remove_exit_sequence_second_step:
+                updated_exit_rule = _remove_sequence_step(existing_exit_rule, index=1)
                 default_config["exit_rule"] = updated_exit_rule
                 existing_exit_rule = updated_exit_rule
 
