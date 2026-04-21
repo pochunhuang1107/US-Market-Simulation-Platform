@@ -741,6 +741,37 @@ def _extract_sma_crossover_pair(text: str) -> tuple[int, int] | None:
     return None
 
 
+def _extract_sma_above_pair(text: str) -> tuple[int, int] | None:
+    patterns = [
+        r"(\d+)\s*(?:day|d)?\s*sma\s+(?:is\s+)?above\s+(\d+)\s*(?:day|d)?\s*sma",
+        r"sma\s+above\s+(\d+)\s*/\s*(\d+)",
+        r"(\d+)\s*/\s*(\d+)\s*sma\s+above",
+        r"(\d+)\s*(?:day|d)?\s+sma\s+above\s+(\d+)\s*(?:day|d)?\s+sma",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            fast_window = int(match.group(1))
+            slow_window = int(match.group(2))
+            if fast_window != slow_window:
+                return fast_window, slow_window
+    return None
+
+
+def _has_sma_above_state_intent(text: str) -> bool:
+    text_lower = text.lower()
+
+    if "cross above" in text_lower or "crosses above" in text_lower or "crossing above" in text_lower:
+        return False
+
+    return bool(
+        re.search(
+            r"\bsma\s+above\b|\bis\s+above\b",
+            text_lower,
+        )
+    )
+
+
 def _extract_entry_fast_window_edit(text: str) -> int | None:
     patterns = [
         r"change\s+entry(?:\s+rule)?(?:\s+sma)?\s+fast\s+window\s+to\s+(\d+)",
@@ -1035,13 +1066,16 @@ def _build_atomic_rule_from_clause(
         return None, assumptions
 
     if "moving average" in clause_lower or "sma" in clause_lower:
-        pair = _extract_sma_pair_any_direction(clause_text)
+        above_pair = _extract_sma_above_pair(clause_text)
+        pair = above_pair if above_pair is not None else _extract_sma_pair_any_direction(clause_text)
         fast_window, slow_window = pair if pair else (20, 50)
 
         if pair is None:
             assumptions.append("Used default moving-average windows 20/50 inside a combined rule clause.")
 
-        if "below" in clause_lower:
+        if _has_sma_above_state_intent(clause_text):
+            rule_type = "sma_above"
+        elif "below" in clause_lower:
             rule_type = "sma_cross_below"
         elif "above" in clause_lower:
             rule_type = "sma_cross_above"
@@ -2705,6 +2739,7 @@ def _generate_strategy_draft(
     rsi_entry_threshold_edit = _extract_rsi_entry_threshold_edit(prompt)
     rsi_exit_threshold_edit = _extract_rsi_exit_threshold_edit(prompt)
     sma_pair = _extract_sma_crossover_pair(prompt)
+    sma_above_pair = _extract_sma_above_pair(prompt)
 
     entry_fast_window_edit = _extract_entry_fast_window_edit(prompt)
     entry_slow_window_edit = _extract_entry_slow_window_edit(prompt)
@@ -2739,8 +2774,9 @@ def _generate_strategy_draft(
         }
 
     if "moving average" in prompt_lower or "sma" in prompt_lower:
-        fast_window, slow_window = sma_pair if sma_pair else (20, 50)
-        if sma_pair:
+        selected_pair = sma_above_pair if sma_above_pair is not None else sma_pair
+        fast_window, slow_window = selected_pair if selected_pair else (20, 50)
+        if selected_pair:
             assumptions.append(
                 f"Detected moving-average windows {fast_window}/{slow_window}."
             )
@@ -2749,23 +2785,49 @@ def _generate_strategy_draft(
                 "Used default moving-average windows 20/50."
             )
 
-        if entry_rule is None:
-            entry_rule = {
-                "kind": "atomic",
-                "type": "sma_cross_above",
-                "symbol": tradable_symbol,
-                "fast_window": fast_window,
-                "slow_window": slow_window,
-            }
+        if _has_sma_above_state_intent(prompt):
+            if entry_rule is None:
+                entry_rule = {
+                    "kind": "atomic",
+                    "type": "sma_above",
+                    "symbol": tradable_symbol,
+                    "fast_window": fast_window,
+                    "slow_window": slow_window,
+                }
 
-        if exit_rule is None:
-            exit_rule = {
-                "kind": "atomic",
-                "type": "sma_cross_below",
-                "symbol": tradable_symbol,
-                "fast_window": fast_window,
-                "slow_window": slow_window,
-            }
+            if exit_rule is None:
+                exit_rule = {
+                    "kind": "not",
+                    "rule": {
+                        "kind": "atomic",
+                        "type": "sma_above",
+                        "symbol": tradable_symbol,
+                        "fast_window": fast_window,
+                        "slow_window": slow_window,
+                    },
+                }
+
+            assumptions.append(
+                "Interpreted 'SMA above' as entering while the fast SMA stays above the slow SMA and exiting when that condition no longer holds."
+            )
+        else:
+            if entry_rule is None:
+                entry_rule = {
+                    "kind": "atomic",
+                    "type": "sma_cross_above",
+                    "symbol": tradable_symbol,
+                    "fast_window": fast_window,
+                    "slow_window": slow_window,
+                }
+
+            if exit_rule is None:
+                exit_rule = {
+                    "kind": "atomic",
+                    "type": "sma_cross_below",
+                    "symbol": tradable_symbol,
+                    "fast_window": fast_window,
+                    "slow_window": slow_window,
+                }
 
     if "macd" in prompt_lower:
         entry_rule = {

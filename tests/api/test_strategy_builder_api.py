@@ -179,6 +179,33 @@ def test_generate_strategy_builder_draft_parses_custom_moving_average_windows(cl
     assert config["exit_rule"]["slow_window"] == 30
 
 
+def test_generate_strategy_builder_draft_parses_sma_above_strategy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a 20/50 SMA above strategy for QQQ",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "atomic"
+    assert config["entry_rule"]["type"] == "sma_above"
+    assert config["entry_rule"]["symbol"] == "QQQ"
+    assert config["entry_rule"]["fast_window"] == 20
+    assert config["entry_rule"]["slow_window"] == 50
+
+    assert config["exit_rule"]["kind"] == "not"
+    assert config["exit_rule"]["rule"]["type"] == "sma_above"
+    assert config["exit_rule"]["rule"]["symbol"] == "QQQ"
+    assert config["exit_rule"]["rule"]["fast_window"] == 20
+    assert config["exit_rule"]["rule"]["slow_window"] == 50
+
+
 def test_generate_strategy_builder_draft_parses_macd_strategy(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -350,6 +377,30 @@ def test_generate_strategy_builder_draft_parses_composite_entry_and_exit_rules(c
     assert len(config["exit_rule"]["rules"]) == 2
     assert config["exit_rule"]["rules"][0]["type"] == "rsi_above"
     assert config["exit_rule"]["rules"][1]["type"] == "macd_bearish_cross"
+
+
+def test_generate_strategy_builder_draft_parses_composite_rule_with_sma_above_clause(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a strategy for QQQ with entry when 20 day SMA is above 50 day SMA and MACD "
+                "and exit when RSI above 70"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "AND"
+    assert config["entry_rule"]["rules"][0]["type"] == "sma_above"
+    assert config["entry_rule"]["rules"][0]["fast_window"] == 20
+    assert config["entry_rule"]["rules"][0]["slow_window"] == 50
+    assert config["entry_rule"]["rules"][1]["type"] == "macd_bullish_cross"
 
 
 def test_generate_strategy_builder_draft_parses_window_entry_and_exit_rules(client):
@@ -734,6 +785,70 @@ def test_generate_strategy_builder_draft_changes_tradable_symbol_and_rewrites_at
     assert config["exit_rule"]["symbol"] == "SPY"
     assert config["name"].startswith("spy-")
     assert "Updated tradable symbol from QQQ to SPY." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_switches_existing_strategy_to_sma_above(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change this strategy to 10/30 SMA above",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+
+    assert config["entry_rule"]["kind"] == "atomic"
+    assert config["entry_rule"]["type"] == "sma_above"
+    assert config["entry_rule"]["fast_window"] == 10
+    assert config["entry_rule"]["slow_window"] == 30
+
+    assert config["exit_rule"]["kind"] == "not"
+    assert config["exit_rule"]["rule"]["type"] == "sma_above"
+    assert config["exit_rule"]["rule"]["fast_window"] == 10
+    assert config["exit_rule"]["rule"]["slow_window"] == 30
 
 
 def test_generate_strategy_builder_draft_switches_existing_strategy_to_kd(client):
@@ -3605,6 +3720,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert body["response_type"] == "ANSWER"
     assert body["answer_data"]["answer_type"] == "SUPPORTED_STRATEGY_TYPES"
     assert "MACD" in body["message"]
+    assert "SMA-above" in body["message"]
     assert "KD" in body["message"]
     assert "seasonality" in body["message"]
     assert "relative strength" in body["message"]
@@ -3756,6 +3872,7 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Switch to KD / stochastic" in body["guidance_data"]["suggested_actions"]
     assert "Switch to seasonality by month" in body["guidance_data"]["suggested_actions"]
     assert "Switch to relative strength" in body["guidance_data"]["suggested_actions"]
+    assert "Switch to SMA above" in body["guidance_data"]["suggested_actions"]
     assert "Edit nested relative strength settings" in body["guidance_data"]["suggested_actions"]
     assert "Add MACD confirmation" in body["guidance_data"]["suggested_actions"]
     assert "Add KD / stochastic confirmation" in body["guidance_data"]["suggested_actions"]
