@@ -246,6 +246,9 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bwindow\s+mode\b",
         r"\b(entry|exit)\s+sequence\b",
         r"\b(first|second)\s+step\s+of\s+(entry|exit)\s+sequence\b",
+        r"\b(entry|exit)\s+group\s+operator\b",
+        r"\b(first|second)\s+condition\s+of\s+(entry|exit)\s+group\b",
+        r"\b(entry|exit)\s+window\s+inner\s+rule\b",
         r"\bcapital\b",
         r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
         r"\b(entry|exit)\s+rule\b",
@@ -1363,6 +1366,88 @@ def _is_sequence_rule(rule: dict) -> bool:
     return rule.get("kind") == "sequence"
 
 
+def _extract_group_operator_edit(
+    text: str,
+    *,
+    side: str,
+) -> str | None:
+    patterns = [
+        rf"change\s+{side}\s+group\s+operator\s+to\s+(and|or)",
+        rf"set\s+{side}\s+group\s+operator\s+to\s+(and|or)",
+        rf"{side}\s+group\s+operator\s+(?:to\s+)?(and|or)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def _extract_group_condition_edit(
+    text: str,
+    *,
+    side: str,
+    ordinal: str,
+) -> str | None:
+    patterns = [
+        rf"change\s+{ordinal}\s+condition\s+of\s+{side}\s+group\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+        rf"set\s+{ordinal}\s+condition\s+of\s+{side}\s+group\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+        rf"{side}\s+group\s+{ordinal}\s+condition\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip(" ,.")
+    return None
+
+
+def _extract_window_inner_rule_edit(
+    text: str,
+    *,
+    side: str,
+) -> str | None:
+    patterns = [
+        rf"change\s+{side}\s+window\s+inner\s+rule\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+        rf"set\s+{side}\s+window\s+inner\s+rule\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+        rf"{side}\s+window\s+inner\s+rule\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip(" ,.")
+    return None
+
+
+def _has_nested_composite_edit(
+    *,
+    entry_group_operator_edit: str | None,
+    exit_group_operator_edit: str | None,
+    entry_group_first_condition_edit: str | None,
+    entry_group_second_condition_edit: str | None,
+    exit_group_first_condition_edit: str | None,
+    exit_group_second_condition_edit: str | None,
+    entry_window_inner_rule_edit: str | None,
+    exit_window_inner_rule_edit: str | None,
+) -> bool:
+    return any(
+        value is not None
+        for value in (
+            entry_group_operator_edit,
+            exit_group_operator_edit,
+            entry_group_first_condition_edit,
+            entry_group_second_condition_edit,
+            exit_group_first_condition_edit,
+            exit_group_second_condition_edit,
+            entry_window_inner_rule_edit,
+            exit_window_inner_rule_edit,
+        )
+    )
+
+
+def _is_group_rule(rule: dict) -> bool:
+    return rule.get("kind") == "group"
+
+
 def _has_partial_relative_strength_edit(
     *,
     reference_symbol_edit: str | None,
@@ -1682,6 +1767,26 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         _format_month_values,
     )
 
+    if base_entry.get("kind") == "group" and final_entry.get("kind") == "group":
+        _record_change(
+            changes,
+            base_entry.get("operator"),
+            final_entry.get("operator"),
+            "entry group operator",
+        )
+        _record_change(
+            changes,
+            _rule_signature((base_entry.get("rules") or [None, None])[0]),
+            _rule_signature((final_entry.get("rules") or [None, None])[0]),
+            "entry group first condition",
+        )
+        _record_change(
+            changes,
+            _rule_signature((base_entry.get("rules") or [None, None])[1]),
+            _rule_signature((final_entry.get("rules") or [None, None])[1]),
+            "entry group second condition",
+        )
+
     if base_entry.get("kind") == "window" and final_entry.get("kind") == "window":
         _record_change(
             changes,
@@ -1694,6 +1799,32 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
             base_entry.get("mode"),
             final_entry.get("mode"),
             "entry window mode",
+        )
+        _record_change(
+            changes,
+            _rule_signature(base_entry.get("rule")),
+            _rule_signature(final_entry.get("rule")),
+            "entry window inner rule",
+        )
+
+    if base_exit.get("kind") == "group" and final_exit.get("kind") == "group":
+        _record_change(
+            changes,
+            base_exit.get("operator"),
+            final_exit.get("operator"),
+            "exit group operator",
+        )
+        _record_change(
+            changes,
+            _rule_signature((base_exit.get("rules") or [None, None])[0]),
+            _rule_signature((final_exit.get("rules") or [None, None])[0]),
+            "exit group first condition",
+        )
+        _record_change(
+            changes,
+            _rule_signature((base_exit.get("rules") or [None, None])[1]),
+            _rule_signature((final_exit.get("rules") or [None, None])[1]),
+            "exit group second condition",
         )
 
     if base_exit.get("kind") == "window" and final_exit.get("kind") == "window":
@@ -1708,6 +1839,12 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
             base_exit.get("mode"),
             final_exit.get("mode"),
             "exit window mode",
+        )
+        _record_change(
+            changes,
+            _rule_signature(base_exit.get("rule")),
+            _rule_signature(final_exit.get("rule")),
+            "exit window inner rule",
         )
 
     if base_entry.get("kind") == "sequence" and final_entry.get("kind") == "sequence":
@@ -2084,6 +2221,54 @@ def _generate_strategy_draft(
         exit_sequence_second_step_edit=exit_sequence_second_step_edit,
     )
 
+    entry_group_operator_edit = _extract_group_operator_edit(
+        prompt,
+        side="entry",
+    )
+    exit_group_operator_edit = _extract_group_operator_edit(
+        prompt,
+        side="exit",
+    )
+    entry_group_first_condition_edit = _extract_group_condition_edit(
+        prompt,
+        side="entry",
+        ordinal="first",
+    )
+    entry_group_second_condition_edit = _extract_group_condition_edit(
+        prompt,
+        side="entry",
+        ordinal="second",
+    )
+    exit_group_first_condition_edit = _extract_group_condition_edit(
+        prompt,
+        side="exit",
+        ordinal="first",
+    )
+    exit_group_second_condition_edit = _extract_group_condition_edit(
+        prompt,
+        side="exit",
+        ordinal="second",
+    )
+    entry_window_inner_rule_edit = _extract_window_inner_rule_edit(
+        prompt,
+        side="entry",
+    )
+    exit_window_inner_rule_edit = _extract_window_inner_rule_edit(
+        prompt,
+        side="exit",
+    )
+
+    has_nested_composite_edit_intent = _has_nested_composite_edit(
+        entry_group_operator_edit=entry_group_operator_edit,
+        exit_group_operator_edit=exit_group_operator_edit,
+        entry_group_first_condition_edit=entry_group_first_condition_edit,
+        entry_group_second_condition_edit=entry_group_second_condition_edit,
+        exit_group_first_condition_edit=exit_group_first_condition_edit,
+        exit_group_second_condition_edit=exit_group_second_condition_edit,
+        entry_window_inner_rule_edit=entry_window_inner_rule_edit,
+        exit_window_inner_rule_edit=exit_window_inner_rule_edit,
+    )
+
     if has_confirmation_edit_intent and not has_current_config:
         raise ValueError(
             "Confirmation filters currently require an existing draft. "
@@ -2413,6 +2598,98 @@ def _generate_strategy_draft(
                     default_config["exit_rule"] = existing_exit_rule
                     assumptions.extend(step_assumptions)
 
+        if has_nested_composite_edit_intent:
+            current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
+            current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
+
+            if entry_group_operator_edit is not None and _is_group_rule(existing_entry_rule):
+                existing_entry_rule["operator"] = entry_group_operator_edit
+                default_config["entry_rule"] = existing_entry_rule
+
+            if exit_group_operator_edit is not None and _is_group_rule(existing_exit_rule):
+                existing_exit_rule["operator"] = exit_group_operator_edit
+                default_config["exit_rule"] = existing_exit_rule
+
+            if entry_group_first_condition_edit is not None and _is_group_rule(existing_entry_rule):
+                updated_rule, rule_assumptions = _build_atomic_rule_from_clause(
+                    entry_group_first_condition_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="entry",
+                )
+                if updated_rule is not None and len(existing_entry_rule.get("rules", [])) >= 1:
+                    updated_rules = list(existing_entry_rule.get("rules", []))
+                    updated_rules[0] = updated_rule
+                    existing_entry_rule["rules"] = updated_rules
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(rule_assumptions)
+
+            if entry_group_second_condition_edit is not None and _is_group_rule(existing_entry_rule):
+                updated_rule, rule_assumptions = _build_atomic_rule_from_clause(
+                    entry_group_second_condition_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="entry",
+                )
+                if updated_rule is not None and len(existing_entry_rule.get("rules", [])) >= 2:
+                    updated_rules = list(existing_entry_rule.get("rules", []))
+                    updated_rules[1] = updated_rule
+                    existing_entry_rule["rules"] = updated_rules
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(rule_assumptions)
+
+            if exit_group_first_condition_edit is not None and _is_group_rule(existing_exit_rule):
+                updated_rule, rule_assumptions = _build_atomic_rule_from_clause(
+                    exit_group_first_condition_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="exit",
+                )
+                if updated_rule is not None and len(existing_exit_rule.get("rules", [])) >= 1:
+                    updated_rules = list(existing_exit_rule.get("rules", []))
+                    updated_rules[0] = updated_rule
+                    existing_exit_rule["rules"] = updated_rules
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(rule_assumptions)
+
+            if exit_group_second_condition_edit is not None and _is_group_rule(existing_exit_rule):
+                updated_rule, rule_assumptions = _build_atomic_rule_from_clause(
+                    exit_group_second_condition_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="exit",
+                )
+                if updated_rule is not None and len(existing_exit_rule.get("rules", [])) >= 2:
+                    updated_rules = list(existing_exit_rule.get("rules", []))
+                    updated_rules[1] = updated_rule
+                    existing_exit_rule["rules"] = updated_rules
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(rule_assumptions)
+
+            if entry_window_inner_rule_edit is not None and _is_window_rule(existing_entry_rule):
+                updated_rule, rule_assumptions = _build_rule_from_clause(
+                    entry_window_inner_rule_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="entry",
+                )
+                if updated_rule is not None:
+                    existing_entry_rule["rule"] = updated_rule
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(rule_assumptions)
+
+            if exit_window_inner_rule_edit is not None and _is_window_rule(existing_exit_rule):
+                updated_rule, rule_assumptions = _build_rule_from_clause(
+                    exit_window_inner_rule_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="exit",
+                )
+                if updated_rule is not None:
+                    existing_exit_rule["rule"] = updated_rule
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(rule_assumptions)
+
         risk = dict(default_config.get("risk", {}))
         risk.setdefault("cooldown_bars", 0)
         default_config["risk"] = risk
@@ -2461,7 +2738,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_entry_threshold_edit,
                 }
 
-        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and (
+        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -2493,7 +2770,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_exit_threshold_edit,
                 }
 
-        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and (
+        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower

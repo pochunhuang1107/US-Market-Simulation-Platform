@@ -17,7 +17,10 @@ DEFAULT_GUIDANCE_ACTIONS = [
     "Add relative strength confirmation",
     "Remove confirmation filters",
     "Use combined AND / OR rules",
+    "Change group operator",
+    "Change group conditions",
     "Use any / all within N bars",
+    "Change window inner rule",
     "Use X then Y sequence rules",
     "Change window bars / mode",
     "Change sequence bars / steps",
@@ -28,7 +31,8 @@ DEFAULT_GUIDANCE_ACTIONS = [
 SUPPORTED_STRATEGY_TYPES_MESSAGE = (
     "Right now the builder supports RSI mean reversion, moving-average crossover edits, "
     "MACD, KD/stochastic, seasonality by calendar month, relative strength versus another ETF, "
-    "explicit combined entry/exit rules using AND/OR, temporal window rules using any/all within N bars, "
+    "explicit combined entry/exit rules using AND/OR, direct edits for group operators and group conditions, "
+    "temporal window rules using any/all within N bars, direct edits for window inner rules, "
     "two-step sequence rules using X then Y within N bars, add/remove confirmation filters "
     "for MACD, KD/stochastic, and relative strength on an existing draft, and direct edits for "
     "window bars/modes and sequence bars/steps. "
@@ -38,8 +42,8 @@ SUPPORTED_STRATEGY_TYPES_MESSAGE = (
 UNSUPPORTED_EDIT_SUGGESTED_ACTION = (
     "Try benchmark, stop loss, take profit, allocation, cooldown, RSI, moving averages, "
     "MACD, KD/stochastic, seasonality by month, relative strength, add/remove confirmation filters, "
-    "combined AND/OR rules, any/all within N bars, X then Y sequence rules, window/sequence bars and modes, "
-    "sequence step edits, capital, or dates."
+    "combined AND/OR rules, group operator or condition edits, any/all within N bars, window inner-rule edits, "
+    "X then Y sequence rules, window/sequence bars and modes, sequence step edits, capital, or dates."
 )
 
 UNSUPPORTED_EDIT_MESSAGE = (
@@ -47,8 +51,9 @@ UNSUPPORTED_EDIT_MESSAGE = (
     "Right now I can help with benchmark, stop loss, take profit, allocation, cooldown, "
     "RSI thresholds, moving-average rules, MACD, KD/stochastic, seasonality by month, "
     "relative strength, add/remove confirmation filters, combined AND/OR rules, "
-    "any/all within N bars, X then Y sequence rules, window/sequence bars and modes, "
-    "sequence step edits, capital, and dates."
+    "group operator and condition edits, any/all within N bars, window inner-rule edits, "
+    "X then Y sequence rules, window/sequence bars and modes, sequence step edits, "
+    "capital, and dates."
 )
 
 NO_CHANGE_MESSAGE = (
@@ -57,6 +62,7 @@ NO_CHANGE_MESSAGE = (
     "take profit, allocation, cooldown, RSI thresholds, moving-average rules, switching to MACD, "
     "switching to KD/stochastic, switching to seasonality by month, switching to relative strength, "
     "adding or removing MACD/KD/relative strength confirmation filters, "
-    "using combined AND/OR rules, using any/all within N bars, using X then Y sequence rules, "
+    "using combined AND/OR rules, changing group operator or conditions, "
+    "using any/all within N bars, changing the window inner rule, using X then Y sequence rules, "
     "changing window/sequence bars or window mode, changing sequence steps, capital, or dates."
 )

@@ -874,6 +874,247 @@ def test_generate_strategy_builder_draft_switches_existing_strategy_to_composite
     assert any("Updated exit rule" in change for change in body["changes"])
 
 
+def test_generate_strategy_builder_draft_updates_entry_group_operator(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change entry group operator to or",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-group-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "group",
+                        "operator": "OR",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "OR"
+    assert config["exit_rule"]["operator"] == "OR"
+    assert "Updated entry group operator from AND to OR." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_updates_entry_group_second_condition(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change second condition of entry group to KD",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-group-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "group",
+                        "operator": "OR",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["rules"][0]["type"] == "rsi_below"
+    assert config["entry_rule"]["rules"][1]["type"] == "kd_golden_cross"
+    assert "Updated entry group second condition" in " ".join(body["changes"])
+
+
+def test_generate_strategy_builder_draft_updates_exit_group_first_condition(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change first condition of exit group to RSI above 65",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-group-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "group",
+                        "operator": "OR",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["exit_rule"]["kind"] == "group"
+    assert config["exit_rule"]["rules"][0]["type"] == "rsi_above"
+    assert config["exit_rule"]["rules"][0]["threshold"] == 65
+    assert config["exit_rule"]["rules"][1]["type"] == "macd_bearish_cross"
+    assert "Updated exit group first condition" in " ".join(body["changes"])
+
+
 def test_generate_strategy_builder_draft_switches_existing_strategy_to_window_rules(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -1087,6 +1328,74 @@ def test_generate_strategy_builder_draft_updates_exit_window_bars(client):
     assert config["exit_rule"]["window_bars"] == 6
     assert config["exit_rule"]["mode"] == "ALL"
     assert "Updated exit window bars from 3 to 6." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_updates_entry_window_inner_rule(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change entry window inner rule to KD",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-window-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "window",
+                        "window_bars": 5,
+                        "mode": "ANY",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "rsi_below",
+                            "lookback": 14,
+                            "threshold": 30,
+                        },
+                    },
+                    "exit_rule": {
+                        "kind": "window",
+                        "window_bars": 3,
+                        "mode": "ALL",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "rsi_above",
+                            "lookback": 14,
+                            "threshold": 70,
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "window"
+    assert config["entry_rule"]["rule"]["type"] == "kd_golden_cross"
+    assert config["exit_rule"]["rule"]["type"] == "rsi_above"
+    assert "Updated entry window inner rule" in " ".join(body["changes"])
 
 
 def test_generate_strategy_builder_draft_switches_existing_strategy_to_sequence_rules(client):
@@ -2403,6 +2712,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "then Y within N bars" in body["message"]
     assert "confirmation filters" in body["message"]
     assert "window bars/modes and sequence bars/steps" in body["message"]
+    assert "group operators and group conditions" in body["message"]
 
 
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
@@ -2538,6 +2848,9 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Remove confirmation filters" in body["guidance_data"]["suggested_actions"]
     assert "Change window bars / mode" in body["guidance_data"]["suggested_actions"]
     assert "Change sequence bars / steps" in body["guidance_data"]["suggested_actions"]
+    assert "Change group operator" in body["guidance_data"]["suggested_actions"]
+    assert "Change group conditions" in body["guidance_data"]["suggested_actions"]
+    assert "Change window inner rule" in body["guidance_data"]["suggested_actions"]
 
 
 def test_generate_strategy_builder_returns_guidance_data_for_unsupported_edit_target(client):
