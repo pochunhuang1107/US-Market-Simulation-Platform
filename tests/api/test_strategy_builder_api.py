@@ -306,6 +306,22 @@ def test_generate_strategy_builder_draft_parses_relative_strength_strategy(clien
     assert config["exit_rule"]["rule"]["threshold"] == 0.03
 
 
+def test_generate_strategy_builder_draft_syncs_reference_symbols_for_relative_strength_strategy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a relative strength strategy for QQQ versus TLT over 60 days with 5% threshold",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["reference_symbols"] == ["TLT"]
+
+
 def test_generate_strategy_builder_draft_parses_composite_entry_and_exit_rules(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -2223,6 +2239,93 @@ def test_generate_strategy_builder_draft_changes_tradable_symbol_and_rewrites_ne
     assert "Updated tradable symbol from QQQ to IWM." in body["changes"]
 
 
+def test_generate_strategy_builder_draft_updates_nested_relative_strength_rule_and_syncs_reference_symbols(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change relative strength reference to TLT and set relative strength threshold to 5%",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-nested-relative-strength-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": ["GLD"],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "symbol": "QQQ",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "relative_return_above",
+                                "symbol": "QQQ",
+                                "reference_symbol": "GLD",
+                                "lookback": 20,
+                                "threshold": 0.03,
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "window",
+                        "window_bars": 3,
+                        "mode": "ANY",
+                        "rule": {
+                            "kind": "not",
+                            "rule": {
+                                "kind": "atomic",
+                                "type": "relative_return_above",
+                                "symbol": "QQQ",
+                                "reference_symbol": "GLD",
+                                "lookback": 20,
+                                "threshold": 0.03,
+                            },
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    entry_relative_rule = config["entry_rule"]["rules"][1]
+    exit_relative_rule = config["exit_rule"]["rule"]["rule"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert entry_relative_rule["reference_symbol"] == "TLT"
+    assert entry_relative_rule["threshold"] == 0.05
+    assert exit_relative_rule["reference_symbol"] == "TLT"
+    assert exit_relative_rule["threshold"] == 0.05
+    assert config["reference_symbols"] == ["TLT"]
+
+
 def test_generate_strategy_builder_draft_adds_macd_confirmation_to_existing_strategy(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -3506,6 +3609,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "seasonality" in body["message"]
     assert "relative strength" in body["message"]
     assert "tradable symbol changes" in body["message"]
+    assert "nested relative strength edits" in body["message"]
     assert "transaction cost" in body["message"]
     assert "max position percentage" in body["message"]
     assert "AND/OR" in body["message"]
@@ -3652,6 +3756,7 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Switch to KD / stochastic" in body["guidance_data"]["suggested_actions"]
     assert "Switch to seasonality by month" in body["guidance_data"]["suggested_actions"]
     assert "Switch to relative strength" in body["guidance_data"]["suggested_actions"]
+    assert "Edit nested relative strength settings" in body["guidance_data"]["suggested_actions"]
     assert "Add MACD confirmation" in body["guidance_data"]["suggested_actions"]
     assert "Add KD / stochastic confirmation" in body["guidance_data"]["suggested_actions"]
     assert "Add relative strength confirmation" in body["guidance_data"]["suggested_actions"]

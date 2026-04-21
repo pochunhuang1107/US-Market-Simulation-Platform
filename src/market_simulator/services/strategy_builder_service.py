@@ -1681,6 +1681,157 @@ def _is_relative_strength_exit_rule(rule: dict) -> bool:
     )
 
 
+def _has_relative_strength_rule(rule: Any) -> bool:
+    if not isinstance(rule, dict):
+        return False
+
+    kind = rule.get("kind")
+    if kind == "atomic":
+        return rule.get("type") == "relative_return_above"
+
+    if kind == "not":
+        return _has_relative_strength_rule(rule.get("rule"))
+
+    if kind == "group":
+        return any(_has_relative_strength_rule(child_rule) for child_rule in rule.get("rules", []))
+
+    if kind == "window":
+        return _has_relative_strength_rule(rule.get("rule"))
+
+    if kind == "sequence":
+        return any(_has_relative_strength_rule(step) for step in rule.get("steps", []))
+
+    return False
+
+
+def _update_relative_strength_rules(
+    rule: Any,
+    *,
+    reference_symbol_edit: str | None,
+    lookback_edit: int | None,
+    threshold_edit: float | None,
+) -> Any:
+    if not isinstance(rule, dict):
+        return rule
+
+    kind = rule.get("kind")
+    updated_rule = dict(rule)
+
+    if kind == "atomic":
+        if updated_rule.get("type") == "relative_return_above":
+            if reference_symbol_edit is not None:
+                updated_rule["reference_symbol"] = reference_symbol_edit
+            if lookback_edit is not None:
+                updated_rule["lookback"] = lookback_edit
+            if threshold_edit is not None:
+                updated_rule["threshold"] = threshold_edit
+        return updated_rule
+
+    if kind == "not":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _update_relative_strength_rules(
+                nested_rule,
+                reference_symbol_edit=reference_symbol_edit,
+                lookback_edit=lookback_edit,
+                threshold_edit=threshold_edit,
+            )
+        return updated_rule
+
+    if kind == "group":
+        updated_rule["rules"] = [
+            _update_relative_strength_rules(
+                child_rule,
+                reference_symbol_edit=reference_symbol_edit,
+                lookback_edit=lookback_edit,
+                threshold_edit=threshold_edit,
+            )
+            if isinstance(child_rule, dict)
+            else child_rule
+            for child_rule in updated_rule.get("rules", [])
+        ]
+        return updated_rule
+
+    if kind == "window":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _update_relative_strength_rules(
+                nested_rule,
+                reference_symbol_edit=reference_symbol_edit,
+                lookback_edit=lookback_edit,
+                threshold_edit=threshold_edit,
+            )
+        return updated_rule
+
+    if kind == "sequence":
+        updated_rule["steps"] = [
+            _update_relative_strength_rules(
+                step,
+                reference_symbol_edit=reference_symbol_edit,
+                lookback_edit=lookback_edit,
+                threshold_edit=threshold_edit,
+            )
+            if isinstance(step, dict)
+            else step
+            for step in updated_rule.get("steps", [])
+        ]
+        return updated_rule
+
+    return updated_rule
+
+
+def _collect_reference_symbols_from_rule(rule: Any) -> list[str]:
+    symbols: list[str] = []
+
+    if not isinstance(rule, dict):
+        return symbols
+
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        reference_symbol = rule.get("reference_symbol")
+        if isinstance(reference_symbol, str):
+            symbols.append(reference_symbol.upper())
+        return symbols
+
+    if kind == "not":
+        return _collect_reference_symbols_from_rule(rule.get("rule"))
+
+    if kind == "group":
+        for child_rule in rule.get("rules", []):
+            symbols.extend(_collect_reference_symbols_from_rule(child_rule))
+        return symbols
+
+    if kind == "window":
+        return _collect_reference_symbols_from_rule(rule.get("rule"))
+
+    if kind == "sequence":
+        for step in rule.get("steps", []):
+            symbols.extend(_collect_reference_symbols_from_rule(step))
+        return symbols
+
+    return symbols
+
+
+def _sync_reference_symbols(config: dict[str, Any]) -> dict[str, Any]:
+    synced_config = dict(config)
+
+    tradable_symbol = synced_config.get("tradable_symbol")
+    benchmark_symbol = synced_config.get("benchmark_symbol")
+
+    collected: list[str] = []
+    for key in ("entry_rule", "exit_rule"):
+        collected.extend(_collect_reference_symbols_from_rule(synced_config.get(key)))
+
+    deduped: list[str] = []
+    for symbol in collected:
+        if symbol not in deduped and symbol not in {tradable_symbol, benchmark_symbol}:
+            deduped.append(symbol)
+
+    synced_config["reference_symbols"] = deduped
+    return synced_config
+
+
 def _has_partial_sma_window_edit(
     *,
     entry_fast_window_edit: int | None,
@@ -3105,24 +3256,20 @@ def _generate_strategy_draft(
         existing_exit_rule = dict(default_config.get("exit_rule", {}))
 
         if has_partial_relative_strength_edit:
-            if _is_relative_strength_entry_rule(existing_entry_rule) and _is_relative_strength_exit_rule(existing_exit_rule):
-                updated_entry_rule = dict(existing_entry_rule)
-                updated_exit_rule = dict(existing_exit_rule)
-                updated_exit_nested_rule = dict(updated_exit_rule.get("rule", {}))
+            if _has_relative_strength_rule(existing_entry_rule) or _has_relative_strength_rule(existing_exit_rule):
+                updated_entry_rule = _update_relative_strength_rules(
+                    existing_entry_rule,
+                    reference_symbol_edit=relative_strength_reference_symbol_edit,
+                    lookback_edit=relative_strength_lookback_edit,
+                    threshold_edit=relative_strength_threshold_edit,
+                )
+                updated_exit_rule = _update_relative_strength_rules(
+                    existing_exit_rule,
+                    reference_symbol_edit=relative_strength_reference_symbol_edit,
+                    lookback_edit=relative_strength_lookback_edit,
+                    threshold_edit=relative_strength_threshold_edit,
+                )
 
-                if relative_strength_reference_symbol_edit is not None:
-                    updated_entry_rule["reference_symbol"] = relative_strength_reference_symbol_edit
-                    updated_exit_nested_rule["reference_symbol"] = relative_strength_reference_symbol_edit
-
-                if relative_strength_lookback_edit is not None:
-                    updated_entry_rule["lookback"] = relative_strength_lookback_edit
-                    updated_exit_nested_rule["lookback"] = relative_strength_lookback_edit
-
-                if relative_strength_threshold_edit is not None:
-                    updated_entry_rule["threshold"] = relative_strength_threshold_edit
-                    updated_exit_nested_rule["threshold"] = relative_strength_threshold_edit
-
-                updated_exit_rule["rule"] = updated_exit_nested_rule
                 default_config["entry_rule"] = updated_entry_rule
                 default_config["exit_rule"] = updated_exit_rule
 
@@ -3561,7 +3708,7 @@ def _generate_strategy_draft(
                 ),
             )
 
-    config = _merge_dict(base_config, default_config)
+    config = _sync_reference_symbols(_merge_dict(base_config, default_config))
 
     effective_symbol = config.get("tradable_symbol", tradable_symbol)
     effective_entry = config.get("entry_rule", entry_rule)
