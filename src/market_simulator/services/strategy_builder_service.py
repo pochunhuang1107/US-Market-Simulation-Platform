@@ -249,6 +249,8 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\b(entry|exit)\s+group\s+operator\b",
         r"\b(first|second)\s+condition\s+of\s+(entry|exit)\s+group\b",
         r"\b(entry|exit)\s+window\s+inner\s+rule\b",
+        r"\b(remove|delete)\s+(first|second)\s+condition\s+of\s+(entry|exit)\s+group\b",
+        r"\b(remove|delete)\s+(entry|exit)\s+window\s+wrapper\b",
         r"\bpartial\s+take\s+profit\b",
         r"\bscale\s+in\b",
         r"\bscale\s+out\b",
@@ -1455,6 +1457,69 @@ def _is_group_rule(rule: dict) -> bool:
     return rule.get("kind") == "group"
 
 
+def _has_remove_group_condition_intent(
+    text: str,
+    *,
+    side: str,
+    ordinal: str,
+) -> bool:
+    return bool(
+        re.search(
+            rf"(?:remove|delete)\s+{ordinal}\s+condition\s+of\s+{side}\s+group",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _has_remove_window_wrapper_intent(
+    text: str,
+    *,
+    side: str,
+) -> bool:
+    return bool(
+        re.search(
+            rf"(?:remove|delete)\s+{side}\s+window\s+wrapper",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _remove_group_condition(
+    rule: dict,
+    *,
+    index: int,
+) -> dict:
+    if rule.get("kind") != "group":
+        return rule
+
+    rules = list(rule.get("rules", []))
+    if index < 0 or index >= len(rules):
+        return rule
+
+    filtered_rules = [child for i, child in enumerate(rules) if i != index]
+
+    if not filtered_rules:
+        return rule
+
+    if len(filtered_rules) == 1:
+        return filtered_rules[0]
+
+    updated_rule = dict(rule)
+    updated_rule["rules"] = filtered_rules
+    return updated_rule
+
+
+def _remove_window_wrapper(rule: dict) -> dict:
+    if rule.get("kind") != "window":
+        return rule
+    inner_rule = rule.get("rule")
+    if isinstance(inner_rule, dict) and inner_rule:
+        return inner_rule
+    return rule
+
+
 def _has_partial_relative_strength_edit(
     *,
     reference_symbol_edit: str | None,
@@ -2530,6 +2595,46 @@ def _generate_strategy_draft(
         exit_window_inner_rule_edit=exit_window_inner_rule_edit,
     )
 
+    remove_entry_group_first_condition = _has_remove_group_condition_intent(
+        prompt,
+        side="entry",
+        ordinal="first",
+    )
+    remove_entry_group_second_condition = _has_remove_group_condition_intent(
+        prompt,
+        side="entry",
+        ordinal="second",
+    )
+    remove_exit_group_first_condition = _has_remove_group_condition_intent(
+        prompt,
+        side="exit",
+        ordinal="first",
+    )
+    remove_exit_group_second_condition = _has_remove_group_condition_intent(
+        prompt,
+        side="exit",
+        ordinal="second",
+    )
+    remove_entry_window_wrapper = _has_remove_window_wrapper_intent(
+        prompt,
+        side="entry",
+    )
+    remove_exit_window_wrapper = _has_remove_window_wrapper_intent(
+        prompt,
+        side="exit",
+    )
+
+    has_nested_composite_removal_intent = any(
+        (
+            remove_entry_group_first_condition,
+            remove_entry_group_second_condition,
+            remove_exit_group_first_condition,
+            remove_exit_group_second_condition,
+            remove_entry_window_wrapper,
+            remove_exit_window_wrapper,
+        )
+    )
+
     if has_confirmation_edit_intent and not has_current_config:
         raise ValueError(
             "Confirmation filters currently require an existing draft. "
@@ -3016,7 +3121,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_entry_threshold_edit,
                 }
 
-        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and (
+        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_nested_composite_removal_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -3048,7 +3153,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_exit_threshold_edit,
                 }
 
-        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and (
+        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_nested_composite_removal_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -3091,6 +3196,37 @@ def _generate_strategy_draft(
                     family=confirmation_family,
                     side="exit",
                 )
+
+        if has_nested_composite_removal_intent:
+            if remove_entry_group_first_condition:
+                updated_entry_rule = _remove_group_condition(existing_entry_rule, index=0)
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+            if remove_entry_group_second_condition:
+                updated_entry_rule = _remove_group_condition(existing_entry_rule, index=1)
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+            if remove_exit_group_first_condition:
+                updated_exit_rule = _remove_group_condition(existing_exit_rule, index=0)
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+            if remove_exit_group_second_condition:
+                updated_exit_rule = _remove_group_condition(existing_exit_rule, index=1)
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+            if remove_entry_window_wrapper:
+                updated_entry_rule = _remove_window_wrapper(existing_entry_rule)
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+            if remove_exit_window_wrapper:
+                updated_exit_rule = _remove_window_wrapper(existing_exit_rule)
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
 
         if has_position_management_edit:
             if position_management_removed:

@@ -1146,6 +1146,166 @@ def test_generate_strategy_builder_draft_updates_exit_group_first_condition(clie
     assert "Updated exit group first condition" in " ".join(body["changes"])
 
 
+def test_generate_strategy_builder_draft_removes_second_condition_of_entry_group(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove second condition of entry group",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-group-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "group",
+                        "operator": "OR",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "atomic"
+    assert config["entry_rule"]["type"] == "rsi_below"
+    assert config["exit_rule"]["kind"] == "group"
+    assert any("Updated entry rule" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_draft_removes_first_condition_of_exit_group(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove first condition of exit group",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-group-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "group",
+                        "operator": "OR",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bearish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["exit_rule"]["kind"] == "atomic"
+    assert config["exit_rule"]["type"] == "macd_bearish_cross"
+    assert config["entry_rule"]["kind"] == "group"
+    assert any("Updated exit rule" in change for change in body["changes"])
+
+
 def test_generate_strategy_builder_draft_switches_existing_strategy_to_window_rules(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -1427,6 +1587,74 @@ def test_generate_strategy_builder_draft_updates_entry_window_inner_rule(client)
     assert config["entry_rule"]["rule"]["type"] == "kd_golden_cross"
     assert config["exit_rule"]["rule"]["type"] == "rsi_above"
     assert "Updated entry window inner rule" in " ".join(body["changes"])
+
+
+def test_generate_strategy_builder_draft_removes_entry_window_wrapper(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove entry window wrapper",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-window-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "window",
+                        "window_bars": 5,
+                        "mode": "ANY",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "rsi_below",
+                            "lookback": 14,
+                            "threshold": 30,
+                        },
+                    },
+                    "exit_rule": {
+                        "kind": "window",
+                        "window_bars": 3,
+                        "mode": "ALL",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "rsi_above",
+                            "lookback": 14,
+                            "threshold": 70,
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "atomic"
+    assert config["entry_rule"]["type"] == "rsi_below"
+    assert config["exit_rule"]["kind"] == "window"
+    assert any("Updated entry rule" in change for change in body["changes"])
 
 
 def test_generate_strategy_builder_draft_switches_existing_strategy_to_sequence_rules(client):
@@ -2894,6 +3122,8 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "partial take profit" in body["message"]
     assert "position management" in body["message"]
     assert "core allocation / core overlay" in body["message"]
+    assert "removal of group conditions" in body["message"]
+    assert "removal of window wrappers" in body["message"]
 
 
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
@@ -3035,6 +3265,8 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Adjust partial take profit" in body["guidance_data"]["suggested_actions"]
     assert "Adjust position management" in body["guidance_data"]["suggested_actions"]
     assert "Enable / disable core allocation" in body["guidance_data"]["suggested_actions"]
+    assert "Remove group conditions" in body["guidance_data"]["suggested_actions"]
+    assert "Remove window wrapper" in body["guidance_data"]["suggested_actions"]
 
 
 def test_generate_strategy_builder_returns_guidance_data_for_unsupported_edit_target(client):
