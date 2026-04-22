@@ -861,6 +861,99 @@ def _update_rsi_rules(
     return updated_rule
 
 
+def _has_moving_average_rule(rule: Any) -> bool:
+    if not isinstance(rule, dict):
+        return False
+
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        return rule.get("type") in {"sma_cross_above", "sma_cross_below", "sma_above"}
+
+    if kind == "not":
+        return _has_moving_average_rule(rule.get("rule"))
+
+    if kind == "group":
+        return any(_has_moving_average_rule(child_rule) for child_rule in rule.get("rules", []))
+
+    if kind == "window":
+        return _has_moving_average_rule(rule.get("rule"))
+
+    if kind == "sequence":
+        return any(_has_moving_average_rule(step) for step in rule.get("steps", []))
+
+    return False
+
+
+def _update_moving_average_rules(
+    rule: Any,
+    *,
+    fast_window_edit: int | None,
+    slow_window_edit: int | None,
+) -> Any:
+    if not isinstance(rule, dict):
+        return rule
+
+    kind = rule.get("kind")
+    updated_rule = dict(rule)
+
+    if kind == "atomic":
+        if updated_rule.get("type") in {"sma_cross_above", "sma_cross_below", "sma_above"}:
+            if fast_window_edit is not None:
+                updated_rule["fast_window"] = fast_window_edit
+            if slow_window_edit is not None:
+                updated_rule["slow_window"] = slow_window_edit
+        return updated_rule
+
+    if kind == "not":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _update_moving_average_rules(
+                nested_rule,
+                fast_window_edit=fast_window_edit,
+                slow_window_edit=slow_window_edit,
+            )
+        return updated_rule
+
+    if kind == "group":
+        updated_rule["rules"] = [
+            _update_moving_average_rules(
+                child_rule,
+                fast_window_edit=fast_window_edit,
+                slow_window_edit=slow_window_edit,
+            )
+            if isinstance(child_rule, dict)
+            else child_rule
+            for child_rule in updated_rule.get("rules", [])
+        ]
+        return updated_rule
+
+    if kind == "window":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _update_moving_average_rules(
+                nested_rule,
+                fast_window_edit=fast_window_edit,
+                slow_window_edit=slow_window_edit,
+            )
+        return updated_rule
+
+    if kind == "sequence":
+        updated_rule["steps"] = [
+            _update_moving_average_rules(
+                step,
+                fast_window_edit=fast_window_edit,
+                slow_window_edit=slow_window_edit,
+            )
+            if isinstance(step, dict)
+            else step
+            for step in updated_rule.get("steps", [])
+        ]
+        return updated_rule
+
+    return updated_rule
+
+
 def _extract_sma_crossover_pair(text: str) -> tuple[int, int] | None:
     patterns = [
         r"(\d+)\s*(?:day|d)?\s*sma\s*(?:cross(?:es)?|crossing)?\s*above\s*(\d+)\s*(?:day|d)?\s*sma",
@@ -3667,6 +3760,8 @@ def _generate_strategy_draft(
 
         applied_entry_rsi_edit = False
         applied_exit_rsi_edit = False
+        applied_entry_moving_average_edit = False
+        applied_exit_moving_average_edit = False
 
         if (
             rsi_entry_threshold_edit is not None or rsi_entry_lookback_edit is not None
@@ -3693,6 +3788,30 @@ def _generate_strategy_draft(
             default_config["exit_rule"] = updated_exit_rule
             existing_exit_rule = updated_exit_rule
             applied_exit_rsi_edit = True
+
+        if (
+            entry_fast_window_edit is not None or entry_slow_window_edit is not None
+        ) and _has_moving_average_rule(existing_entry_rule):
+            updated_entry_rule = _update_moving_average_rules(
+                existing_entry_rule,
+                fast_window_edit=entry_fast_window_edit,
+                slow_window_edit=entry_slow_window_edit,
+            )
+            default_config["entry_rule"] = updated_entry_rule
+            existing_entry_rule = updated_entry_rule
+            applied_entry_moving_average_edit = True
+
+        if (
+            exit_fast_window_edit is not None or exit_slow_window_edit is not None
+        ) and _has_moving_average_rule(existing_exit_rule):
+            updated_exit_rule = _update_moving_average_rules(
+                existing_exit_rule,
+                fast_window_edit=exit_fast_window_edit,
+                slow_window_edit=exit_slow_window_edit,
+            )
+            default_config["exit_rule"] = updated_exit_rule
+            existing_exit_rule = updated_exit_rule
+            applied_exit_moving_average_edit = True
 
         if (
             has_current_config
@@ -3977,16 +4096,20 @@ def _generate_strategy_draft(
                 allocation["max_position_pct"] = max_position_pct_edit
             default_config["allocation"] = allocation
 
-        if entry_fast_window_edit is not None or entry_slow_window_edit is not None:
-            if existing_entry_rule.get("type") in {"sma_cross_above", "sma_cross_below"}:
+        if (
+            entry_fast_window_edit is not None or entry_slow_window_edit is not None
+        ) and not applied_entry_moving_average_edit:
+            if existing_entry_rule.get("type") in {"sma_cross_above", "sma_cross_below", "sma_above"}:
                 if entry_fast_window_edit is not None:
                     existing_entry_rule["fast_window"] = entry_fast_window_edit
                 if entry_slow_window_edit is not None:
                     existing_entry_rule["slow_window"] = entry_slow_window_edit
                 default_config["entry_rule"] = existing_entry_rule
 
-        if exit_fast_window_edit is not None or exit_slow_window_edit is not None:
-            if existing_exit_rule.get("type") in {"sma_cross_above", "sma_cross_below"}:
+        if (
+            exit_fast_window_edit is not None or exit_slow_window_edit is not None
+        ) and not applied_exit_moving_average_edit:
+            if existing_exit_rule.get("type") in {"sma_cross_above", "sma_cross_below", "sma_above"}:
                 if exit_fast_window_edit is not None:
                     existing_exit_rule["fast_window"] = exit_fast_window_edit
                 if exit_slow_window_edit is not None:

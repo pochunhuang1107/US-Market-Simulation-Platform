@@ -13,6 +13,7 @@ DEFAULT_GUIDANCE_ACTIONS = [
     "Adjust RSI thresholds",
     "Edit nested RSI settings",
     "Switch moving-average rules",
+    "Edit nested moving-average windows",
     "Switch to SMA above",
     "Switch to MACD",
     "Switch to KD / stochastic",
@@ -46,7 +47,8 @@ DEFAULT_GUIDANCE_ACTIONS = [
 
 SUPPORTED_STRATEGY_TYPES_MESSAGE = (
     "Right now the builder supports RSI mean reversion, nested RSI threshold/lookback edits on an existing draft, "
-    "moving-average crossover edits, SMA-above trend-state rules, MACD, KD/stochastic, "
+    "moving-average crossover edits, nested moving-average window edits on an existing draft, "
+    "SMA-above trend-state rules, MACD, KD/stochastic, "
     "seasonality by calendar month, direct seasonality month edits on an existing draft, "
     "relative strength versus another ETF, nested relative strength edits on an existing draft, "
     "tradable symbol changes on an existing draft, explicit combined entry/exit rules using AND/OR, "
@@ -63,12 +65,13 @@ SUPPORTED_STRATEGY_TYPES_MESSAGE = (
 
 UNSUPPORTED_EDIT_SUGGESTED_ACTION = (
     "Try changing the tradable symbol, benchmark, stop loss, take profit, partial take profit, "
-    "allocation, max position, transaction cost, cooldown, RSI, nested RSI edits, moving averages, SMA above, "
-    "MACD, KD/stochastic, seasonality by month, editing seasonality months, relative strength, "
-    "nested relative strength edits, add/remove confirmation filters, combined AND/OR rules, "
-    "group operator or condition edits, removing group conditions, any/all within N bars, "
-    "NOT inner-rule edits, removing a NOT wrapper, window inner-rule edits, removing a window wrapper, "
-    "X then Y sequence rules, window/sequence bars and modes, sequence step edits, removing sequence steps, "
+    "allocation, max position, transaction cost, cooldown, RSI, nested RSI edits, moving averages, "
+    "nested moving-average window edits, SMA above, MACD, KD/stochastic, seasonality by month, "
+    "editing seasonality months, relative strength, nested relative strength edits, "
+    "add/remove confirmation filters, combined AND/OR rules, group operator or condition edits, "
+    "removing group conditions, any/all within N bars, NOT inner-rule edits, removing a NOT wrapper, "
+    "window inner-rule edits, removing a window wrapper, X then Y sequence rules, "
+    "window/sequence bars and modes, sequence step edits, removing sequence steps, "
     "position management, core allocation, capital, or dates."
 )
 
@@ -76,21 +79,22 @@ UNSUPPORTED_EDIT_MESSAGE = (
     "I understood this as a requested strategy edit, but that edit type is not supported yet. "
     "Right now I can help with tradable symbol changes, benchmark, stop loss, take profit, "
     "partial take profit, allocation, max position, transaction cost, cooldown, RSI thresholds, "
-    "nested RSI edits, moving-average rules, SMA above, MACD, KD/stochastic, seasonality by month, "
-    "editing seasonality months, relative strength, nested relative strength edits, "
-    "add/remove confirmation filters, combined AND/OR rules, group operator and condition edits, "
-    "removing group conditions, any/all within N bars, NOT inner-rule edits, removing a NOT wrapper, "
-    "window inner-rule edits, removing a window wrapper, X then Y sequence rules, "
-    "window/sequence bars and modes, sequence step edits, removing sequence steps, "
-    "position management, core allocation, capital, and dates."
+    "nested RSI edits, moving-average rules, nested moving-average window edits, SMA above, MACD, "
+    "KD/stochastic, seasonality by month, editing seasonality months, relative strength, "
+    "nested relative strength edits, add/remove confirmation filters, combined AND/OR rules, "
+    "group operator and condition edits, removing group conditions, any/all within N bars, "
+    "NOT inner-rule edits, removing a NOT wrapper, window inner-rule edits, removing a window wrapper, "
+    "X then Y sequence rules, window/sequence bars and modes, sequence step edits, "
+    "removing sequence steps, position management, core allocation, capital, and dates."
 )
 
 NO_CHANGE_MESSAGE = (
     "I reviewed your request, but it did not change the current draft. "
     "You can ask for a specific edit like changing the tradable symbol, benchmark, stop loss, "
     "take profit, partial take profit, allocation, max position, transaction cost, cooldown, "
-    "RSI thresholds, nested RSI edits, moving-average rules, switching to SMA above, switching to MACD, "
-    "switching to KD/stochastic, switching to seasonality by month, editing seasonality months, "
+    "RSI thresholds, nested RSI edits, moving-average rules, nested moving-average window edits, "
+    "switching to SMA above, switching to MACD, switching to KD/stochastic, "
+    "switching to seasonality by month, editing seasonality months, "
     "switching to relative strength, editing nested relative strength settings, "
     "adding or removing MACD/KD/relative strength confirmation filters, "
     "using combined AND/OR rules, changing or removing group operator/conditions, "
