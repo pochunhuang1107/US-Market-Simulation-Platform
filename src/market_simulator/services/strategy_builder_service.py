@@ -1848,6 +1848,49 @@ def _remove_confirmation_rule(
     return _remove_recursive(base_rule)
 
 
+def _try_add_confirmation_rule_recursively(
+    base_rule: dict,
+    *,
+    confirmation_rule: dict,
+    family: str,
+    side: str,
+) -> tuple[dict, bool]:
+    if _has_confirmation_rule(base_rule, family=family, side=side):
+        return base_rule, False
+
+    kind = base_rule.get("kind")
+
+    if kind == "group" and base_rule.get("operator") == "AND":
+        return _add_confirmation_rule(base_rule, confirmation_rule), True
+
+    if kind == "window":
+        nested_rule = base_rule.get("rule")
+        if isinstance(nested_rule, dict) and nested_rule.get("kind") != "not":
+            if nested_rule.get("kind") == "group" and nested_rule.get("operator") == "AND":
+                updated_nested_rule = _add_confirmation_rule(nested_rule, confirmation_rule)
+                updated_rule = dict(base_rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+
+            if nested_rule.get("kind") == "atomic":
+                updated_rule = dict(base_rule)
+                updated_rule["rule"] = _add_confirmation_rule(nested_rule, confirmation_rule)
+                return updated_rule, True
+
+            updated_nested_rule, changed = _try_add_confirmation_rule_recursively(
+                nested_rule,
+                confirmation_rule=confirmation_rule,
+                family=family,
+                side=side,
+            )
+            if changed:
+                updated_rule = dict(base_rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+
+    return base_rule, False
+
+
 def _extract_temporal_bars_edit(
     text: str,
     *,
@@ -5241,14 +5284,50 @@ def _generate_strategy_draft(
 
             if add_confirmation_intent and confirmation_rules is not None:
                 entry_confirmation_rule, exit_confirmation_rule, _ = confirmation_rules
-                default_config["entry_rule"] = _add_confirmation_rule(
+
+                if _has_confirmation_rule(
                     current_entry_rule,
-                    entry_confirmation_rule,
-                )
-                default_config["exit_rule"] = _add_confirmation_rule(
+                    family=confirmation_family,
+                    side="entry",
+                ):
+                    default_config["entry_rule"] = current_entry_rule
+                else:
+                    updated_entry_rule, changed = _try_add_confirmation_rule_recursively(
+                        current_entry_rule,
+                        confirmation_rule=entry_confirmation_rule,
+                        family=confirmation_family,
+                        side="entry",
+                    )
+                    default_config["entry_rule"] = (
+                        updated_entry_rule
+                        if changed
+                        else _add_confirmation_rule(
+                            current_entry_rule,
+                            entry_confirmation_rule,
+                        )
+                    )
+
+                if _has_confirmation_rule(
                     current_exit_rule,
-                    exit_confirmation_rule,
-                )
+                    family=confirmation_family,
+                    side="exit",
+                ):
+                    default_config["exit_rule"] = current_exit_rule
+                else:
+                    updated_exit_rule, changed = _try_add_confirmation_rule_recursively(
+                        current_exit_rule,
+                        confirmation_rule=exit_confirmation_rule,
+                        family=confirmation_family,
+                        side="exit",
+                    )
+                    default_config["exit_rule"] = (
+                        updated_exit_rule
+                        if changed
+                        else _add_confirmation_rule(
+                            current_exit_rule,
+                            exit_confirmation_rule,
+                        )
+                    )
 
             elif remove_confirmation_intent and confirmation_family is not None:
                 if _has_confirmation_rule(
