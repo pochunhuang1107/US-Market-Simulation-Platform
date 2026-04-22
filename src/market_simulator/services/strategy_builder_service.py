@@ -701,6 +701,12 @@ def _extract_rsi_rule(
 
 def _extract_rsi_entry_threshold_edit(text: str) -> float | None:
     patterns = [
+        r"change\s+rsi\s+entry\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"set\s+rsi\s+entry\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"rsi\s+entry\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"change\s+entry\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"set\s+entry\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"entry\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"change\s+rsi\s+entry\s+to\s+(\d+(?:\.\d+)?)",
         r"set\s+rsi\s+entry\s+to\s+(\d+(?:\.\d+)?)",
         r"rsi\s+entry\s+to\s+(\d+(?:\.\d+)?)",
@@ -715,6 +721,12 @@ def _extract_rsi_entry_threshold_edit(text: str) -> float | None:
 
 def _extract_rsi_exit_threshold_edit(text: str) -> float | None:
     patterns = [
+        r"change\s+rsi\s+exit\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"set\s+rsi\s+exit\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"rsi\s+exit\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"change\s+exit\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"set\s+exit\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"exit\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"change\s+rsi\s+exit\s+to\s+(\d+(?:\.\d+)?)",
         r"set\s+rsi\s+exit\s+to\s+(\d+(?:\.\d+)?)",
         r"rsi\s+exit\s+to\s+(\d+(?:\.\d+)?)",
@@ -725,6 +737,128 @@ def _extract_rsi_exit_threshold_edit(text: str) -> float | None:
         if match:
             return float(match.group(1))
     return None
+
+
+def _extract_rsi_entry_lookback_edit(text: str) -> int | None:
+    patterns = [
+        r"change\s+rsi\s+entry\s+lookback\s+to\s+(\d+)",
+        r"set\s+rsi\s+entry\s+lookback\s+to\s+(\d+)",
+        r"rsi\s+entry\s+lookback\s+to\s+(\d+)",
+        r"change\s+entry\s+rsi\s+lookback\s+to\s+(\d+)",
+        r"set\s+entry\s+rsi\s+lookback\s+to\s+(\d+)",
+        r"entry\s+rsi\s+lookback\s+to\s+(\d+)",
+    ]
+    return _extract_int(text, patterns)
+
+
+def _extract_rsi_exit_lookback_edit(text: str) -> int | None:
+    patterns = [
+        r"change\s+rsi\s+exit\s+lookback\s+to\s+(\d+)",
+        r"set\s+rsi\s+exit\s+lookback\s+to\s+(\d+)",
+        r"rsi\s+exit\s+lookback\s+to\s+(\d+)",
+        r"change\s+exit\s+rsi\s+lookback\s+to\s+(\d+)",
+        r"set\s+exit\s+rsi\s+lookback\s+to\s+(\d+)",
+        r"exit\s+rsi\s+lookback\s+to\s+(\d+)",
+    ]
+    return _extract_int(text, patterns)
+
+
+def _has_rsi_rule(rule: Any, *, rule_type: str) -> bool:
+    if not isinstance(rule, dict):
+        return False
+
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        return rule.get("type") == rule_type
+
+    if kind == "not":
+        return _has_rsi_rule(rule.get("rule"), rule_type=rule_type)
+
+    if kind == "group":
+        return any(_has_rsi_rule(child_rule, rule_type=rule_type) for child_rule in rule.get("rules", []))
+
+    if kind == "window":
+        return _has_rsi_rule(rule.get("rule"), rule_type=rule_type)
+
+    if kind == "sequence":
+        return any(_has_rsi_rule(step, rule_type=rule_type) for step in rule.get("steps", []))
+
+    return False
+
+
+def _update_rsi_rules(
+    rule: Any,
+    *,
+    rule_type: str,
+    threshold_edit: float | None,
+    lookback_edit: int | None,
+) -> Any:
+    if not isinstance(rule, dict):
+        return rule
+
+    kind = rule.get("kind")
+    updated_rule = dict(rule)
+
+    if kind == "atomic":
+        if updated_rule.get("type") == rule_type:
+            if threshold_edit is not None:
+                updated_rule["threshold"] = threshold_edit
+            if lookback_edit is not None:
+                updated_rule["lookback"] = lookback_edit
+        return updated_rule
+
+    if kind == "not":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _update_rsi_rules(
+                nested_rule,
+                rule_type=rule_type,
+                threshold_edit=threshold_edit,
+                lookback_edit=lookback_edit,
+            )
+        return updated_rule
+
+    if kind == "group":
+        updated_rule["rules"] = [
+            _update_rsi_rules(
+                child_rule,
+                rule_type=rule_type,
+                threshold_edit=threshold_edit,
+                lookback_edit=lookback_edit,
+            )
+            if isinstance(child_rule, dict)
+            else child_rule
+            for child_rule in updated_rule.get("rules", [])
+        ]
+        return updated_rule
+
+    if kind == "window":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _update_rsi_rules(
+                nested_rule,
+                rule_type=rule_type,
+                threshold_edit=threshold_edit,
+                lookback_edit=lookback_edit,
+            )
+        return updated_rule
+
+    if kind == "sequence":
+        updated_rule["steps"] = [
+            _update_rsi_rules(
+                step,
+                rule_type=rule_type,
+                threshold_edit=threshold_edit,
+                lookback_edit=lookback_edit,
+            )
+            if isinstance(step, dict)
+            else step
+            for step in updated_rule.get("steps", [])
+        ]
+        return updated_rule
+
+    return updated_rule
 
 
 def _extract_sma_crossover_pair(text: str) -> tuple[int, int] | None:
@@ -2914,6 +3048,17 @@ def _generate_strategy_draft(
     rsi_sell = _extract_rsi_rule(prompt, direction="above")
     rsi_entry_threshold_edit = _extract_rsi_entry_threshold_edit(prompt)
     rsi_exit_threshold_edit = _extract_rsi_exit_threshold_edit(prompt)
+    rsi_entry_lookback_edit = _extract_rsi_entry_lookback_edit(prompt)
+    rsi_exit_lookback_edit = _extract_rsi_exit_lookback_edit(prompt)
+    has_partial_rsi_edit = any(
+        value is not None
+        for value in (
+            rsi_entry_threshold_edit,
+            rsi_exit_threshold_edit,
+            rsi_entry_lookback_edit,
+            rsi_exit_lookback_edit,
+        )
+    )
     sma_pair = _extract_sma_crossover_pair(prompt)
     sma_above_pair = _extract_sma_above_pair(prompt)
 
@@ -3520,6 +3665,35 @@ def _generate_strategy_draft(
         existing_entry_rule = dict(default_config.get("entry_rule", {}))
         existing_exit_rule = dict(default_config.get("exit_rule", {}))
 
+        applied_entry_rsi_edit = False
+        applied_exit_rsi_edit = False
+
+        if (
+            rsi_entry_threshold_edit is not None or rsi_entry_lookback_edit is not None
+        ) and _has_rsi_rule(existing_entry_rule, rule_type="rsi_below"):
+            updated_entry_rule = _update_rsi_rules(
+                existing_entry_rule,
+                rule_type="rsi_below",
+                threshold_edit=rsi_entry_threshold_edit,
+                lookback_edit=rsi_entry_lookback_edit,
+            )
+            default_config["entry_rule"] = updated_entry_rule
+            existing_entry_rule = updated_entry_rule
+            applied_entry_rsi_edit = True
+
+        if (
+            rsi_exit_threshold_edit is not None or rsi_exit_lookback_edit is not None
+        ) and _has_rsi_rule(existing_exit_rule, rule_type="rsi_above"):
+            updated_exit_rule = _update_rsi_rules(
+                existing_exit_rule,
+                rule_type="rsi_above",
+                threshold_edit=rsi_exit_threshold_edit,
+                lookback_edit=rsi_exit_lookback_edit,
+            )
+            default_config["exit_rule"] = updated_exit_rule
+            existing_exit_rule = updated_exit_rule
+            applied_exit_rsi_edit = True
+
         if (
             has_current_config
             and month_values is not None
@@ -3819,9 +3993,12 @@ def _generate_strategy_draft(
                     existing_exit_rule["slow_window"] = exit_slow_window_edit
                 default_config["exit_rule"] = existing_exit_rule
 
-        if rsi_entry_threshold_edit is not None:
+        if (rsi_entry_threshold_edit is not None or rsi_entry_lookback_edit is not None) and not applied_entry_rsi_edit:
             if existing_entry_rule.get("type") == "rsi_below":
-                existing_entry_rule["threshold"] = rsi_entry_threshold_edit
+                if rsi_entry_threshold_edit is not None:
+                    existing_entry_rule["threshold"] = rsi_entry_threshold_edit
+                if rsi_entry_lookback_edit is not None:
+                    existing_entry_rule["lookback"] = rsi_entry_lookback_edit
                 existing_entry_rule.setdefault("lookback", 14)
                 existing_entry_rule.setdefault("kind", "atomic")
                 default_config["entry_rule"] = existing_entry_rule
@@ -3830,8 +4007,8 @@ def _generate_strategy_draft(
                     "kind": "atomic",
                     "type": "rsi_below",
                     "symbol": default_config.get("tradable_symbol", tradable_symbol),
-                    "lookback": 14,
-                    "threshold": rsi_entry_threshold_edit,
+                    "lookback": rsi_entry_lookback_edit if rsi_entry_lookback_edit is not None else 14,
+                    "threshold": rsi_entry_threshold_edit if rsi_entry_threshold_edit is not None else 30,
                 }
 
         elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_seasonality_month_edit and not has_nested_composite_removal_intent and (
@@ -3851,9 +4028,12 @@ def _generate_strategy_draft(
         ):
             default_config["entry_rule"] = entry_rule
 
-        if rsi_exit_threshold_edit is not None:
+        if (rsi_exit_threshold_edit is not None or rsi_exit_lookback_edit is not None) and not applied_exit_rsi_edit:
             if existing_exit_rule.get("type") == "rsi_above":
-                existing_exit_rule["threshold"] = rsi_exit_threshold_edit
+                if rsi_exit_threshold_edit is not None:
+                    existing_exit_rule["threshold"] = rsi_exit_threshold_edit
+                if rsi_exit_lookback_edit is not None:
+                    existing_exit_rule["lookback"] = rsi_exit_lookback_edit
                 existing_exit_rule.setdefault("lookback", 14)
                 existing_exit_rule.setdefault("kind", "atomic")
                 default_config["exit_rule"] = existing_exit_rule
@@ -3862,8 +4042,8 @@ def _generate_strategy_draft(
                     "kind": "atomic",
                     "type": "rsi_above",
                     "symbol": default_config.get("tradable_symbol", tradable_symbol),
-                    "lookback": 14,
-                    "threshold": rsi_exit_threshold_edit,
+                    "lookback": rsi_exit_lookback_edit if rsi_exit_lookback_edit is not None else 14,
+                    "threshold": rsi_exit_threshold_edit if rsi_exit_threshold_edit is not None else 70,
                 }
 
         elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_seasonality_month_edit and not has_nested_composite_removal_intent and (

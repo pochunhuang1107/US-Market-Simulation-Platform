@@ -3847,6 +3847,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert body["answer_data"]["answer_type"] == "SUPPORTED_STRATEGY_TYPES"
     assert "MACD" in body["message"]
     assert "SMA-above" in body["message"]
+    assert "nested RSI threshold/lookback edits" in body["message"]
     assert "KD" in body["message"]
     assert "seasonality" in body["message"]
     assert "seasonality month edits" in body["message"]
@@ -3997,6 +3998,8 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Change tradable symbol" in body["guidance_data"]["suggested_actions"]
     assert "Adjust max position" in body["guidance_data"]["suggested_actions"]
     assert "Change transaction cost" in body["guidance_data"]["suggested_actions"]
+    assert "Adjust RSI thresholds" in body["guidance_data"]["suggested_actions"]
+    assert "Edit nested RSI settings" in body["guidance_data"]["suggested_actions"]
     assert "Switch to MACD" in body["guidance_data"]["suggested_actions"]
     assert "Switch to KD / stochastic" in body["guidance_data"]["suggested_actions"]
     assert "Switch to seasonality by month" in body["guidance_data"]["suggested_actions"]
@@ -4556,3 +4559,143 @@ def test_generate_strategy_builder_draft_removes_month_from_seasonality_rule(cli
     assert body["response_type"] == "UPDATE_DRAFT"
     assert config["entry_rule"]["month_values"] == [1, 3]
     assert config["exit_rule"]["rule"]["month_values"] == [1, 3]
+
+
+def test_generate_strategy_builder_draft_updates_nested_entry_rsi_settings(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change entry rsi threshold to 25 and change entry rsi lookback to 10",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-nested-entry-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "rsi_below",
+                                "symbol": "QQQ",
+                                "lookback": 14,
+                                "threshold": 30,
+                            },
+                            {
+                                "kind": "atomic",
+                                "type": "macd_bullish_cross",
+                                "symbol": "QQQ",
+                            },
+                        ],
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    nested_rsi = config["entry_rule"]["rules"][0]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert nested_rsi["type"] == "rsi_below"
+    assert nested_rsi["threshold"] == 25
+    assert nested_rsi["lookback"] == 10
+    assert config["entry_rule"]["rules"][1]["type"] == "macd_bullish_cross"
+
+
+def test_generate_strategy_builder_draft_updates_nested_exit_rsi_settings(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change exit rsi threshold to 65 and change exit rsi lookback to 21",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-nested-exit-rsi-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "window",
+                        "window_bars": 3,
+                        "mode": "ANY",
+                        "rule": {
+                            "kind": "not",
+                            "rule": {
+                                "kind": "atomic",
+                                "type": "rsi_above",
+                                "symbol": "QQQ",
+                                "lookback": 14,
+                                "threshold": 70,
+                            },
+                        },
+                    },
+                    "risk": {
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    nested_rsi = config["exit_rule"]["rule"]["rule"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert nested_rsi["type"] == "rsi_above"
+    assert nested_rsi["threshold"] == 65
+    assert nested_rsi["lookback"] == 21
