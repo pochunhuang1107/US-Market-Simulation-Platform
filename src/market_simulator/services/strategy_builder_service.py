@@ -3971,7 +3971,7 @@ def _generate_strategy_draft(
                 default_config["exit_rule"] = existing_exit_rule
 
             if entry_sequence_first_step_edit is not None and _is_sequence_rule(existing_entry_rule):
-                updated_step, step_assumptions = _build_atomic_rule_from_clause(
+                updated_step, step_assumptions = _build_rule_from_clause(
                     entry_sequence_first_step_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
@@ -3985,7 +3985,7 @@ def _generate_strategy_draft(
                     assumptions.extend(step_assumptions)
 
             if entry_sequence_second_step_edit is not None and _is_sequence_rule(existing_entry_rule):
-                updated_step, step_assumptions = _build_atomic_rule_from_clause(
+                updated_step, step_assumptions = _build_rule_from_clause(
                     entry_sequence_second_step_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
@@ -3999,7 +3999,7 @@ def _generate_strategy_draft(
                     assumptions.extend(step_assumptions)
 
             if exit_sequence_first_step_edit is not None and _is_sequence_rule(existing_exit_rule):
-                updated_step, step_assumptions = _build_atomic_rule_from_clause(
+                updated_step, step_assumptions = _build_rule_from_clause(
                     exit_sequence_first_step_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
@@ -4013,7 +4013,7 @@ def _generate_strategy_draft(
                     assumptions.extend(step_assumptions)
 
             if exit_sequence_second_step_edit is not None and _is_sequence_rule(existing_exit_rule):
-                updated_step, step_assumptions = _build_atomic_rule_from_clause(
+                updated_step, step_assumptions = _build_rule_from_clause(
                     exit_sequence_second_step_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
@@ -4039,7 +4039,7 @@ def _generate_strategy_draft(
                 default_config["exit_rule"] = existing_exit_rule
 
             if entry_group_first_condition_edit is not None and _is_group_rule(existing_entry_rule):
-                updated_rule, rule_assumptions = _build_atomic_rule_from_clause(
+                updated_rule, rule_assumptions = _build_rule_from_clause(
                     entry_group_first_condition_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
@@ -4053,7 +4053,7 @@ def _generate_strategy_draft(
                     assumptions.extend(rule_assumptions)
 
             if entry_group_second_condition_edit is not None and _is_group_rule(existing_entry_rule):
-                updated_rule, rule_assumptions = _build_atomic_rule_from_clause(
+                updated_rule, rule_assumptions = _build_rule_from_clause(
                     entry_group_second_condition_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
@@ -4067,7 +4067,7 @@ def _generate_strategy_draft(
                     assumptions.extend(rule_assumptions)
 
             if exit_group_first_condition_edit is not None and _is_group_rule(existing_exit_rule):
-                updated_rule, rule_assumptions = _build_atomic_rule_from_clause(
+                updated_rule, rule_assumptions = _build_rule_from_clause(
                     exit_group_first_condition_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
@@ -4081,7 +4081,7 @@ def _generate_strategy_draft(
                     assumptions.extend(rule_assumptions)
 
             if exit_group_second_condition_edit is not None and _is_group_rule(existing_exit_rule):
-                updated_rule, rule_assumptions = _build_atomic_rule_from_clause(
+                updated_rule, rule_assumptions = _build_rule_from_clause(
                     exit_group_second_condition_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
