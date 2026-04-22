@@ -1737,36 +1737,115 @@ def _matches_confirmation_rule(
     return False
 
 
+def _has_confirmation_rule(
+    rule: dict,
+    *,
+    family: str,
+    side: str,
+) -> bool:
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        return _matches_confirmation_rule(rule, family=family, side=side)
+
+    if kind == "group":
+        return any(
+            _has_confirmation_rule(child_rule, family=family, side=side)
+            for child_rule in rule.get("rules", [])
+            if isinstance(child_rule, dict)
+        )
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        return isinstance(nested_rule, dict) and _has_confirmation_rule(
+            nested_rule,
+            family=family,
+            side=side,
+        )
+
+    if kind == "window":
+        nested_rule = rule.get("rule")
+        return isinstance(nested_rule, dict) and _has_confirmation_rule(
+            nested_rule,
+            family=family,
+            side=side,
+        )
+
+    if kind == "sequence":
+        return any(
+            _has_confirmation_rule(step, family=family, side=side)
+            for step in rule.get("steps", [])
+            if isinstance(step, dict)
+        )
+
+    return False
+
+
 def _remove_confirmation_rule(
     base_rule: dict,
     *,
     family: str,
     side: str,
 ) -> dict:
-    if base_rule.get("kind") != "group" or base_rule.get("operator") != "AND":
-        return base_rule
+    def _remove_recursive(rule: dict) -> dict:
+        kind = rule.get("kind")
 
-    rules = list(base_rule.get("rules", []))
-    filtered_rules = [
-        rule
-        for rule in rules
-        if not _matches_confirmation_rule(rule, family=family, side=side)
-    ]
+        if kind == "group":
+            original_rules = list(rule.get("rules", []))
+            updated_children: list[dict] = []
 
-    if len(filtered_rules) == len(rules):
-        return base_rule
+            for child_rule in original_rules:
+                if _matches_confirmation_rule(child_rule, family=family, side=side):
+                    continue
+                if isinstance(child_rule, dict):
+                    updated_children.append(_remove_recursive(child_rule))
+                else:
+                    updated_children.append(child_rule)
 
-    if len(filtered_rules) == 1:
-        return filtered_rules[0]
+            if len(updated_children) == len(original_rules):
+                return rule
 
-    if not filtered_rules:
-        return base_rule
+            if not updated_children:
+                return rule
 
-    return {
-        "kind": "group",
-        "operator": "AND",
-        "rules": filtered_rules,
-    }
+            if len(updated_children) == 1:
+                return updated_children[0]
+
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule
+
+        if kind == "not":
+            nested_rule = rule.get("rule")
+            if isinstance(nested_rule, dict):
+                updated_rule = dict(rule)
+                updated_rule["rule"] = _remove_recursive(nested_rule)
+                return updated_rule
+            return rule
+
+        if kind == "window":
+            nested_rule = rule.get("rule")
+            if isinstance(nested_rule, dict):
+                updated_rule = dict(rule)
+                updated_rule["rule"] = _remove_recursive(nested_rule)
+                return updated_rule
+            return rule
+
+        if kind == "sequence":
+            original_steps = list(rule.get("steps", []))
+            updated_steps = [
+                _remove_recursive(step) if isinstance(step, dict) else step
+                for step in original_steps
+            ]
+            if updated_steps == original_steps:
+                return rule
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule
+
+        return rule
+
+    return _remove_recursive(base_rule)
 
 
 def _extract_temporal_bars_edit(
@@ -4202,16 +4281,27 @@ def _generate_strategy_draft(
                 )
 
             elif remove_confirmation_intent and confirmation_family is not None:
-                default_config["entry_rule"] = _remove_confirmation_rule(
+                if _has_confirmation_rule(
                     current_entry_rule,
                     family=confirmation_family,
                     side="entry",
-                )
-                default_config["exit_rule"] = _remove_confirmation_rule(
+                ):
+                    default_config["entry_rule"] = _remove_confirmation_rule(
+                        current_entry_rule,
+                        family=confirmation_family,
+                        side="entry",
+                    )
+
+                if _has_confirmation_rule(
                     current_exit_rule,
                     family=confirmation_family,
                     side="exit",
-                )
+                ):
+                    default_config["exit_rule"] = _remove_confirmation_rule(
+                        current_exit_rule,
+                        family=confirmation_family,
+                        side="exit",
+                    )
 
         if has_nested_composite_removal_intent:
             if remove_entry_group_first_condition:

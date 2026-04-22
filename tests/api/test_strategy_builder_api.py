@@ -4841,3 +4841,151 @@ def test_generate_strategy_builder_draft_updates_nested_exit_moving_average_wind
     assert nested_sma["type"] == "sma_above"
     assert nested_sma["fast_window"] == 15
     assert nested_sma["slow_window"] == 60
+
+
+def test_generate_strategy_builder_draft_removes_nested_macd_confirmation_from_entry_rule(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove MACD confirmation",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-window-macd-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "window",
+                        "window_bars": 3,
+                        "mode": "ANY",
+                        "rule": {
+                            "kind": "group",
+                            "operator": "AND",
+                            "rules": [
+                                {
+                                    "kind": "atomic",
+                                    "type": "rsi_below",
+                                    "symbol": "QQQ",
+                                    "lookback": 14,
+                                    "threshold": 30,
+                                },
+                                {
+                                    "kind": "atomic",
+                                    "type": "macd_bullish_cross",
+                                    "symbol": "QQQ",
+                                },
+                            ],
+                        },
+                    },
+                    "exit_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 70,
+                    },
+                    "risk": {
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "window"
+    assert config["entry_rule"]["rule"]["kind"] == "atomic"
+    assert config["entry_rule"]["rule"]["type"] == "rsi_below"
+
+
+def test_generate_strategy_builder_draft_removes_nested_macd_confirmation_from_exit_rule(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove MACD confirmation",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-window-macd-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "window",
+                        "window_bars": 3,
+                        "mode": "ANY",
+                        "rule": {
+                            "kind": "group",
+                            "operator": "AND",
+                            "rules": [
+                                {
+                                    "kind": "atomic",
+                                    "type": "rsi_above",
+                                    "symbol": "QQQ",
+                                    "lookback": 14,
+                                    "threshold": 70,
+                                },
+                                {
+                                    "kind": "atomic",
+                                    "type": "macd_bearish_cross",
+                                    "symbol": "QQQ",
+                                },
+                            ],
+                        },
+                    },
+                    "risk": {
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["exit_rule"]["kind"] == "window"
+    assert config["exit_rule"]["rule"]["kind"] == "atomic"
+    assert config["exit_rule"]["rule"]["type"] == "rsi_above"
