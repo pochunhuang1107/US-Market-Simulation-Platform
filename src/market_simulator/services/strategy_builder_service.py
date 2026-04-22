@@ -840,6 +840,136 @@ def _extract_month_values(text: str) -> list[int] | None:
     return sorted(found)
 
 
+def _extract_seasonality_month_edit_action(text: str) -> str | None:
+    if re.search(
+        r"\b(add|include)\b.*\b(seasonality|months?|month values)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "add"
+
+    if re.search(
+        r"\b(remove|delete|drop)\b.*\b(seasonality|months?|month values)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "remove"
+
+    if re.search(
+        r"\b(change|set|update)\b.*\b(seasonality|months?|month values)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "set"
+
+    return None
+
+
+def _has_month_in_rule(rule: Any) -> bool:
+    if not isinstance(rule, dict):
+        return False
+
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        return rule.get("type") == "month_in"
+
+    if kind == "not":
+        return _has_month_in_rule(rule.get("rule"))
+
+    if kind == "group":
+        return any(_has_month_in_rule(child_rule) for child_rule in rule.get("rules", []))
+
+    if kind == "window":
+        return _has_month_in_rule(rule.get("rule"))
+
+    if kind == "sequence":
+        return any(_has_month_in_rule(step) for step in rule.get("steps", []))
+
+    return False
+
+
+def _update_month_in_rules(
+    rule: Any,
+    *,
+    action: str,
+    month_values: list[int],
+) -> Any:
+    if not isinstance(rule, dict):
+        return rule
+
+    kind = rule.get("kind")
+    updated_rule = dict(rule)
+
+    if kind == "atomic":
+        if updated_rule.get("type") == "month_in":
+            existing = list(updated_rule.get("month_values", []) or [])
+
+            if action == "set":
+                new_month_values = sorted(dict.fromkeys(month_values))
+            elif action == "add":
+                new_month_values = sorted(dict.fromkeys([*existing, *month_values]))
+            elif action == "remove":
+                new_month_values = [month for month in existing if month not in set(month_values)]
+            else:
+                new_month_values = existing
+
+            if not new_month_values:
+                raise ValueError("Seasonality rules must keep at least one month.")
+
+            updated_rule["month_values"] = new_month_values
+
+        return updated_rule
+
+    if kind == "not":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _update_month_in_rules(
+                nested_rule,
+                action=action,
+                month_values=month_values,
+            )
+        return updated_rule
+
+    if kind == "group":
+        updated_rule["rules"] = [
+            _update_month_in_rules(
+                child_rule,
+                action=action,
+                month_values=month_values,
+            )
+            if isinstance(child_rule, dict)
+            else child_rule
+            for child_rule in updated_rule.get("rules", [])
+        ]
+        return updated_rule
+
+    if kind == "window":
+        nested_rule = updated_rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_rule["rule"] = _update_month_in_rules(
+                nested_rule,
+                action=action,
+                month_values=month_values,
+            )
+        return updated_rule
+
+    if kind == "sequence":
+        updated_rule["steps"] = [
+            _update_month_in_rules(
+                step,
+                action=action,
+                month_values=month_values,
+            )
+            if isinstance(step, dict)
+            else step
+            for step in updated_rule.get("steps", [])
+        ]
+        return updated_rule
+
+    return updated_rule
+
+
 def _extract_relative_strength_rules(
     text: str,
     *,
@@ -2907,6 +3037,9 @@ def _generate_strategy_draft(
 
     month_values = _extract_month_values(prompt)
 
+    seasonality_month_edit_action = _extract_seasonality_month_edit_action(prompt)
+    has_seasonality_month_edit = False
+
     relative_strength_reference_symbol_edit = _extract_relative_strength_reference_symbol_edit(prompt)
     relative_strength_lookback_edit = _extract_relative_strength_lookback_edit(prompt)
     relative_strength_threshold_edit = _extract_relative_strength_threshold_edit(prompt)
@@ -3387,6 +3520,35 @@ def _generate_strategy_draft(
         existing_entry_rule = dict(default_config.get("entry_rule", {}))
         existing_exit_rule = dict(default_config.get("exit_rule", {}))
 
+        if (
+            has_current_config
+            and month_values is not None
+            and seasonality_month_edit_action is not None
+            and (_has_month_in_rule(existing_entry_rule) or _has_month_in_rule(existing_exit_rule))
+        ):
+            has_seasonality_month_edit = True
+
+            updated_entry_rule = _update_month_in_rules(
+                existing_entry_rule,
+                action=seasonality_month_edit_action,
+                month_values=month_values,
+            )
+            updated_exit_rule = _update_month_in_rules(
+                existing_exit_rule,
+                action=seasonality_month_edit_action,
+                month_values=month_values,
+            )
+
+            default_config["entry_rule"] = updated_entry_rule
+            default_config["exit_rule"] = updated_exit_rule
+
+            existing_entry_rule = updated_entry_rule
+            existing_exit_rule = updated_exit_rule
+
+            assumptions.append(
+                f"Applied seasonality month edit using action '{seasonality_month_edit_action}'."
+            )
+
         if has_partial_relative_strength_edit:
             if _has_relative_strength_rule(existing_entry_rule) or _has_relative_strength_rule(existing_exit_rule):
                 updated_entry_rule = _update_relative_strength_rules(
@@ -3672,7 +3834,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_entry_threshold_edit,
                 }
 
-        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_nested_composite_removal_intent and (
+        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_seasonality_month_edit and not has_nested_composite_removal_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -3704,7 +3866,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_exit_threshold_edit,
                 }
 
-        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_nested_composite_removal_intent and (
+        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_seasonality_month_edit and not has_nested_composite_removal_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
