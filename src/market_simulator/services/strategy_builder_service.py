@@ -333,6 +333,8 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\b(entry|exit)\s+window\s+inner\s+rule\b",
         r"\b(remove|delete)\s+(first|second)\s+condition\s+of\s+(entry|exit)\s+group\b",
         r"\b(remove|delete)\s+(entry|exit)\s+window\s+wrapper\b",
+        r"\b(entry|exit)\s+not\s+inner\s+rule\b",
+        r"\b(remove|delete)\s+(entry|exit)\s+not\s+wrapper\b",
         r"\b(remove|delete)\s+(first|second)\s+step\s+of\s+(entry|exit)\s+sequence\b",
         r"\bpartial\s+take\s+profit\b",
         r"\bscale\s+in\b",
@@ -1636,6 +1638,50 @@ def _remove_group_condition(
 
 def _remove_window_wrapper(rule: dict) -> dict:
     if rule.get("kind") != "window":
+        return rule
+    inner_rule = rule.get("rule")
+    if isinstance(inner_rule, dict) and inner_rule:
+        return inner_rule
+    return rule
+
+
+def _is_not_rule(rule: dict) -> bool:
+    return rule.get("kind") == "not"
+
+
+def _extract_not_inner_rule_edit(
+    text: str,
+    *,
+    side: str,
+) -> str | None:
+    patterns = [
+        rf"change\s+{side}\s+not\s+inner\s+rule\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+        rf"set\s+{side}\s+not\s+inner\s+rule\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+        rf"{side}\s+not\s+inner\s+rule\s+to\s+(.+?)(?:\s+and\s+change\b|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip(" ,.")
+    return None
+
+
+def _has_remove_not_wrapper_intent(
+    text: str,
+    *,
+    side: str,
+) -> bool:
+    return bool(
+        re.search(
+            rf"(?:remove|delete)\s+{side}\s+not\s+wrapper",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _remove_not_wrapper(rule: dict) -> dict:
+    if rule.get("kind") != "not":
         return rule
     inner_rule = rule.get("rule")
     if isinstance(inner_rule, dict) and inner_rule:
@@ -2977,6 +3023,21 @@ def _generate_strategy_draft(
         prompt,
         side="exit",
     )
+    entry_not_inner_rule_edit = _extract_not_inner_rule_edit(
+        prompt,
+        side="entry",
+    )
+    exit_not_inner_rule_edit = _extract_not_inner_rule_edit(
+        prompt,
+        side="exit",
+    )
+    has_not_rule_edit_intent = any(
+        value is not None
+        for value in (
+            entry_not_inner_rule_edit,
+            exit_not_inner_rule_edit,
+        )
+    )
 
     has_nested_composite_edit_intent = _has_nested_composite_edit(
         entry_group_operator_edit=entry_group_operator_edit,
@@ -3017,7 +3078,14 @@ def _generate_strategy_draft(
         prompt,
         side="exit",
     )
-
+    remove_entry_not_wrapper = _has_remove_not_wrapper_intent(
+        prompt,
+        side="entry",
+    )
+    remove_exit_not_wrapper = _has_remove_not_wrapper_intent(
+        prompt,
+        side="exit",
+    )
     remove_entry_sequence_first_step = _has_remove_sequence_step_intent(
         prompt,
         side="entry",
@@ -3045,6 +3113,8 @@ def _generate_strategy_draft(
             remove_entry_group_second_condition,
             remove_exit_group_first_condition,
             remove_exit_group_second_condition,
+            remove_entry_not_wrapper,
+            remove_exit_not_wrapper,
             remove_entry_window_wrapper,
             remove_exit_window_wrapper,
             remove_entry_sequence_first_step,
@@ -3514,6 +3584,34 @@ def _generate_strategy_draft(
                     default_config["exit_rule"] = existing_exit_rule
                     assumptions.extend(rule_assumptions)
 
+        if has_not_rule_edit_intent:
+            current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
+            current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
+
+            if entry_not_inner_rule_edit is not None and _is_not_rule(existing_entry_rule):
+                updated_rule, rule_assumptions = _build_rule_from_clause(
+                    entry_not_inner_rule_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="entry",
+                )
+                if updated_rule is not None:
+                    existing_entry_rule["rule"] = updated_rule
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(rule_assumptions)
+
+            if exit_not_inner_rule_edit is not None and _is_not_rule(existing_exit_rule):
+                updated_rule, rule_assumptions = _build_rule_from_clause(
+                    exit_not_inner_rule_edit,
+                    tradable_symbol=current_tradable_symbol,
+                    fallback_reference_symbol=current_benchmark_symbol,
+                    side="exit",
+                )
+                if updated_rule is not None:
+                    existing_exit_rule["rule"] = updated_rule
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(rule_assumptions)
+
         risk = dict(default_config.get("risk", {}))
         risk.setdefault("cooldown_bars", 0)
         default_config["risk"] = risk
@@ -3574,7 +3672,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_entry_threshold_edit,
                 }
 
-        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_nested_composite_removal_intent and (
+        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_nested_composite_removal_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -3606,7 +3704,7 @@ def _generate_strategy_draft(
                     "threshold": rsi_exit_threshold_edit,
                 }
 
-        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_nested_composite_removal_intent and (
+        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_nested_composite_removal_intent and (
             "rsi" in prompt_lower
             or "mean reversion" in prompt_lower
             or "moving average" in prompt_lower
@@ -3668,6 +3766,16 @@ def _generate_strategy_draft(
 
             if remove_exit_group_second_condition:
                 updated_exit_rule = _remove_group_condition(existing_exit_rule, index=1)
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+            if remove_entry_not_wrapper:
+                updated_entry_rule = _remove_not_wrapper(existing_entry_rule)
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+            if remove_exit_not_wrapper:
+                updated_exit_rule = _remove_not_wrapper(existing_exit_rule)
                 default_config["exit_rule"] = updated_exit_rule
                 existing_exit_rule = updated_exit_rule
 

@@ -1799,6 +1799,132 @@ def test_generate_strategy_builder_draft_updates_entry_window_inner_rule(client)
     assert "Updated entry window inner rule" in " ".join(body["changes"])
 
 
+def test_generate_strategy_builder_draft_updates_exit_not_inner_rule(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "change exit not inner rule to RSI above 65",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-not-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "not",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "sma_above",
+                            "symbol": "QQQ",
+                            "fast_window": 20,
+                            "slow_window": 50,
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["exit_rule"]["kind"] == "not"
+    assert config["exit_rule"]["rule"]["kind"] == "atomic"
+    assert config["exit_rule"]["rule"]["type"] == "rsi_above"
+    assert config["exit_rule"]["rule"]["threshold"] == 65
+    assert any("Updated exit rule" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_draft_removes_exit_not_wrapper(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove exit not wrapper",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": {
+                    "schema_version": "2.0",
+                    "name": "qqq-not-test",
+                    "tradable_symbol": "QQQ",
+                    "benchmark_symbol": "SPY",
+                    "reference_symbols": [],
+                    "start_date": "2019-01-02",
+                    "end_date": "2024-12-31",
+                    "initial_capital": 100000,
+                    "transaction_cost_bps": 5,
+                    "allocation": {
+                        "entry_mode": "percent_of_equity",
+                        "entry_value": 1.0,
+                        "max_position_pct": 1.0,
+                    },
+                    "entry_rule": {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "lookback": 14,
+                        "threshold": 30,
+                    },
+                    "exit_rule": {
+                        "kind": "not",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "sma_above",
+                            "symbol": "QQQ",
+                            "fast_window": 20,
+                            "slow_window": 50,
+                        },
+                    },
+                    "risk": {
+                        "stop_loss_pct": 0.08,
+                        "cooldown_bars": 0,
+                    },
+                    "core_overlay": {
+                        "enabled": False,
+                        "core_allocation_pct": 0.0,
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["exit_rule"]["kind"] == "atomic"
+    assert config["exit_rule"]["type"] == "sma_above"
+    assert config["exit_rule"]["fast_window"] == 20
+    assert config["exit_rule"]["slow_window"] == 50
+    assert any("Updated exit rule" in change for change in body["changes"])
+
+
 def test_generate_strategy_builder_draft_removes_entry_window_wrapper(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -3730,6 +3856,8 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "max position percentage" in body["message"]
     assert "AND/OR" in body["message"]
     assert "within N bars" in body["message"]
+    assert "NOT inner rules" in body["message"]
+    assert "NOT wrappers" in body["message"]
     assert "then Y within N bars" in body["message"]
     assert "confirmation filters" in body["message"]
     assert "window bars/modes and sequence bars/steps" in body["message"]
@@ -3886,6 +4014,8 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Adjust partial take profit" in body["guidance_data"]["suggested_actions"]
     assert "Adjust position management" in body["guidance_data"]["suggested_actions"]
     assert "Enable / disable core allocation" in body["guidance_data"]["suggested_actions"]
+    assert "Change NOT inner rule" in body["guidance_data"]["suggested_actions"]
+    assert "Remove NOT wrapper" in body["guidance_data"]["suggested_actions"]
     assert "Remove group conditions" in body["guidance_data"]["suggested_actions"]
     assert "Remove window wrapper" in body["guidance_data"]["suggested_actions"]
     assert "Remove sequence steps" in body["guidance_data"]["suggested_actions"]
