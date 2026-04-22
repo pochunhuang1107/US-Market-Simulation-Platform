@@ -2318,6 +2318,751 @@ def _remove_sequence_step(
     return updated_rule
 
 
+def _update_first_group_operator(
+    rule: Any,
+    *,
+    operator: str,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "group":
+        updated_rule = dict(rule)
+        updated_rule["operator"] = operator
+        return updated_rule, True
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_group_operator(
+                nested_rule,
+                operator=operator,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "window":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_group_operator(
+                nested_rule,
+                operator=operator,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "sequence":
+        updated_steps = []
+        changed = False
+        for step in rule.get("steps", []):
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _update_first_group_operator(
+                    step,
+                    operator=operator,
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    return rule, False
+
+
+def _update_first_group_condition(
+    rule: Any,
+    *,
+    index: int,
+    new_rule: dict,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "group":
+        rules = list(rule.get("rules", []))
+        if 0 <= index < len(rules):
+            rules[index] = new_rule
+            updated_rule = dict(rule)
+            updated_rule["rules"] = rules
+            return updated_rule, True
+
+        updated_children = []
+        changed = False
+        for child_rule in rules:
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _update_first_group_condition(
+                    child_rule,
+                    index=index,
+                    new_rule=new_rule,
+                )
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_group_condition(
+                nested_rule,
+                index=index,
+                new_rule=new_rule,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "window":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_group_condition(
+                nested_rule,
+                index=index,
+                new_rule=new_rule,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "sequence":
+        updated_steps = []
+        changed = False
+        for step in rule.get("steps", []):
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _update_first_group_condition(
+                    step,
+                    index=index,
+                    new_rule=new_rule,
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    return rule, False
+
+
+def _remove_first_group_condition(
+    rule: Any,
+    *,
+    index: int,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "group":
+        rules = list(rule.get("rules", []))
+        if 0 <= index < len(rules):
+            return _remove_group_condition(rule, index=index), True
+
+        updated_children = []
+        changed = False
+        for child_rule in rules:
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _remove_first_group_condition(
+                    child_rule,
+                    index=index,
+                )
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _remove_first_group_condition(
+                nested_rule,
+                index=index,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "window":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _remove_first_group_condition(
+                nested_rule,
+                index=index,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "sequence":
+        updated_steps = []
+        changed = False
+        for step in rule.get("steps", []):
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _remove_first_group_condition(
+                    step,
+                    index=index,
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    return rule, False
+
+
+def _update_first_window_bars(
+    rule: Any,
+    *,
+    window_bars: int,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "window":
+        updated_rule = dict(rule)
+        updated_rule["window_bars"] = window_bars
+        return updated_rule, True
+
+    if kind == "group":
+        updated_children = []
+        changed = False
+        for child_rule in rule.get("rules", []):
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _update_first_window_bars(
+                    child_rule,
+                    window_bars=window_bars,
+                )
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_window_bars(
+                nested_rule,
+                window_bars=window_bars,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "sequence":
+        updated_steps = []
+        changed = False
+        for step in rule.get("steps", []):
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _update_first_window_bars(
+                    step,
+                    window_bars=window_bars,
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    return rule, False
+
+
+def _update_first_window_mode(
+    rule: Any,
+    *,
+    mode: str,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "window":
+        updated_rule = dict(rule)
+        updated_rule["mode"] = mode
+        return updated_rule, True
+
+    if kind == "group":
+        updated_children = []
+        changed = False
+        for child_rule in rule.get("rules", []):
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _update_first_window_mode(
+                    child_rule,
+                    mode=mode,
+                )
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_window_mode(
+                nested_rule,
+                mode=mode,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "sequence":
+        updated_steps = []
+        changed = False
+        for step in rule.get("steps", []):
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _update_first_window_mode(
+                    step,
+                    mode=mode,
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    return rule, False
+
+
+def _update_first_window_inner_rule(
+    rule: Any,
+    *,
+    new_inner_rule: dict,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "window":
+        updated_rule = dict(rule)
+        updated_rule["rule"] = new_inner_rule
+        return updated_rule, True
+
+    if kind == "group":
+        updated_children = []
+        changed = False
+        for child_rule in rule.get("rules", []):
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _update_first_window_inner_rule(
+                    child_rule,
+                    new_inner_rule=new_inner_rule,
+                )
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_window_inner_rule(
+                nested_rule,
+                new_inner_rule=new_inner_rule,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "sequence":
+        updated_steps = []
+        changed = False
+        for step in rule.get("steps", []):
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _update_first_window_inner_rule(
+                    step,
+                    new_inner_rule=new_inner_rule,
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    return rule, False
+
+
+def _remove_first_window_wrapper(rule: Any) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "window":
+        return _remove_window_wrapper(rule), True
+
+    if kind == "group":
+        updated_children = []
+        changed = False
+        for child_rule in rule.get("rules", []):
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _remove_first_window_wrapper(child_rule)
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _remove_first_window_wrapper(nested_rule)
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "sequence":
+        updated_steps = []
+        changed = False
+        for step in rule.get("steps", []):
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _remove_first_window_wrapper(step)
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    return rule, False
+
+
+def _update_first_sequence_bars(
+    rule: Any,
+    *,
+    window_bars: int,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "sequence":
+        updated_rule = dict(rule)
+        updated_rule["window_bars"] = window_bars
+        return updated_rule, True
+
+    if kind == "group":
+        updated_children = []
+        changed = False
+        for child_rule in rule.get("rules", []):
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _update_first_sequence_bars(
+                    child_rule,
+                    window_bars=window_bars,
+                )
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_sequence_bars(
+                nested_rule,
+                window_bars=window_bars,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "window":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_sequence_bars(
+                nested_rule,
+                window_bars=window_bars,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    return rule, False
+
+
+def _update_first_sequence_step(
+    rule: Any,
+    *,
+    index: int,
+    new_step: dict,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "sequence":
+        steps = list(rule.get("steps", []))
+        if 0 <= index < len(steps):
+            steps[index] = new_step
+            updated_rule = dict(rule)
+            updated_rule["steps"] = steps
+            return updated_rule, True
+
+        updated_steps = []
+        changed = False
+        for step in steps:
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _update_first_sequence_step(
+                    step,
+                    index=index,
+                    new_step=new_step,
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "group":
+        updated_children = []
+        changed = False
+        for child_rule in rule.get("rules", []):
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _update_first_sequence_step(
+                    child_rule,
+                    index=index,
+                    new_step=new_step,
+                )
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_sequence_step(
+                nested_rule,
+                index=index,
+                new_step=new_step,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "window":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_sequence_step(
+                nested_rule,
+                index=index,
+                new_step=new_step,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    return rule, False
+
+
+def _remove_first_sequence_step(
+    rule: Any,
+    *,
+    index: int,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "sequence":
+        steps = list(rule.get("steps", []))
+        if 0 <= index < len(steps):
+            return _remove_sequence_step(rule, index=index), True
+
+        updated_steps = []
+        changed = False
+        for step in steps:
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _remove_first_sequence_step(
+                    step,
+                    index=index,
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "group":
+        updated_children = []
+        changed = False
+        for child_rule in rule.get("rules", []):
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _remove_first_sequence_step(
+                    child_rule,
+                    index=index,
+                )
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _remove_first_sequence_step(
+                nested_rule,
+                index=index,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    if kind == "window":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _remove_first_sequence_step(
+                nested_rule,
+                index=index,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+        return rule, False
+
+    return rule, False
+
+
 def _has_partial_relative_strength_edit(
     *,
     reference_symbol_edit: str | None,
@@ -4099,155 +4844,211 @@ def _generate_strategy_draft(
             current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
             current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
 
-            if entry_window_bars_edit is not None and _is_window_rule(existing_entry_rule):
-                existing_entry_rule["window_bars"] = entry_window_bars_edit
-                default_config["entry_rule"] = existing_entry_rule
+            if entry_window_bars_edit is not None:
+                existing_entry_rule, changed = _update_first_window_bars(
+                    existing_entry_rule,
+                    window_bars=entry_window_bars_edit,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
 
-            if entry_window_mode_edit is not None and _is_window_rule(existing_entry_rule):
-                existing_entry_rule["mode"] = entry_window_mode_edit
-                default_config["entry_rule"] = existing_entry_rule
+            if entry_window_mode_edit is not None:
+                existing_entry_rule, changed = _update_first_window_mode(
+                    existing_entry_rule,
+                    mode=entry_window_mode_edit,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
 
-            if exit_window_bars_edit is not None and _is_window_rule(existing_exit_rule):
-                existing_exit_rule["window_bars"] = exit_window_bars_edit
-                default_config["exit_rule"] = existing_exit_rule
+            if exit_window_bars_edit is not None:
+                existing_exit_rule, changed = _update_first_window_bars(
+                    existing_exit_rule,
+                    window_bars=exit_window_bars_edit,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
 
-            if exit_window_mode_edit is not None and _is_window_rule(existing_exit_rule):
-                existing_exit_rule["mode"] = exit_window_mode_edit
-                default_config["exit_rule"] = existing_exit_rule
+            if exit_window_mode_edit is not None:
+                existing_exit_rule, changed = _update_first_window_mode(
+                    existing_exit_rule,
+                    mode=exit_window_mode_edit,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
 
-            if entry_sequence_bars_edit is not None and _is_sequence_rule(existing_entry_rule):
-                existing_entry_rule["window_bars"] = entry_sequence_bars_edit
-                default_config["entry_rule"] = existing_entry_rule
+            if entry_sequence_bars_edit is not None:
+                existing_entry_rule, changed = _update_first_sequence_bars(
+                    existing_entry_rule,
+                    window_bars=entry_sequence_bars_edit,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
 
-            if exit_sequence_bars_edit is not None and _is_sequence_rule(existing_exit_rule):
-                existing_exit_rule["window_bars"] = exit_sequence_bars_edit
-                default_config["exit_rule"] = existing_exit_rule
+            if exit_sequence_bars_edit is not None:
+                existing_exit_rule, changed = _update_first_sequence_bars(
+                    existing_exit_rule,
+                    window_bars=exit_sequence_bars_edit,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
 
-            if entry_sequence_first_step_edit is not None and _is_sequence_rule(existing_entry_rule):
+            if entry_sequence_first_step_edit is not None:
                 updated_step, step_assumptions = _build_rule_from_clause(
                     entry_sequence_first_step_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
                     side="entry",
                 )
-                if updated_step is not None and len(existing_entry_rule.get("steps", [])) >= 1:
-                    updated_steps = list(existing_entry_rule.get("steps", []))
-                    updated_steps[0] = updated_step
-                    existing_entry_rule["steps"] = updated_steps
-                    default_config["entry_rule"] = existing_entry_rule
-                    assumptions.extend(step_assumptions)
+                if updated_step is not None:
+                    existing_entry_rule, changed = _update_first_sequence_step(
+                        existing_entry_rule,
+                        index=0,
+                        new_step=updated_step,
+                    )
+                    if changed:
+                        default_config["entry_rule"] = existing_entry_rule
+                        assumptions.extend(step_assumptions)
 
-            if entry_sequence_second_step_edit is not None and _is_sequence_rule(existing_entry_rule):
+            if entry_sequence_second_step_edit is not None:
                 updated_step, step_assumptions = _build_rule_from_clause(
                     entry_sequence_second_step_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
                     side="entry",
                 )
-                if updated_step is not None and len(existing_entry_rule.get("steps", [])) >= 2:
-                    updated_steps = list(existing_entry_rule.get("steps", []))
-                    updated_steps[1] = updated_step
-                    existing_entry_rule["steps"] = updated_steps
-                    default_config["entry_rule"] = existing_entry_rule
-                    assumptions.extend(step_assumptions)
+                if updated_step is not None:
+                    existing_entry_rule, changed = _update_first_sequence_step(
+                        existing_entry_rule,
+                        index=1,
+                        new_step=updated_step,
+                    )
+                    if changed:
+                        default_config["entry_rule"] = existing_entry_rule
+                        assumptions.extend(step_assumptions)
 
-            if exit_sequence_first_step_edit is not None and _is_sequence_rule(existing_exit_rule):
+            if exit_sequence_first_step_edit is not None:
                 updated_step, step_assumptions = _build_rule_from_clause(
                     exit_sequence_first_step_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
                     side="exit",
                 )
-                if updated_step is not None and len(existing_exit_rule.get("steps", [])) >= 1:
-                    updated_steps = list(existing_exit_rule.get("steps", []))
-                    updated_steps[0] = updated_step
-                    existing_exit_rule["steps"] = updated_steps
-                    default_config["exit_rule"] = existing_exit_rule
-                    assumptions.extend(step_assumptions)
+                if updated_step is not None:
+                    existing_exit_rule, changed = _update_first_sequence_step(
+                        existing_exit_rule,
+                        index=0,
+                        new_step=updated_step,
+                    )
+                    if changed:
+                        default_config["exit_rule"] = existing_exit_rule
+                        assumptions.extend(step_assumptions)
 
-            if exit_sequence_second_step_edit is not None and _is_sequence_rule(existing_exit_rule):
+            if exit_sequence_second_step_edit is not None:
                 updated_step, step_assumptions = _build_rule_from_clause(
                     exit_sequence_second_step_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
                     side="exit",
                 )
-                if updated_step is not None and len(existing_exit_rule.get("steps", [])) >= 2:
-                    updated_steps = list(existing_exit_rule.get("steps", []))
-                    updated_steps[1] = updated_step
-                    existing_exit_rule["steps"] = updated_steps
-                    default_config["exit_rule"] = existing_exit_rule
-                    assumptions.extend(step_assumptions)
+                if updated_step is not None:
+                    existing_exit_rule, changed = _update_first_sequence_step(
+                        existing_exit_rule,
+                        index=1,
+                        new_step=updated_step,
+                    )
+                    if changed:
+                        default_config["exit_rule"] = existing_exit_rule
+                        assumptions.extend(step_assumptions)
 
         if has_nested_composite_edit_intent:
             current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
             current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
 
-            if entry_group_operator_edit is not None and _is_group_rule(existing_entry_rule):
-                existing_entry_rule["operator"] = entry_group_operator_edit
-                default_config["entry_rule"] = existing_entry_rule
+            if entry_group_operator_edit is not None:
+                existing_entry_rule, changed = _update_first_group_operator(
+                    existing_entry_rule,
+                    operator=entry_group_operator_edit,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
 
-            if exit_group_operator_edit is not None and _is_group_rule(existing_exit_rule):
-                existing_exit_rule["operator"] = exit_group_operator_edit
-                default_config["exit_rule"] = existing_exit_rule
+            if exit_group_operator_edit is not None:
+                existing_exit_rule, changed = _update_first_group_operator(
+                    existing_exit_rule,
+                    operator=exit_group_operator_edit,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
 
-            if entry_group_first_condition_edit is not None and _is_group_rule(existing_entry_rule):
+            if entry_group_first_condition_edit is not None:
                 updated_rule, rule_assumptions = _build_rule_from_clause(
                     entry_group_first_condition_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
                     side="entry",
                 )
-                if updated_rule is not None and len(existing_entry_rule.get("rules", [])) >= 1:
-                    updated_rules = list(existing_entry_rule.get("rules", []))
-                    updated_rules[0] = updated_rule
-                    existing_entry_rule["rules"] = updated_rules
-                    default_config["entry_rule"] = existing_entry_rule
-                    assumptions.extend(rule_assumptions)
+                if updated_rule is not None:
+                    existing_entry_rule, changed = _update_first_group_condition(
+                        existing_entry_rule,
+                        index=0,
+                        new_rule=updated_rule,
+                    )
+                    if changed:
+                        default_config["entry_rule"] = existing_entry_rule
+                        assumptions.extend(rule_assumptions)
 
-            if entry_group_second_condition_edit is not None and _is_group_rule(existing_entry_rule):
+            if entry_group_second_condition_edit is not None:
                 updated_rule, rule_assumptions = _build_rule_from_clause(
                     entry_group_second_condition_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
                     side="entry",
                 )
-                if updated_rule is not None and len(existing_entry_rule.get("rules", [])) >= 2:
-                    updated_rules = list(existing_entry_rule.get("rules", []))
-                    updated_rules[1] = updated_rule
-                    existing_entry_rule["rules"] = updated_rules
-                    default_config["entry_rule"] = existing_entry_rule
-                    assumptions.extend(rule_assumptions)
+                if updated_rule is not None:
+                    existing_entry_rule, changed = _update_first_group_condition(
+                        existing_entry_rule,
+                        index=1,
+                        new_rule=updated_rule,
+                    )
+                    if changed:
+                        default_config["entry_rule"] = existing_entry_rule
+                        assumptions.extend(rule_assumptions)
 
-            if exit_group_first_condition_edit is not None and _is_group_rule(existing_exit_rule):
+            if exit_group_first_condition_edit is not None:
                 updated_rule, rule_assumptions = _build_rule_from_clause(
                     exit_group_first_condition_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
                     side="exit",
                 )
-                if updated_rule is not None and len(existing_exit_rule.get("rules", [])) >= 1:
-                    updated_rules = list(existing_exit_rule.get("rules", []))
-                    updated_rules[0] = updated_rule
-                    existing_exit_rule["rules"] = updated_rules
-                    default_config["exit_rule"] = existing_exit_rule
-                    assumptions.extend(rule_assumptions)
+                if updated_rule is not None:
+                    existing_exit_rule, changed = _update_first_group_condition(
+                        existing_exit_rule,
+                        index=0,
+                        new_rule=updated_rule,
+                    )
+                    if changed:
+                        default_config["exit_rule"] = existing_exit_rule
+                        assumptions.extend(rule_assumptions)
 
-            if exit_group_second_condition_edit is not None and _is_group_rule(existing_exit_rule):
+            if exit_group_second_condition_edit is not None:
                 updated_rule, rule_assumptions = _build_rule_from_clause(
                     exit_group_second_condition_edit,
                     tradable_symbol=current_tradable_symbol,
                     fallback_reference_symbol=current_benchmark_symbol,
                     side="exit",
                 )
-                if updated_rule is not None and len(existing_exit_rule.get("rules", [])) >= 2:
-                    updated_rules = list(existing_exit_rule.get("rules", []))
-                    updated_rules[1] = updated_rule
-                    existing_exit_rule["rules"] = updated_rules
-                    default_config["exit_rule"] = existing_exit_rule
-                    assumptions.extend(rule_assumptions)
+                if updated_rule is not None:
+                    existing_exit_rule, changed = _update_first_group_condition(
+                        existing_exit_rule,
+                        index=1,
+                        new_rule=updated_rule,
+                    )
+                    if changed:
+                        default_config["exit_rule"] = existing_exit_rule
+                        assumptions.extend(rule_assumptions)
 
-            if entry_window_inner_rule_edit is not None and _is_window_rule(existing_entry_rule):
+            if entry_window_inner_rule_edit is not None:
                 updated_rule, rule_assumptions = _build_rule_from_clause(
                     entry_window_inner_rule_edit,
                     tradable_symbol=current_tradable_symbol,
@@ -4255,11 +5056,15 @@ def _generate_strategy_draft(
                     side="entry",
                 )
                 if updated_rule is not None:
-                    existing_entry_rule["rule"] = updated_rule
-                    default_config["entry_rule"] = existing_entry_rule
-                    assumptions.extend(rule_assumptions)
+                    existing_entry_rule, changed = _update_first_window_inner_rule(
+                        existing_entry_rule,
+                        new_inner_rule=updated_rule,
+                    )
+                    if changed:
+                        default_config["entry_rule"] = existing_entry_rule
+                        assumptions.extend(rule_assumptions)
 
-            if exit_window_inner_rule_edit is not None and _is_window_rule(existing_exit_rule):
+            if exit_window_inner_rule_edit is not None:
                 updated_rule, rule_assumptions = _build_rule_from_clause(
                     exit_window_inner_rule_edit,
                     tradable_symbol=current_tradable_symbol,
@@ -4267,9 +5072,13 @@ def _generate_strategy_draft(
                     side="exit",
                 )
                 if updated_rule is not None:
-                    existing_exit_rule["rule"] = updated_rule
-                    default_config["exit_rule"] = existing_exit_rule
-                    assumptions.extend(rule_assumptions)
+                    existing_exit_rule, changed = _update_first_window_inner_rule(
+                        existing_exit_rule,
+                        new_inner_rule=updated_rule,
+                    )
+                    if changed:
+                        default_config["exit_rule"] = existing_exit_rule
+                        assumptions.extend(rule_assumptions)
 
         if has_not_rule_edit_intent:
             current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
@@ -4466,24 +5275,40 @@ def _generate_strategy_draft(
 
         if has_nested_composite_removal_intent:
             if remove_entry_group_first_condition:
-                updated_entry_rule = _remove_group_condition(existing_entry_rule, index=0)
-                default_config["entry_rule"] = updated_entry_rule
-                existing_entry_rule = updated_entry_rule
+                updated_entry_rule, changed = _remove_first_group_condition(
+                    existing_entry_rule,
+                    index=0,
+                )
+                if changed:
+                    default_config["entry_rule"] = updated_entry_rule
+                    existing_entry_rule = updated_entry_rule
 
             if remove_entry_group_second_condition:
-                updated_entry_rule = _remove_group_condition(existing_entry_rule, index=1)
-                default_config["entry_rule"] = updated_entry_rule
-                existing_entry_rule = updated_entry_rule
+                updated_entry_rule, changed = _remove_first_group_condition(
+                    existing_entry_rule,
+                    index=1,
+                )
+                if changed:
+                    default_config["entry_rule"] = updated_entry_rule
+                    existing_entry_rule = updated_entry_rule
 
             if remove_exit_group_first_condition:
-                updated_exit_rule = _remove_group_condition(existing_exit_rule, index=0)
-                default_config["exit_rule"] = updated_exit_rule
-                existing_exit_rule = updated_exit_rule
+                updated_exit_rule, changed = _remove_first_group_condition(
+                    existing_exit_rule,
+                    index=0,
+                )
+                if changed:
+                    default_config["exit_rule"] = updated_exit_rule
+                    existing_exit_rule = updated_exit_rule
 
             if remove_exit_group_second_condition:
-                updated_exit_rule = _remove_group_condition(existing_exit_rule, index=1)
-                default_config["exit_rule"] = updated_exit_rule
-                existing_exit_rule = updated_exit_rule
+                updated_exit_rule, changed = _remove_first_group_condition(
+                    existing_exit_rule,
+                    index=1,
+                )
+                if changed:
+                    default_config["exit_rule"] = updated_exit_rule
+                    existing_exit_rule = updated_exit_rule
 
             if remove_entry_not_wrapper:
                 updated_entry_rule, changed = _remove_first_not_wrapper(existing_entry_rule)
@@ -4498,34 +5323,52 @@ def _generate_strategy_draft(
                     existing_exit_rule = updated_exit_rule
 
             if remove_entry_window_wrapper:
-                updated_entry_rule = _remove_window_wrapper(existing_entry_rule)
-                default_config["entry_rule"] = updated_entry_rule
-                existing_entry_rule = updated_entry_rule
+                updated_entry_rule, changed = _remove_first_window_wrapper(existing_entry_rule)
+                if changed:
+                    default_config["entry_rule"] = updated_entry_rule
+                    existing_entry_rule = updated_entry_rule
 
             if remove_exit_window_wrapper:
-                updated_exit_rule = _remove_window_wrapper(existing_exit_rule)
-                default_config["exit_rule"] = updated_exit_rule
-                existing_exit_rule = updated_exit_rule
+                updated_exit_rule, changed = _remove_first_window_wrapper(existing_exit_rule)
+                if changed:
+                    default_config["exit_rule"] = updated_exit_rule
+                    existing_exit_rule = updated_exit_rule
 
             if remove_entry_sequence_first_step:
-                updated_entry_rule = _remove_sequence_step(existing_entry_rule, index=0)
-                default_config["entry_rule"] = updated_entry_rule
-                existing_entry_rule = updated_entry_rule
+                updated_entry_rule, changed = _remove_first_sequence_step(
+                    existing_entry_rule,
+                    index=0,
+                )
+                if changed:
+                    default_config["entry_rule"] = updated_entry_rule
+                    existing_entry_rule = updated_entry_rule
 
             if remove_entry_sequence_second_step:
-                updated_entry_rule = _remove_sequence_step(existing_entry_rule, index=1)
-                default_config["entry_rule"] = updated_entry_rule
-                existing_entry_rule = updated_entry_rule
+                updated_entry_rule, changed = _remove_first_sequence_step(
+                    existing_entry_rule,
+                    index=1,
+                )
+                if changed:
+                    default_config["entry_rule"] = updated_entry_rule
+                    existing_entry_rule = updated_entry_rule
 
             if remove_exit_sequence_first_step:
-                updated_exit_rule = _remove_sequence_step(existing_exit_rule, index=0)
-                default_config["exit_rule"] = updated_exit_rule
-                existing_exit_rule = updated_exit_rule
+                updated_exit_rule, changed = _remove_first_sequence_step(
+                    existing_exit_rule,
+                    index=0,
+                )
+                if changed:
+                    default_config["exit_rule"] = updated_exit_rule
+                    existing_exit_rule = updated_exit_rule
 
             if remove_exit_sequence_second_step:
-                updated_exit_rule = _remove_sequence_step(existing_exit_rule, index=1)
-                default_config["exit_rule"] = updated_exit_rule
-                existing_exit_rule = updated_exit_rule
+                updated_exit_rule, changed = _remove_first_sequence_step(
+                    existing_exit_rule,
+                    index=1,
+                )
+                if changed:
+                    default_config["exit_rule"] = updated_exit_rule
+                    existing_exit_rule = updated_exit_rule
 
         if has_position_management_edit:
             if position_management_removed:
