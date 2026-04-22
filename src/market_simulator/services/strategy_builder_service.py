@@ -23,36 +23,30 @@ from market_simulator.services.strategy_builder_capabilities import (
 from market_simulator.settings import get_settings
 from market_simulator.services.strategy_builder_rule_tree import (
     _add_confirmation_rule,
-    _collect_reference_symbols_from_rule,
     _has_confirmation_rule,
     _has_moving_average_rule,
     _has_month_in_rule,
     _has_not_rule_anywhere,
     _has_relative_strength_rule,
     _has_rsi_rule,
-    _matches_confirmation_rule,
     _remove_confirmation_rule,
     _remove_first_group_condition,
     _remove_first_not_wrapper,
     _remove_first_sequence_step,
     _remove_first_window_wrapper,
-    _remove_group_condition,
-    _remove_not_wrapper,
-    _remove_sequence_step,
-    _remove_window_wrapper,
     _rewrite_rule_tradable_symbol,
     _sync_reference_symbols,
     _try_add_confirmation_rule_recursively,
     _update_first_group_condition,
     _update_first_group_operator,
+    _update_first_not_inner_rule,
     _update_first_sequence_bars,
     _update_first_sequence_step,
     _update_first_window_bars,
     _update_first_window_inner_rule,
     _update_first_window_mode,
-    _update_first_not_inner_rule,
-    _update_moving_average_rules,
     _update_month_in_rules,
+    _update_moving_average_rules,
     _update_relative_strength_rules,
     _update_rsi_rules,
 )
@@ -1461,14 +1455,6 @@ def _has_temporal_rule_edit(
     )
 
 
-def _is_window_rule(rule: dict) -> bool:
-    return rule.get("kind") == "window"
-
-
-def _is_sequence_rule(rule: dict) -> bool:
-    return rule.get("kind") == "sequence"
-
-
 def _extract_group_operator_edit(
     text: str,
     *,
@@ -1547,10 +1533,6 @@ def _has_nested_composite_edit(
     )
 
 
-def _is_group_rule(rule: dict) -> bool:
-    return rule.get("kind") == "group"
-
-
 def _has_remove_group_condition_intent(
     text: str,
     *,
@@ -1578,10 +1560,6 @@ def _has_remove_window_wrapper_intent(
             flags=re.IGNORECASE,
         )
     )
-
-
-def _is_not_rule(rule: dict) -> bool:
-    return rule.get("kind") == "not"
 
 
 def _extract_not_inner_rule_edit(
@@ -1643,22 +1621,6 @@ def _has_partial_relative_strength_edit(
             lookback_edit,
             threshold_edit,
         )
-    )
-
-
-def _is_relative_strength_entry_rule(rule: dict) -> bool:
-    return (
-        rule.get("kind") == "atomic"
-        and rule.get("type") == "relative_return_above"
-    )
-
-
-def _is_relative_strength_exit_rule(rule: dict) -> bool:
-    nested_rule = rule.get("rule", {})
-    return (
-        rule.get("kind") == "not"
-        and nested_rule.get("kind") == "atomic"
-        and nested_rule.get("type") == "relative_return_above"
     )
 
 
