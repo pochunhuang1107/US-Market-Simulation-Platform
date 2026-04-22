@@ -2125,6 +2125,159 @@ def _remove_not_wrapper(rule: dict) -> dict:
     return rule
 
 
+def _has_not_rule_anywhere(rule: Any) -> bool:
+    if not isinstance(rule, dict):
+        return False
+
+    kind = rule.get("kind")
+
+    if kind == "not":
+        return True
+
+    if kind == "group":
+        return any(_has_not_rule_anywhere(child_rule) for child_rule in rule.get("rules", []))
+
+    if kind == "window":
+        return _has_not_rule_anywhere(rule.get("rule"))
+
+    if kind == "sequence":
+        return any(_has_not_rule_anywhere(step) for step in rule.get("steps", []))
+
+    return False
+
+
+def _update_first_not_inner_rule(
+    rule: Any,
+    *,
+    new_inner_rule: dict,
+) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "not":
+        updated_rule = dict(rule)
+        updated_rule["rule"] = new_inner_rule
+        return updated_rule, True
+
+    if kind == "group":
+        updated_children = []
+        changed = False
+        for child_rule in rule.get("rules", []):
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _update_first_not_inner_rule(
+                    child_rule,
+                    new_inner_rule=new_inner_rule,
+                )
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "window":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _update_first_not_inner_rule(
+                nested_rule,
+                new_inner_rule=new_inner_rule,
+            )
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+
+        return rule, False
+
+    if kind == "sequence":
+        updated_steps = []
+        changed = False
+        for step in rule.get("steps", []):
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _update_first_not_inner_rule(
+                    step,
+                    new_inner_rule=new_inner_rule,
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    return rule, False
+
+
+def _remove_first_not_wrapper(rule: Any) -> tuple[Any, bool]:
+    if not isinstance(rule, dict):
+        return rule, False
+
+    kind = rule.get("kind")
+
+    if kind == "not":
+        inner_rule = rule.get("rule")
+        if isinstance(inner_rule, dict) and inner_rule:
+            return inner_rule, True
+        return rule, False
+
+    if kind == "group":
+        updated_children = []
+        changed = False
+        for child_rule in rule.get("rules", []):
+            if not changed and isinstance(child_rule, dict):
+                updated_child, changed = _remove_first_not_wrapper(child_rule)
+                updated_children.append(updated_child)
+            else:
+                updated_children.append(child_rule)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["rules"] = updated_children
+            return updated_rule, True
+
+        return rule, False
+
+    if kind == "window":
+        nested_rule = rule.get("rule")
+        if isinstance(nested_rule, dict):
+            updated_nested_rule, changed = _remove_first_not_wrapper(nested_rule)
+            if changed:
+                updated_rule = dict(rule)
+                updated_rule["rule"] = updated_nested_rule
+                return updated_rule, True
+
+        return rule, False
+
+    if kind == "sequence":
+        updated_steps = []
+        changed = False
+        for step in rule.get("steps", []):
+            if not changed and isinstance(step, dict):
+                updated_step, changed = _remove_first_not_wrapper(step)
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(step)
+
+        if changed:
+            updated_rule = dict(rule)
+            updated_rule["steps"] = updated_steps
+            return updated_rule, True
+
+        return rule, False
+
+    return rule, False
+
+
 def _has_remove_sequence_step_intent(
     text: str,
     *,
@@ -4122,7 +4275,7 @@ def _generate_strategy_draft(
             current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
             current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
 
-            if entry_not_inner_rule_edit is not None and _is_not_rule(existing_entry_rule):
+            if entry_not_inner_rule_edit is not None and _has_not_rule_anywhere(existing_entry_rule):
                 updated_rule, rule_assumptions = _build_rule_from_clause(
                     entry_not_inner_rule_edit,
                     tradable_symbol=current_tradable_symbol,
@@ -4130,11 +4283,15 @@ def _generate_strategy_draft(
                     side="entry",
                 )
                 if updated_rule is not None:
-                    existing_entry_rule["rule"] = updated_rule
-                    default_config["entry_rule"] = existing_entry_rule
-                    assumptions.extend(rule_assumptions)
+                    existing_entry_rule, changed = _update_first_not_inner_rule(
+                        existing_entry_rule,
+                        new_inner_rule=updated_rule,
+                    )
+                    if changed:
+                        default_config["entry_rule"] = existing_entry_rule
+                        assumptions.extend(rule_assumptions)
 
-            if exit_not_inner_rule_edit is not None and _is_not_rule(existing_exit_rule):
+            if exit_not_inner_rule_edit is not None and _has_not_rule_anywhere(existing_exit_rule):
                 updated_rule, rule_assumptions = _build_rule_from_clause(
                     exit_not_inner_rule_edit,
                     tradable_symbol=current_tradable_symbol,
@@ -4142,9 +4299,13 @@ def _generate_strategy_draft(
                     side="exit",
                 )
                 if updated_rule is not None:
-                    existing_exit_rule["rule"] = updated_rule
-                    default_config["exit_rule"] = existing_exit_rule
-                    assumptions.extend(rule_assumptions)
+                    existing_exit_rule, changed = _update_first_not_inner_rule(
+                        existing_exit_rule,
+                        new_inner_rule=updated_rule,
+                    )
+                    if changed:
+                        default_config["exit_rule"] = existing_exit_rule
+                        assumptions.extend(rule_assumptions)
 
         risk = dict(default_config.get("risk", {}))
         risk.setdefault("cooldown_bars", 0)
@@ -4325,14 +4486,16 @@ def _generate_strategy_draft(
                 existing_exit_rule = updated_exit_rule
 
             if remove_entry_not_wrapper:
-                updated_entry_rule = _remove_not_wrapper(existing_entry_rule)
-                default_config["entry_rule"] = updated_entry_rule
-                existing_entry_rule = updated_entry_rule
+                updated_entry_rule, changed = _remove_first_not_wrapper(existing_entry_rule)
+                if changed:
+                    default_config["entry_rule"] = updated_entry_rule
+                    existing_entry_rule = updated_entry_rule
 
             if remove_exit_not_wrapper:
-                updated_exit_rule = _remove_not_wrapper(existing_exit_rule)
-                default_config["exit_rule"] = updated_exit_rule
-                existing_exit_rule = updated_exit_rule
+                updated_exit_rule, changed = _remove_first_not_wrapper(existing_exit_rule)
+                if changed:
+                    default_config["exit_rule"] = updated_exit_rule
+                    existing_exit_rule = updated_exit_rule
 
             if remove_entry_window_wrapper:
                 updated_entry_rule = _remove_window_wrapper(existing_entry_rule)
