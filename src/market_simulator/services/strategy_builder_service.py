@@ -280,156 +280,10 @@ def _extract_core_prompt_inputs(
     }
 
 
-def _build_rule_setup(
+def _extract_rule_edit_intents(
     *,
     prompt: str,
-    prompt_lower: str,
-    tradable_symbol: str,
-    benchmark_symbol: str,
-    current_config: dict[str, Any] | None,
-    has_current_config: bool,
-    assumptions: list[str],
-    warnings: list[str],
 ) -> dict[str, Any]:
-    entry_rule = None
-    exit_rule = None
-
-    rsi_buy = _extract_rsi_rule(prompt, direction="below")
-    rsi_sell = _extract_rsi_rule(prompt, direction="above")
-    rsi_entry_threshold_edit = _extract_rsi_entry_threshold_edit(prompt)
-    rsi_exit_threshold_edit = _extract_rsi_exit_threshold_edit(prompt)
-    rsi_entry_lookback_edit = _extract_rsi_entry_lookback_edit(prompt)
-    rsi_exit_lookback_edit = _extract_rsi_exit_lookback_edit(prompt)
-    has_partial_rsi_edit = any(
-        value is not None
-        for value in (
-            rsi_entry_threshold_edit,
-            rsi_exit_threshold_edit,
-            rsi_entry_lookback_edit,
-            rsi_exit_lookback_edit,
-        )
-    )
-    sma_pair = _extract_sma_crossover_pair(prompt)
-    sma_above_pair = _extract_sma_above_pair(prompt)
-
-    entry_fast_window_edit = _extract_entry_fast_window_edit(prompt)
-    entry_slow_window_edit = _extract_entry_slow_window_edit(prompt)
-    exit_fast_window_edit = _extract_exit_fast_window_edit(prompt)
-    exit_slow_window_edit = _extract_exit_slow_window_edit(prompt)
-
-    has_partial_sma_window_edit = _has_partial_sma_window_edit(
-        entry_fast_window_edit=entry_fast_window_edit,
-        entry_slow_window_edit=entry_slow_window_edit,
-        exit_fast_window_edit=exit_fast_window_edit,
-        exit_slow_window_edit=exit_slow_window_edit,
-    )
-
-    if rsi_buy:
-        lookback, threshold = rsi_buy
-        entry_rule = {
-            "kind": "atomic",
-            "type": "rsi_below",
-            "symbol": tradable_symbol,
-            "lookback": lookback,
-            "threshold": threshold,
-        }
-
-    if rsi_sell:
-        lookback, threshold = rsi_sell
-        exit_rule = {
-            "kind": "atomic",
-            "type": "rsi_above",
-            "symbol": tradable_symbol,
-            "lookback": lookback,
-            "threshold": threshold,
-        }
-
-    if "moving average" in prompt_lower or "sma" in prompt_lower:
-        selected_pair = sma_above_pair if sma_above_pair is not None else sma_pair
-        fast_window, slow_window = selected_pair if selected_pair else (20, 50)
-        if selected_pair:
-            assumptions.append(
-                f"Detected moving-average windows {fast_window}/{slow_window}."
-            )
-        else:
-            assumptions.append(
-                "Used default moving-average windows 20/50."
-            )
-
-        if _has_sma_above_state_intent(prompt):
-            if entry_rule is None:
-                entry_rule = {
-                    "kind": "atomic",
-                    "type": "sma_above",
-                    "symbol": tradable_symbol,
-                    "fast_window": fast_window,
-                    "slow_window": slow_window,
-                }
-
-            if exit_rule is None:
-                exit_rule = {
-                    "kind": "not",
-                    "rule": {
-                        "kind": "atomic",
-                        "type": "sma_above",
-                        "symbol": tradable_symbol,
-                        "fast_window": fast_window,
-                        "slow_window": slow_window,
-                    },
-                }
-
-            assumptions.append(
-                "Interpreted 'SMA above' as entering while the fast SMA stays above the slow SMA and exiting when that condition no longer holds."
-            )
-        else:
-            if entry_rule is None:
-                entry_rule = {
-                    "kind": "atomic",
-                    "type": "sma_cross_above",
-                    "symbol": tradable_symbol,
-                    "fast_window": fast_window,
-                    "slow_window": slow_window,
-                }
-
-            if exit_rule is None:
-                exit_rule = {
-                    "kind": "atomic",
-                    "type": "sma_cross_below",
-                    "symbol": tradable_symbol,
-                    "fast_window": fast_window,
-                    "slow_window": slow_window,
-                }
-
-    if "macd" in prompt_lower:
-        entry_rule = {
-            "kind": "atomic",
-            "type": "macd_bullish_cross",
-            "symbol": tradable_symbol,
-        }
-        exit_rule = {
-            "kind": "atomic",
-            "type": "macd_bearish_cross",
-            "symbol": tradable_symbol,
-        }
-        assumptions.append(
-            "Interpreted 'MACD' as MACD bullish cross for entry and MACD bearish cross for exit."
-        )
-
-    if "kd" in prompt_lower or "stochastic" in prompt_lower:
-        entry_rule = {
-            "kind": "atomic",
-            "type": "kd_golden_cross",
-            "symbol": tradable_symbol,
-        }
-        exit_rule = {
-            "kind": "atomic",
-            "type": "kd_dead_cross",
-            "symbol": tradable_symbol,
-        }
-        assumptions.append(
-            "Interpreted 'KD' as KD golden cross for entry and KD dead cross for exit."
-        )
-
     month_values = _extract_month_values(prompt)
 
     seasonality_month_edit_action = _extract_seasonality_month_edit_action(prompt)
@@ -651,6 +505,259 @@ def _build_rule_setup(
             remove_exit_sequence_second_step,
         )
     )
+
+    return {
+        "month_values": month_values,
+        "seasonality_month_edit_action": seasonality_month_edit_action,
+        "has_seasonality_month_edit": has_seasonality_month_edit,
+        "relative_strength_reference_symbol_edit": relative_strength_reference_symbol_edit,
+        "relative_strength_lookback_edit": relative_strength_lookback_edit,
+        "relative_strength_threshold_edit": relative_strength_threshold_edit,
+        "has_partial_relative_strength_edit": has_partial_relative_strength_edit,
+        "confirmation_family": confirmation_family,
+        "add_confirmation_intent": add_confirmation_intent,
+        "remove_confirmation_intent": remove_confirmation_intent,
+        "has_confirmation_edit_intent": has_confirmation_edit_intent,
+        "entry_window_bars_edit": entry_window_bars_edit,
+        "exit_window_bars_edit": exit_window_bars_edit,
+        "entry_window_mode_edit": entry_window_mode_edit,
+        "exit_window_mode_edit": exit_window_mode_edit,
+        "entry_sequence_bars_edit": entry_sequence_bars_edit,
+        "exit_sequence_bars_edit": exit_sequence_bars_edit,
+        "entry_sequence_first_step_edit": entry_sequence_first_step_edit,
+        "entry_sequence_second_step_edit": entry_sequence_second_step_edit,
+        "exit_sequence_first_step_edit": exit_sequence_first_step_edit,
+        "exit_sequence_second_step_edit": exit_sequence_second_step_edit,
+        "has_temporal_rule_edit_intent": has_temporal_rule_edit_intent,
+        "entry_group_operator_edit": entry_group_operator_edit,
+        "exit_group_operator_edit": exit_group_operator_edit,
+        "entry_group_first_condition_edit": entry_group_first_condition_edit,
+        "entry_group_second_condition_edit": entry_group_second_condition_edit,
+        "exit_group_first_condition_edit": exit_group_first_condition_edit,
+        "exit_group_second_condition_edit": exit_group_second_condition_edit,
+        "entry_window_inner_rule_edit": entry_window_inner_rule_edit,
+        "exit_window_inner_rule_edit": exit_window_inner_rule_edit,
+        "entry_not_inner_rule_edit": entry_not_inner_rule_edit,
+        "exit_not_inner_rule_edit": exit_not_inner_rule_edit,
+        "has_not_rule_edit_intent": has_not_rule_edit_intent,
+        "has_nested_composite_edit_intent": has_nested_composite_edit_intent,
+        "remove_entry_group_first_condition": remove_entry_group_first_condition,
+        "remove_entry_group_second_condition": remove_entry_group_second_condition,
+        "remove_exit_group_first_condition": remove_exit_group_first_condition,
+        "remove_exit_group_second_condition": remove_exit_group_second_condition,
+        "remove_entry_window_wrapper": remove_entry_window_wrapper,
+        "remove_exit_window_wrapper": remove_exit_window_wrapper,
+        "remove_entry_not_wrapper": remove_entry_not_wrapper,
+        "remove_exit_not_wrapper": remove_exit_not_wrapper,
+        "remove_entry_sequence_first_step": remove_entry_sequence_first_step,
+        "remove_entry_sequence_second_step": remove_entry_sequence_second_step,
+        "remove_exit_sequence_first_step": remove_exit_sequence_first_step,
+        "remove_exit_sequence_second_step": remove_exit_sequence_second_step,
+        "has_nested_composite_removal_intent": has_nested_composite_removal_intent,
+    }
+
+
+def _build_rule_setup(
+    *,
+    prompt: str,
+    prompt_lower: str,
+    tradable_symbol: str,
+    benchmark_symbol: str,
+    current_config: dict[str, Any] | None,
+    has_current_config: bool,
+    assumptions: list[str],
+    warnings: list[str],
+) -> dict[str, Any]:
+    entry_rule = None
+    exit_rule = None
+
+    rsi_buy = _extract_rsi_rule(prompt, direction="below")
+    rsi_sell = _extract_rsi_rule(prompt, direction="above")
+    rsi_entry_threshold_edit = _extract_rsi_entry_threshold_edit(prompt)
+    rsi_exit_threshold_edit = _extract_rsi_exit_threshold_edit(prompt)
+    rsi_entry_lookback_edit = _extract_rsi_entry_lookback_edit(prompt)
+    rsi_exit_lookback_edit = _extract_rsi_exit_lookback_edit(prompt)
+    has_partial_rsi_edit = any(
+        value is not None
+        for value in (
+            rsi_entry_threshold_edit,
+            rsi_exit_threshold_edit,
+            rsi_entry_lookback_edit,
+            rsi_exit_lookback_edit,
+        )
+    )
+    sma_pair = _extract_sma_crossover_pair(prompt)
+    sma_above_pair = _extract_sma_above_pair(prompt)
+
+    entry_fast_window_edit = _extract_entry_fast_window_edit(prompt)
+    entry_slow_window_edit = _extract_entry_slow_window_edit(prompt)
+    exit_fast_window_edit = _extract_exit_fast_window_edit(prompt)
+    exit_slow_window_edit = _extract_exit_slow_window_edit(prompt)
+
+    has_partial_sma_window_edit = _has_partial_sma_window_edit(
+        entry_fast_window_edit=entry_fast_window_edit,
+        entry_slow_window_edit=entry_slow_window_edit,
+        exit_fast_window_edit=exit_fast_window_edit,
+        exit_slow_window_edit=exit_slow_window_edit,
+    )
+
+    if rsi_buy:
+        lookback, threshold = rsi_buy
+        entry_rule = {
+            "kind": "atomic",
+            "type": "rsi_below",
+            "symbol": tradable_symbol,
+            "lookback": lookback,
+            "threshold": threshold,
+        }
+
+    if rsi_sell:
+        lookback, threshold = rsi_sell
+        exit_rule = {
+            "kind": "atomic",
+            "type": "rsi_above",
+            "symbol": tradable_symbol,
+            "lookback": lookback,
+            "threshold": threshold,
+        }
+
+    if "moving average" in prompt_lower or "sma" in prompt_lower:
+        selected_pair = sma_above_pair if sma_above_pair is not None else sma_pair
+        fast_window, slow_window = selected_pair if selected_pair else (20, 50)
+        if selected_pair:
+            assumptions.append(
+                f"Detected moving-average windows {fast_window}/{slow_window}."
+            )
+        else:
+            assumptions.append(
+                "Used default moving-average windows 20/50."
+            )
+
+        if _has_sma_above_state_intent(prompt):
+            if entry_rule is None:
+                entry_rule = {
+                    "kind": "atomic",
+                    "type": "sma_above",
+                    "symbol": tradable_symbol,
+                    "fast_window": fast_window,
+                    "slow_window": slow_window,
+                }
+
+            if exit_rule is None:
+                exit_rule = {
+                    "kind": "not",
+                    "rule": {
+                        "kind": "atomic",
+                        "type": "sma_above",
+                        "symbol": tradable_symbol,
+                        "fast_window": fast_window,
+                        "slow_window": slow_window,
+                    },
+                }
+
+            assumptions.append(
+                "Interpreted 'SMA above' as entering while the fast SMA stays above the slow SMA and exiting when that condition no longer holds."
+            )
+        else:
+            if entry_rule is None:
+                entry_rule = {
+                    "kind": "atomic",
+                    "type": "sma_cross_above",
+                    "symbol": tradable_symbol,
+                    "fast_window": fast_window,
+                    "slow_window": slow_window,
+                }
+
+            if exit_rule is None:
+                exit_rule = {
+                    "kind": "atomic",
+                    "type": "sma_cross_below",
+                    "symbol": tradable_symbol,
+                    "fast_window": fast_window,
+                    "slow_window": slow_window,
+                }
+
+    if "macd" in prompt_lower:
+        entry_rule = {
+            "kind": "atomic",
+            "type": "macd_bullish_cross",
+            "symbol": tradable_symbol,
+        }
+        exit_rule = {
+            "kind": "atomic",
+            "type": "macd_bearish_cross",
+            "symbol": tradable_symbol,
+        }
+        assumptions.append(
+            "Interpreted 'MACD' as MACD bullish cross for entry and MACD bearish cross for exit."
+        )
+
+    if "kd" in prompt_lower or "stochastic" in prompt_lower:
+        entry_rule = {
+            "kind": "atomic",
+            "type": "kd_golden_cross",
+            "symbol": tradable_symbol,
+        }
+        exit_rule = {
+            "kind": "atomic",
+            "type": "kd_dead_cross",
+            "symbol": tradable_symbol,
+        }
+        assumptions.append(
+            "Interpreted 'KD' as KD golden cross for entry and KD dead cross for exit."
+        )
+
+    rule_edit_intents = _extract_rule_edit_intents(
+        prompt=prompt,
+    )
+
+    month_values = rule_edit_intents["month_values"]
+    seasonality_month_edit_action = rule_edit_intents["seasonality_month_edit_action"]
+    has_seasonality_month_edit = rule_edit_intents["has_seasonality_month_edit"]
+    relative_strength_reference_symbol_edit = rule_edit_intents["relative_strength_reference_symbol_edit"]
+    relative_strength_lookback_edit = rule_edit_intents["relative_strength_lookback_edit"]
+    relative_strength_threshold_edit = rule_edit_intents["relative_strength_threshold_edit"]
+    has_partial_relative_strength_edit = rule_edit_intents["has_partial_relative_strength_edit"]
+    confirmation_family = rule_edit_intents["confirmation_family"]
+    add_confirmation_intent = rule_edit_intents["add_confirmation_intent"]
+    remove_confirmation_intent = rule_edit_intents["remove_confirmation_intent"]
+    has_confirmation_edit_intent = rule_edit_intents["has_confirmation_edit_intent"]
+    entry_window_bars_edit = rule_edit_intents["entry_window_bars_edit"]
+    exit_window_bars_edit = rule_edit_intents["exit_window_bars_edit"]
+    entry_window_mode_edit = rule_edit_intents["entry_window_mode_edit"]
+    exit_window_mode_edit = rule_edit_intents["exit_window_mode_edit"]
+    entry_sequence_bars_edit = rule_edit_intents["entry_sequence_bars_edit"]
+    exit_sequence_bars_edit = rule_edit_intents["exit_sequence_bars_edit"]
+    entry_sequence_first_step_edit = rule_edit_intents["entry_sequence_first_step_edit"]
+    entry_sequence_second_step_edit = rule_edit_intents["entry_sequence_second_step_edit"]
+    exit_sequence_first_step_edit = rule_edit_intents["exit_sequence_first_step_edit"]
+    exit_sequence_second_step_edit = rule_edit_intents["exit_sequence_second_step_edit"]
+    has_temporal_rule_edit_intent = rule_edit_intents["has_temporal_rule_edit_intent"]
+    entry_group_operator_edit = rule_edit_intents["entry_group_operator_edit"]
+    exit_group_operator_edit = rule_edit_intents["exit_group_operator_edit"]
+    entry_group_first_condition_edit = rule_edit_intents["entry_group_first_condition_edit"]
+    entry_group_second_condition_edit = rule_edit_intents["entry_group_second_condition_edit"]
+    exit_group_first_condition_edit = rule_edit_intents["exit_group_first_condition_edit"]
+    exit_group_second_condition_edit = rule_edit_intents["exit_group_second_condition_edit"]
+    entry_window_inner_rule_edit = rule_edit_intents["entry_window_inner_rule_edit"]
+    exit_window_inner_rule_edit = rule_edit_intents["exit_window_inner_rule_edit"]
+    entry_not_inner_rule_edit = rule_edit_intents["entry_not_inner_rule_edit"]
+    exit_not_inner_rule_edit = rule_edit_intents["exit_not_inner_rule_edit"]
+    has_not_rule_edit_intent = rule_edit_intents["has_not_rule_edit_intent"]
+    has_nested_composite_edit_intent = rule_edit_intents["has_nested_composite_edit_intent"]
+    remove_entry_group_first_condition = rule_edit_intents["remove_entry_group_first_condition"]
+    remove_entry_group_second_condition = rule_edit_intents["remove_entry_group_second_condition"]
+    remove_exit_group_first_condition = rule_edit_intents["remove_exit_group_first_condition"]
+    remove_exit_group_second_condition = rule_edit_intents["remove_exit_group_second_condition"]
+    remove_entry_window_wrapper = rule_edit_intents["remove_entry_window_wrapper"]
+    remove_exit_window_wrapper = rule_edit_intents["remove_exit_window_wrapper"]
+    remove_entry_not_wrapper = rule_edit_intents["remove_entry_not_wrapper"]
+    remove_exit_not_wrapper = rule_edit_intents["remove_exit_not_wrapper"]
+    remove_entry_sequence_first_step = rule_edit_intents["remove_entry_sequence_first_step"]
+    remove_entry_sequence_second_step = rule_edit_intents["remove_entry_sequence_second_step"]
+    remove_exit_sequence_first_step = rule_edit_intents["remove_exit_sequence_first_step"]
+    remove_exit_sequence_second_step = rule_edit_intents["remove_exit_sequence_second_step"]
+    has_nested_composite_removal_intent = rule_edit_intents["has_nested_composite_removal_intent"]
 
     if has_confirmation_edit_intent and not has_current_config:
         raise ValueError(
