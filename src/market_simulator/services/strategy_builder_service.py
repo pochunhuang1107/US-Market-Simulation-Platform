@@ -822,6 +822,118 @@ def _build_summary_intro(
     return f"Drafted a strategy for {symbol} from {start_date_str} to {end_date_str}"
 
 
+def _build_strategy_summary(
+    *,
+    config: dict[str, Any],
+    tradable_symbol: str,
+    benchmark_symbol: str,
+    start_date,
+    end_date,
+    has_current_config: bool,
+    assumptions: list[str],
+    transaction_cost_bps_edit: float | None,
+    allocation_edit_value: float | None,
+    max_position_pct_edit: float | None,
+    stop_loss_removed: bool,
+    stop_loss_pct: float | None,
+    take_profit_removed: bool,
+    take_profit_pct: float | None,
+    cooldown_removed: bool,
+    cooldown_edit: int | None,
+    cooldown_bars: int,
+    partial_take_profit_removed: bool,
+    partial_take_profit: dict[str, Any] | None,
+    position_management_removed: bool,
+    has_position_management_edit: bool,
+    core_overlay_disabled: bool,
+    core_overlay_enabled: bool,
+) -> str:
+    effective_symbol = config.get("tradable_symbol", tradable_symbol)
+    effective_entry = config.get("entry_rule")
+    effective_exit = config.get("exit_rule")
+    effective_benchmark = config.get("benchmark_symbol", benchmark_symbol)
+
+    summary_start_date = (
+        config.get("start_date", start_date.isoformat())
+        if has_current_config
+        else start_date.isoformat()
+    )
+    summary_end_date = (
+        config.get("end_date", end_date.isoformat())
+        if has_current_config
+        else end_date.isoformat()
+    )
+
+    summary_parts = [
+        _build_summary_intro(
+            symbol=effective_symbol,
+            start_date_str=summary_start_date,
+            end_date_str=summary_end_date,
+            assumptions=assumptions,
+        ),
+        f"with entry rule {_rule_label(effective_entry)}",
+        f"and exit rule {_rule_label(effective_exit)}.",
+    ]
+
+    if effective_benchmark != effective_symbol:
+        summary_parts.append(f"Benchmark set to {effective_benchmark}.")
+
+    if benchmark_symbol != tradable_symbol:
+        summary_parts.append(f"Benchmark set to {benchmark_symbol}.")
+
+    if transaction_cost_bps_edit is not None:
+        summary_parts.append(f"Transaction cost set to {transaction_cost_bps_edit:.1f} bps.")
+
+    if allocation_edit_value is not None and config.get("allocation", {}).get("entry_value") != 1.0:
+        summary_parts.append(
+            f"Position sizing set to {config['allocation']['entry_value'] * 100:.1f}% of equity."
+        )
+
+    if max_position_pct_edit is not None:
+        summary_parts.append(
+            f"Max position set to {config['allocation']['max_position_pct'] * 100:.1f}%."
+        )
+
+    if stop_loss_removed:
+        summary_parts.append("Stop loss removed.")
+    elif stop_loss_pct is not None:
+        summary_parts.append(f"Stop loss set to {stop_loss_pct * 100:.1f}%.")
+
+    if take_profit_removed:
+        summary_parts.append("Take profit removed.")
+    elif take_profit_pct is not None:
+        summary_parts.append(f"Take profit set to {take_profit_pct * 100:.1f}%.")
+
+    if cooldown_removed:
+        summary_parts.append("Cooldown removed.")
+    elif cooldown_edit is not None and cooldown_bars:
+        summary_parts.append(f"Cooldown set to {cooldown_bars} bars.")
+
+    if partial_take_profit_removed:
+        summary_parts.append("Partial take profit removed.")
+    elif partial_take_profit is not None:
+        summary_parts.append(
+            "Partial take profit set "
+            f"at {partial_take_profit['trigger_profit_pct'] * 100:.1f}%, "
+            f"sell {partial_take_profit['sell_fraction_of_position'] * 100:.1f}%, "
+            f"max {partial_take_profit['max_triggers']} times."
+        )
+
+    if position_management_removed:
+        summary_parts.append("Position management removed.")
+    elif has_position_management_edit:
+        summary_parts.append("Position management updated.")
+
+    if core_overlay_disabled:
+        summary_parts.append("Core allocation disabled.")
+    elif core_overlay_enabled:
+        summary_parts.append(
+            f"Core allocation set to {config['core_overlay']['core_allocation_pct'] * 100:.1f}%."
+        )
+
+    return " ".join(summary_parts)
+
+
 def _generate_strategy_draft(
     req: StrategyBuilderGenerateRequest,
     *,
@@ -2294,88 +2406,31 @@ def _generate_strategy_draft(
 
     config = _sync_reference_symbols(_merge_dict(base_config, default_config))
 
-    effective_symbol = config.get("tradable_symbol", tradable_symbol)
-    effective_entry = config.get("entry_rule", entry_rule)
-    effective_exit = config.get("exit_rule", exit_rule)
-    effective_benchmark = config.get("benchmark_symbol", benchmark_symbol)
-
-    summary_start_date = (
-        config.get("start_date", start_date.isoformat())
-        if has_current_config
-        else start_date.isoformat()
+    summary = _build_strategy_summary(
+        config=config,
+        tradable_symbol=tradable_symbol,
+        benchmark_symbol=benchmark_symbol,
+        start_date=start_date,
+        end_date=end_date,
+        has_current_config=has_current_config,
+        assumptions=assumptions,
+        transaction_cost_bps_edit=transaction_cost_bps_edit,
+        allocation_edit_value=allocation_edit_value,
+        max_position_pct_edit=max_position_pct_edit,
+        stop_loss_removed=stop_loss_removed,
+        stop_loss_pct=stop_loss_pct,
+        take_profit_removed=take_profit_removed,
+        take_profit_pct=take_profit_pct,
+        cooldown_removed=cooldown_removed,
+        cooldown_edit=cooldown_edit,
+        cooldown_bars=cooldown_bars,
+        partial_take_profit_removed=partial_take_profit_removed,
+        partial_take_profit=partial_take_profit,
+        position_management_removed=position_management_removed,
+        has_position_management_edit=has_position_management_edit,
+        core_overlay_disabled=core_overlay_disabled,
+        core_overlay_enabled=core_overlay_enabled,
     )
-    summary_end_date = (
-        config.get("end_date", end_date.isoformat())
-        if has_current_config
-        else end_date.isoformat()
-    )
-
-    summary_parts = [
-        _build_summary_intro(
-            symbol=effective_symbol,
-            start_date_str=summary_start_date,
-            end_date_str=summary_end_date,
-            assumptions=assumptions,
-        ),
-        f"with entry rule {_rule_label(effective_entry)}",
-        f"and exit rule {_rule_label(effective_exit)}.",
-    ]
-
-    if effective_benchmark != effective_symbol:
-        summary_parts.append(f"Benchmark set to {effective_benchmark}.")
-
-    if benchmark_symbol != tradable_symbol:
-        summary_parts.append(f"Benchmark set to {benchmark_symbol}.")
-
-    if transaction_cost_bps_edit is not None:
-        summary_parts.append(f"Transaction cost set to {transaction_cost_bps_edit:.1f} bps.")
-
-    if allocation_edit_value is not None and config.get("allocation", {}).get("entry_value") != 1.0:
-        summary_parts.append(
-            f"Position sizing set to {config['allocation']['entry_value'] * 100:.1f}% of equity."
-        )
-
-    if max_position_pct_edit is not None:
-        summary_parts.append(
-            f"Max position set to {config['allocation']['max_position_pct'] * 100:.1f}%."
-        )
-
-    if stop_loss_removed:
-        summary_parts.append("Stop loss removed.")
-    elif stop_loss_pct is not None:
-        summary_parts.append(f"Stop loss set to {stop_loss_pct * 100:.1f}%.")
-
-    if take_profit_removed:
-        summary_parts.append("Take profit removed.")
-    elif take_profit_pct is not None:
-        summary_parts.append(f"Take profit set to {take_profit_pct * 100:.1f}%.")
-
-    if cooldown_removed:
-        summary_parts.append("Cooldown removed.")
-    elif cooldown_edit is not None and cooldown_bars:
-        summary_parts.append(f"Cooldown set to {cooldown_bars} bars.")
-
-    if partial_take_profit_removed:
-        summary_parts.append("Partial take profit removed.")
-    elif partial_take_profit is not None:
-        summary_parts.append(
-            "Partial take profit set "
-            f"at {partial_take_profit['trigger_profit_pct'] * 100:.1f}%, "
-            f"sell {partial_take_profit['sell_fraction_of_position'] * 100:.1f}%, "
-            f"max {partial_take_profit['max_triggers']} times."
-        )
-
-    if position_management_removed:
-        summary_parts.append("Position management removed.")
-    elif has_position_management_edit:
-        summary_parts.append("Position management updated.")
-
-    if core_overlay_disabled:
-        summary_parts.append("Core allocation disabled.")
-    elif core_overlay_enabled:
-        summary_parts.append(
-            f"Core allocation set to {config['core_overlay']['core_allocation_pct'] * 100:.1f}%."
-        )
 
     validated = StrategyV2.model_validate(config)
     validated_config = validated.model_dump(mode="json", exclude_none=True)
@@ -2383,7 +2438,7 @@ def _generate_strategy_draft(
 
     return (
         validated_config,
-        " ".join(summary_parts),
+        summary,
         warnings,
         assumptions,
         changes,
