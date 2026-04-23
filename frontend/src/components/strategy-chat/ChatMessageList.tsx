@@ -62,6 +62,24 @@ function InfoPill({
   );
 }
 
+function SymbolChipButton({
+  symbol,
+  onClick
+}: {
+  symbol: string;
+  onClick: (prompt: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(`Create a ${symbol} RSI mean reversion strategy`)}
+      className="app-chip-info rounded-full px-3 py-1 text-xs font-semibold tracking-[0.14em] transition hover:opacity-90 cursor-pointer shadow-sm"
+    >
+      {symbol}
+    </button>
+  );
+}
+
 function AnswerSection({
   title,
   items
@@ -141,15 +159,40 @@ function StrategyAnswerCard({
         </div>
         <h3 className="app-title text-lg font-semibold">Supported ETF symbols</h3>
         <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {answerData.supported_symbols.map((symbol) => (
-            <span
-              key={symbol}
-              className="app-chip-info rounded-full px-3 py-1 text-xs font-semibold tracking-[0.14em]"
-            >
-              {symbol}
-            </span>
-          ))}
+
+        <div className="mt-5">
+          <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+            Click a symbol to start a draft
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {answerData.supported_symbols.map((symbol) => (
+              <SymbolChipButton
+                key={symbol}
+                symbol={symbol}
+                onClick={(prompt) => onUsePrompt?.(prompt)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+            Or try one of these templates
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <ActionChip
+              text="Create a QQQ RSI mean reversion strategy"
+              onClick={(prompt) => onUsePrompt?.(prompt)}
+            />
+            <ActionChip
+              text="Create an SPY moving average crossover strategy using 10 day and 30 day SMA"
+              onClick={(prompt) => onUsePrompt?.(prompt)}
+            />
+            <ActionChip
+              text="Create a GLD seasonality strategy"
+              onClick={(prompt) => onUsePrompt?.(prompt)}
+            />
+          </div>
         </div>
       </div>
     );
