@@ -209,6 +209,7 @@ export function StrategyChatPage() {
   const [entitlements, setEntitlements] = useState<MeEntitlementsResponse | null>(null);
   const [isLoadingEntitlements, setIsLoadingEntitlements] = useState(true);
   const [entitlementError, setEntitlementError] = useState<string | null>(null);
+  const [composerFocusKey, setComposerFocusKey] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -419,6 +420,16 @@ export function StrategyChatPage() {
 
   function handlePromptChipClick(prompt: string) {
     setInput(prompt);
+    setComposerFocusKey((value) => value + 1);
+  }
+
+  function handleAssistantSuggestion(prompt: string) {
+    setInput(prompt);
+    setComposerFocusKey((value) => value + 1);
+
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
   }
 
   return (
@@ -464,6 +475,7 @@ export function StrategyChatPage() {
                 placeholder="Describe your strategy..."
                 submitLabel="Generate Strategy"
                 disabled={Boolean(entitlements && !entitlements.features.allow_ai_builder)}
+                focusKey={composerFocusKey}
               />
               <div className="mt-2 flex items-center justify-between px-2 text-xs">
                 <span className={isPromptTooLong ? 'text-amber-300' : 'app-text-muted'}>
@@ -490,7 +502,11 @@ export function StrategyChatPage() {
                 />
               </div>
 
-              <ChatMessageList messages={messages} onRunDraft={handleRun} />
+              <ChatMessageList
+                messages={messages}
+                onRunDraft={handleRun}
+                onUsePrompt={handleAssistantSuggestion}
+              />
 
               {isGenerating && (
                 <div className="app-card mx-auto mt-4 max-w-3xl rounded-3xl border px-5 py-4 text-sm app-text-muted">
@@ -514,6 +530,7 @@ export function StrategyChatPage() {
                 placeholder="Refine the strategy or describe a new adjustment..."
                 submitLabel="Update Strategy"
                 disabled={Boolean(entitlements && !entitlements.features.allow_ai_builder)}
+                focusKey={composerFocusKey}
               />
               <div className="mt-2 flex items-center justify-between px-2 text-xs">
                 <span className={isPromptTooLong ? 'text-amber-300' : 'app-text-muted'}>

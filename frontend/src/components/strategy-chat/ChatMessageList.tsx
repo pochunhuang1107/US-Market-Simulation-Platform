@@ -75,6 +75,27 @@ function InfoPill({
   );
 }
 
+function ActionChip({
+  text,
+  onClick,
+  tone = 'info'
+}: {
+  text: string;
+  onClick: () => void;
+  tone?: 'info' | 'warning';
+}) {
+  const className =
+    tone === 'warning'
+      ? 'rounded-2xl border border-amber-500/30 bg-slate-950/20 px-4 py-3 text-left text-sm text-amber-50 transition hover:border-amber-400/50 hover:bg-amber-500/10'
+      : 'rounded-2xl border border-cyan-500/30 bg-slate-950/20 px-4 py-3 text-left text-sm text-cyan-50 transition hover:border-cyan-400/50 hover:bg-cyan-500/10';
+
+  return (
+    <button type="button" onClick={onClick} className={className}>
+      {text}
+    </button>
+  );
+}
+
 function StrategyAnswerCard({
   text,
   answerData
@@ -152,7 +173,8 @@ function StrategyAnswerCard({
 
 function StrategyValidationCard({
   text,
-  validationData
+  validationData,
+  onUsePrompt
 }: {
   text: string;
   validationData?: {
@@ -163,7 +185,10 @@ function StrategyValidationCard({
     max_backtest_years?: number | null;
     suggested_action?: string | null;
   } | null;
+  onUsePrompt?: (prompt: string) => void;
 }) {
+  const suggestionAction = validationData?.suggested_action?.trim() || null;
+
   if (
     validationData?.validation_type === 'UNSUPPORTED_SYMBOL' &&
     validationData.unsupported_symbols?.length
@@ -185,9 +210,14 @@ function StrategyValidationCard({
             </span>
           ))}
         </div>
-        {validationData.suggested_action ? (
-          <div className="mt-4">
-            <InfoPill label="Suggested action" value={validationData.suggested_action} tone="warning" />
+        {suggestionAction ? (
+          <div className="mt-4 space-y-3">
+            <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
+            <ActionChip
+              text={suggestionAction}
+              tone="warning"
+              onClick={() => onUsePrompt?.(suggestionAction)}
+            />
           </div>
         ) : null}
       </div>
@@ -210,9 +240,14 @@ function StrategyValidationCard({
           <InfoPill label="Supported Start" value={validationData.supported_data_start} tone="warning" />
           <InfoPill label="Supported End" value={validationData.supported_data_end} tone="warning" />
         </div>
-        {validationData.suggested_action ? (
-          <div className="mt-4">
-            <InfoPill label="Suggested action" value={validationData.suggested_action} tone="warning" />
+        {suggestionAction ? (
+          <div className="mt-4 space-y-3">
+            <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
+            <ActionChip
+              text={suggestionAction}
+              tone="warning"
+              onClick={() => onUsePrompt?.(suggestionAction)}
+            />
           </div>
         ) : null}
       </div>
@@ -223,6 +258,8 @@ function StrategyValidationCard({
     validationData?.validation_type === 'PLAN_LIMIT' &&
     validationData.max_backtest_years
   ) {
+    const actionText = suggestionAction ?? 'Shorten the date range and try again.';
+
     return (
       <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
         <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
@@ -232,11 +269,10 @@ function StrategyValidationCard({
         <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <InfoPill label="Plan Max Years" value={String(validationData.max_backtest_years)} tone="warning" />
-          <InfoPill
-            label="Suggested action"
-            value={validationData.suggested_action ?? 'Shorten the date range and try again.'}
-            tone="warning"
-          />
+          <InfoPill label="Suggested action" value={actionText} tone="warning" />
+        </div>
+        <div className="mt-4">
+          <ActionChip text={actionText} tone="warning" onClick={() => onUsePrompt?.(actionText)} />
         </div>
       </div>
     );
@@ -250,9 +286,14 @@ function StrategyValidationCard({
         </div>
         <h3 className="text-lg font-semibold text-amber-50">Invalid date format</h3>
         <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
-        {validationData.suggested_action ? (
-          <div className="mt-4">
-            <InfoPill label="Suggested action" value={validationData.suggested_action} tone="warning" />
+        {suggestionAction ? (
+          <div className="mt-4 space-y-3">
+            <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
+            <ActionChip
+              text={suggestionAction}
+              tone="warning"
+              onClick={() => onUsePrompt?.(suggestionAction)}
+            />
           </div>
         ) : null}
       </div>
@@ -267,9 +308,14 @@ function StrategyValidationCard({
         </div>
         <h3 className="text-lg font-semibold text-amber-50">Unsupported edit type</h3>
         <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
-        {validationData.suggested_action ? (
-          <div className="mt-4">
-            <InfoPill label="Suggested action" value={validationData.suggested_action} tone="warning" />
+        {suggestionAction ? (
+          <div className="mt-4 space-y-3">
+            <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
+            <ActionChip
+              text={suggestionAction}
+              tone="warning"
+              onClick={() => onUsePrompt?.(suggestionAction)}
+            />
           </div>
         ) : null}
       </div>
@@ -281,13 +327,15 @@ function StrategyValidationCard({
 
 function StrategyGuidanceCard({
   text,
-  guidanceData
+  guidanceData,
+  onUsePrompt
 }: {
   text: string;
   guidanceData?: {
     guidance_type: string;
     suggested_actions?: string[];
   } | null;
+  onUsePrompt?: (prompt: string) => void;
 }) {
   if (guidanceData?.guidance_type && guidanceData.suggested_actions?.length) {
     return (
@@ -301,7 +349,11 @@ function StrategyGuidanceCard({
         <p className="mt-2 text-sm leading-6 text-cyan-100/90">{text}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {guidanceData.suggested_actions.map((action) => (
-            <InfoPill key={action} label="Try next" value={action} />
+            <ActionChip
+              key={action}
+              text={action}
+              onClick={() => onUsePrompt?.(action)}
+            />
           ))}
         </div>
       </div>
@@ -313,10 +365,12 @@ function StrategyGuidanceCard({
 
 export function ChatMessageList({
   messages,
-  onRunDraft
+  onRunDraft,
+  onUsePrompt
 }: {
   messages: ChatMessage[];
   onRunDraft: (messageId: string) => void;
+  onUsePrompt: (prompt: string) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -361,6 +415,7 @@ export function ChatMessageList({
                 <StrategyGuidanceCard
                   text={message.text}
                   guidanceData={message.draft.guidance_data}
+                  onUsePrompt={onUsePrompt}
                 />
               </div>
             );
@@ -382,6 +437,7 @@ export function ChatMessageList({
               <StrategyValidationCard
                 text={message.text}
                 validationData={message.draft?.validation_data ?? null}
+                onUsePrompt={onUsePrompt}
               />
             </div>
           );

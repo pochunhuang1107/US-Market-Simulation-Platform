@@ -8,6 +8,7 @@ type PromptComposerProps = {
   disabled?: boolean;
   placeholder?: string;
   submitLabel?: string;
+  focusKey?: number;
 };
 
 export function PromptComposer({
@@ -17,7 +18,8 @@ export function PromptComposer({
   submitting,
   disabled = false,
   placeholder = 'Describe your strategy...',
-  submitLabel
+  submitLabel,
+  focusKey
 }: PromptComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -32,6 +34,11 @@ export function PromptComposer({
   useLayoutEffect(() => {
     resizeTextarea();
   }, [value, resizeTextarea]);
+
+  useLayoutEffect(() => {
+    if (focusKey === undefined || disabled) return;
+    textareaRef.current?.focus();
+  }, [focusKey, disabled]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
