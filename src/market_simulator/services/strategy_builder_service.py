@@ -138,6 +138,26 @@ def _has_current_config(req: StrategyBuilderGenerateRequest) -> bool:
     return isinstance(current_config, dict) and bool(current_config)
 
 
+def _resolve_effective_symbols(
+    *,
+    tradable_symbol: str,
+    benchmark_symbol: str,
+    current_config: dict[str, Any] | None,
+    has_current_config: bool,
+) -> tuple[str, str]:
+    effective_tradable_symbol = (
+        current_config.get("tradable_symbol", tradable_symbol)
+        if has_current_config and isinstance(current_config, dict)
+        else tradable_symbol
+    )
+    effective_benchmark_symbol = (
+        current_config.get("benchmark_symbol", benchmark_symbol)
+        if has_current_config and isinstance(current_config, dict)
+        else benchmark_symbol
+    )
+    return effective_tradable_symbol, effective_benchmark_symbol
+
+
 def _extract_risk_and_position_inputs(
     *,
     prompt: str,
@@ -579,6 +599,13 @@ def _finalize_rule_setup(
             "MACD, KD/stochastic, or relative strength confirmation."
         )
 
+    effective_tradable_symbol, effective_benchmark_symbol = _resolve_effective_symbols(
+        tradable_symbol=tradable_symbol,
+        benchmark_symbol=benchmark_symbol,
+        current_config=current_config,
+        has_current_config=has_current_config,
+    )
+
     if (
         ("seasonality" in prompt_lower or "month" in prompt_lower or "months" in prompt_lower)
         and month_values is not None
@@ -602,17 +629,10 @@ def _finalize_rule_setup(
 
     relative_strength_rules = _extract_relative_strength_rules(
         prompt,
-        tradable_symbol=(
-            current_config.get("tradable_symbol", tradable_symbol)
-            if has_current_config
-            else tradable_symbol
-        ),
-        fallback_reference_symbol=(
-            current_config.get("benchmark_symbol", benchmark_symbol)
-            if has_current_config
-            else benchmark_symbol
-        ),
+        tradable_symbol=effective_tradable_symbol,
+        fallback_reference_symbol=effective_benchmark_symbol,
     )
+
     if relative_strength_rules is not None:
         entry_rule, exit_rule, relative_strength_assumptions = relative_strength_rules
         assumptions.extend(relative_strength_assumptions)
@@ -621,16 +641,8 @@ def _finalize_rule_setup(
     if has_confirmation_edit_intent:
         confirmation_rules = _build_confirmation_rules(
             prompt,
-            tradable_symbol=(
-                current_config.get("tradable_symbol", tradable_symbol)
-                if has_current_config
-                else tradable_symbol
-            ),
-            fallback_reference_symbol=(
-                current_config.get("benchmark_symbol", benchmark_symbol)
-                if has_current_config
-                else benchmark_symbol
-            ),
+            tradable_symbol=effective_tradable_symbol,
+            fallback_reference_symbol=effective_benchmark_symbol,
         )
         if confirmation_rules is None:
             raise ValueError(
@@ -645,30 +657,14 @@ def _finalize_rule_setup(
     if entry_clause is not None and exit_clause is not None:
         composite_entry_rule, composite_entry_assumptions = _build_rule_from_clause(
             entry_clause,
-            tradable_symbol=(
-                current_config.get("tradable_symbol", tradable_symbol)
-                if has_current_config
-                else tradable_symbol
-            ),
-            fallback_reference_symbol=(
-                current_config.get("benchmark_symbol", benchmark_symbol)
-                if has_current_config
-                else benchmark_symbol
-            ),
+            tradable_symbol=effective_tradable_symbol,
+            fallback_reference_symbol=effective_benchmark_symbol,
             side="entry",
         )
         composite_exit_rule, composite_exit_assumptions = _build_rule_from_clause(
             exit_clause,
-            tradable_symbol=(
-                current_config.get("tradable_symbol", tradable_symbol)
-                if has_current_config
-                else tradable_symbol
-            ),
-            fallback_reference_symbol=(
-                current_config.get("benchmark_symbol", benchmark_symbol)
-                if has_current_config
-                else benchmark_symbol
-            ),
+            tradable_symbol=effective_tradable_symbol,
+            fallback_reference_symbol=effective_benchmark_symbol,
             side="exit",
         )
 
@@ -1272,8 +1268,12 @@ def _apply_update_flow_edits(
             existing_exit_rule = updated_exit_rule
 
     if has_temporal_rule_edit_intent:
-        current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
-        current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
+        current_tradable_symbol, current_benchmark_symbol = _resolve_effective_symbols(
+            tradable_symbol=tradable_symbol,
+            benchmark_symbol=benchmark_symbol,
+            current_config=default_config,
+            has_current_config=True,
+        )
 
         if entry_window_bars_edit is not None:
             existing_entry_rule, changed = _update_first_window_bars(
@@ -1392,8 +1392,12 @@ def _apply_update_flow_edits(
                     assumptions.extend(step_assumptions)
 
     if has_nested_composite_edit_intent:
-        current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
-        current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
+        current_tradable_symbol, current_benchmark_symbol = _resolve_effective_symbols(
+            tradable_symbol=tradable_symbol,
+            benchmark_symbol=benchmark_symbol,
+            current_config=default_config,
+            has_current_config=True,
+        )
 
         if entry_group_operator_edit is not None:
             existing_entry_rule, changed = _update_first_group_operator(
@@ -1512,8 +1516,12 @@ def _apply_update_flow_edits(
                     assumptions.extend(rule_assumptions)
 
     if has_not_rule_edit_intent:
-        current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
-        current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
+        current_tradable_symbol, current_benchmark_symbol = _resolve_effective_symbols(
+            tradable_symbol=tradable_symbol,
+            benchmark_symbol=benchmark_symbol,
+            current_config=default_config,
+            has_current_config=True,
+        )
 
         if entry_not_inner_rule_edit is not None and _has_not_rule_anywhere(existing_entry_rule):
             updated_rule, rule_assumptions = _build_rule_from_clause(
