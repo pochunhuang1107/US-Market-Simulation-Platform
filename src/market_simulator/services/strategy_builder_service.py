@@ -1015,6 +1015,53 @@ def _build_create_flow_default_config(
     return default_config
 
 
+def _build_update_flow_default_config(
+    *,
+    base_config: dict[str, Any],
+    tradable_symbol: str,
+    benchmark_symbol: str,
+    start_date,
+    end_date,
+    initial_capital: float,
+    allocation_value: float,
+    entry_rule: dict | None,
+    exit_rule: dict | None,
+    explicit_date_edits: dict[str, str],
+) -> dict[str, Any]:
+    default_config = dict(base_config)
+
+    default_config.setdefault("schema_version", "2.0")
+    default_config.setdefault("transaction_cost_bps", 5)
+    default_config.setdefault("reference_symbols", [])
+    default_config.setdefault("core_overlay", {"enabled": False, "core_allocation_pct": 0.0})
+    default_config.setdefault("position_management", None)
+
+    default_config.setdefault("tradable_symbol", tradable_symbol)
+    default_config.setdefault("benchmark_symbol", benchmark_symbol)
+    default_config.setdefault("start_date", start_date.isoformat())
+    default_config.setdefault("end_date", end_date.isoformat())
+    default_config.setdefault("initial_capital", initial_capital)
+
+    if "start_date" in explicit_date_edits:
+        default_config["start_date"] = explicit_date_edits["start_date"]
+    if "end_date" in explicit_date_edits:
+        default_config["end_date"] = explicit_date_edits["end_date"]
+
+    default_config.setdefault(
+        "allocation",
+        {
+            "entry_mode": "percent_of_equity",
+            "entry_value": allocation_value,
+            "max_position_pct": 1.0,
+        },
+    )
+
+    default_config.setdefault("entry_rule", entry_rule)
+    default_config.setdefault("exit_rule", exit_rule)
+
+    return default_config
+
+
 def _generate_strategy_draft(
     req: StrategyBuilderGenerateRequest,
     *,
@@ -1668,34 +1715,18 @@ def _generate_strategy_draft(
             assumptions=assumptions,
         )
     else:
-        default_config.setdefault("schema_version", "2.0")
-        default_config.setdefault("transaction_cost_bps", 5)
-        default_config.setdefault("reference_symbols", [])
-        default_config.setdefault("core_overlay", {"enabled": False, "core_allocation_pct": 0.0})
-        default_config.setdefault("position_management", None)
-
-        default_config.setdefault("tradable_symbol", tradable_symbol)
-        default_config.setdefault("benchmark_symbol", benchmark_symbol)
-        default_config.setdefault("start_date", start_date.isoformat())
-        default_config.setdefault("end_date", end_date.isoformat())
-        default_config.setdefault("initial_capital", initial_capital)
-
-        if "start_date" in explicit_date_edits:
-            default_config["start_date"] = explicit_date_edits["start_date"]
-        if "end_date" in explicit_date_edits:
-            default_config["end_date"] = explicit_date_edits["end_date"]
-
-        default_config.setdefault(
-            "allocation",
-            {
-                "entry_mode": "percent_of_equity",
-                "entry_value": allocation_value,
-                "max_position_pct": 1.0,
-            },
+        default_config = _build_update_flow_default_config(
+            base_config=base_config,
+            tradable_symbol=tradable_symbol,
+            benchmark_symbol=benchmark_symbol,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=initial_capital,
+            allocation_value=allocation_value,
+            entry_rule=entry_rule,
+            exit_rule=exit_rule,
+            explicit_date_edits=explicit_date_edits,
         )
-
-        default_config.setdefault("entry_rule", entry_rule)
-        default_config.setdefault("exit_rule", exit_rule)
 
         benchmark_edit_intent = _has_benchmark_edit_intent(prompt)
 
