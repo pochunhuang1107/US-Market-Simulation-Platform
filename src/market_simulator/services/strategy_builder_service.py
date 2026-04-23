@@ -557,6 +557,180 @@ def _extract_rule_edit_intents(
     }
 
 
+def _finalize_rule_setup(
+    *,
+    prompt: str,
+    prompt_lower: str,
+    tradable_symbol: str,
+    benchmark_symbol: str,
+    current_config: dict[str, Any] | None,
+    has_current_config: bool,
+    assumptions: list[str],
+    warnings: list[str],
+    entry_rule: dict | None,
+    exit_rule: dict | None,
+    month_values: list[int] | None,
+    has_confirmation_edit_intent: bool,
+) -> dict[str, Any]:
+    if has_confirmation_edit_intent and not has_current_config:
+        raise ValueError(
+            "Confirmation filters currently require an existing draft. "
+            "Create a base strategy first, then ask me to add or remove "
+            "MACD, KD/stochastic, or relative strength confirmation."
+        )
+
+    if (
+        ("seasonality" in prompt_lower or "month" in prompt_lower or "months" in prompt_lower)
+        and month_values is not None
+    ):
+        entry_rule = {
+            "kind": "atomic",
+            "type": "month_in",
+            "month_values": month_values,
+        }
+        exit_rule = {
+            "kind": "not",
+            "rule": {
+                "kind": "atomic",
+                "type": "month_in",
+                "month_values": month_values,
+            },
+        }
+        assumptions.append(
+            "Interpreted seasonality/month language as entering only during the selected calendar months."
+        )
+
+    relative_strength_rules = _extract_relative_strength_rules(
+        prompt,
+        tradable_symbol=(
+            current_config.get("tradable_symbol", tradable_symbol)
+            if has_current_config
+            else tradable_symbol
+        ),
+        fallback_reference_symbol=(
+            current_config.get("benchmark_symbol", benchmark_symbol)
+            if has_current_config
+            else benchmark_symbol
+        ),
+    )
+    if relative_strength_rules is not None:
+        entry_rule, exit_rule, relative_strength_assumptions = relative_strength_rules
+        assumptions.extend(relative_strength_assumptions)
+
+    confirmation_rules = None
+    if has_confirmation_edit_intent:
+        confirmation_rules = _build_confirmation_rules(
+            prompt,
+            tradable_symbol=(
+                current_config.get("tradable_symbol", tradable_symbol)
+                if has_current_config
+                else tradable_symbol
+            ),
+            fallback_reference_symbol=(
+                current_config.get("benchmark_symbol", benchmark_symbol)
+                if has_current_config
+                else benchmark_symbol
+            ),
+        )
+        if confirmation_rules is None:
+            raise ValueError(
+                "I could not deterministically parse that confirmation filter. "
+                "Supported confirmation filters right now are MACD, KD/stochastic, and relative strength."
+            )
+
+        _, _, confirmation_assumptions = confirmation_rules
+        assumptions.extend(confirmation_assumptions)
+
+    entry_clause, exit_clause = _extract_entry_exit_rule_clauses(prompt)
+    if entry_clause is not None and exit_clause is not None:
+        composite_entry_rule, composite_entry_assumptions = _build_rule_from_clause(
+            entry_clause,
+            tradable_symbol=(
+                current_config.get("tradable_symbol", tradable_symbol)
+                if has_current_config
+                else tradable_symbol
+            ),
+            fallback_reference_symbol=(
+                current_config.get("benchmark_symbol", benchmark_symbol)
+                if has_current_config
+                else benchmark_symbol
+            ),
+            side="entry",
+        )
+        composite_exit_rule, composite_exit_assumptions = _build_rule_from_clause(
+            exit_clause,
+            tradable_symbol=(
+                current_config.get("tradable_symbol", tradable_symbol)
+                if has_current_config
+                else tradable_symbol
+            ),
+            fallback_reference_symbol=(
+                current_config.get("benchmark_symbol", benchmark_symbol)
+                if has_current_config
+                else benchmark_symbol
+            ),
+            side="exit",
+        )
+
+        if composite_entry_rule is None or composite_exit_rule is None:
+            raise ValueError(
+                "I could not deterministically parse that combined entry/exit rule request. "
+                "Use explicit clauses like 'entry when RSI below 30 and MACD' and "
+                "'exit when RSI above 70 or MACD'."
+            )
+
+        entry_rule = composite_entry_rule
+        exit_rule = composite_exit_rule
+        assumptions.extend(composite_entry_assumptions)
+        assumptions.extend(composite_exit_assumptions)
+        assumptions.append(
+            "Interpreted explicit entry/exit clauses as combined rules using AND/OR."
+        )
+
+    if "mean reversion" in prompt_lower and entry_rule is None and exit_rule is None:
+        entry_rule = {
+            "kind": "atomic",
+            "type": "rsi_below",
+            "symbol": tradable_symbol,
+            "lookback": 14,
+            "threshold": 30,
+        }
+        exit_rule = {
+            "kind": "atomic",
+            "type": "rsi_above",
+            "symbol": tradable_symbol,
+            "lookback": 14,
+            "threshold": 70,
+        }
+        assumptions.append("Interpreted 'mean reversion' as RSI(14) below 30 / above 70.")
+
+    if entry_rule is None and not has_current_config:
+        entry_rule = {
+            "kind": "atomic",
+            "type": "rsi_below",
+            "symbol": tradable_symbol,
+            "lookback": 14,
+            "threshold": 30,
+        }
+        warnings.append("Entry rule defaulted to RSI(14) below 30.")
+
+    if exit_rule is None and not has_current_config:
+        exit_rule = {
+            "kind": "atomic",
+            "type": "rsi_above",
+            "symbol": tradable_symbol,
+            "lookback": 14,
+            "threshold": 70,
+        }
+        warnings.append("Exit rule defaulted to RSI(14) above 70.")
+
+    return {
+        "entry_rule": entry_rule,
+        "exit_rule": exit_rule,
+        "confirmation_rules": confirmation_rules,
+    }
+
+
 def _build_rule_setup(
     *,
     prompt: str,
@@ -759,157 +933,25 @@ def _build_rule_setup(
     remove_exit_sequence_second_step = rule_edit_intents["remove_exit_sequence_second_step"]
     has_nested_composite_removal_intent = rule_edit_intents["has_nested_composite_removal_intent"]
 
-    if has_confirmation_edit_intent and not has_current_config:
-        raise ValueError(
-            "Confirmation filters currently require an existing draft. "
-            "Create a base strategy first, then ask me to add or remove "
-            "MACD, KD/stochastic, or relative strength confirmation."
-        )
-
-    if (
-        ("seasonality" in prompt_lower or "month" in prompt_lower or "months" in prompt_lower)
-        and month_values is not None
-    ):
-        entry_rule = {
-            "kind": "atomic",
-            "type": "month_in",
-            "month_values": month_values,
-        }
-        exit_rule = {
-            "kind": "not",
-            "rule": {
-                "kind": "atomic",
-                "type": "month_in",
-                "month_values": month_values,
-            },
-        }
-        assumptions.append(
-            "Interpreted seasonality/month language as entering only during the selected calendar months."
-        )
-
-    relative_strength_rules = _extract_relative_strength_rules(
-        prompt,
-        tradable_symbol=(
-            current_config.get("tradable_symbol", tradable_symbol)
-            if has_current_config
-            else tradable_symbol
-        ),
-        fallback_reference_symbol=(
-            current_config.get("benchmark_symbol", benchmark_symbol)
-            if has_current_config
-            else benchmark_symbol
-        ),
+    finalized_rule_setup = _finalize_rule_setup(
+        prompt=prompt,
+        prompt_lower=prompt_lower,
+        tradable_symbol=tradable_symbol,
+        benchmark_symbol=benchmark_symbol,
+        current_config=current_config,
+        has_current_config=has_current_config,
+        assumptions=assumptions,
+        warnings=warnings,
+        entry_rule=entry_rule,
+        exit_rule=exit_rule,
+        month_values=month_values,
+        has_confirmation_edit_intent=has_confirmation_edit_intent,
     )
-    if relative_strength_rules is not None:
-        entry_rule, exit_rule, relative_strength_assumptions = relative_strength_rules
-        assumptions.extend(relative_strength_assumptions)
 
-    confirmation_rules = None
-    if has_confirmation_edit_intent:
-        confirmation_rules = _build_confirmation_rules(
-            prompt,
-            tradable_symbol=(
-                current_config.get("tradable_symbol", tradable_symbol)
-                if has_current_config
-                else tradable_symbol
-            ),
-            fallback_reference_symbol=(
-                current_config.get("benchmark_symbol", benchmark_symbol)
-                if has_current_config
-                else benchmark_symbol
-            ),
-        )
-        if confirmation_rules is None:
-            raise ValueError(
-                "I could not deterministically parse that confirmation filter. "
-                "Supported confirmation filters right now are MACD, KD/stochastic, and relative strength."
-            )
-
-        _, _, confirmation_assumptions = confirmation_rules
-        assumptions.extend(confirmation_assumptions)
-
-    entry_clause, exit_clause = _extract_entry_exit_rule_clauses(prompt)
-    if entry_clause is not None and exit_clause is not None:
-        composite_entry_rule, composite_entry_assumptions = _build_rule_from_clause(
-            entry_clause,
-            tradable_symbol=(
-                current_config.get("tradable_symbol", tradable_symbol)
-                if has_current_config
-                else tradable_symbol
-            ),
-            fallback_reference_symbol=(
-                current_config.get("benchmark_symbol", benchmark_symbol)
-                if has_current_config
-                else benchmark_symbol
-            ),
-            side="entry",
-        )
-        composite_exit_rule, composite_exit_assumptions = _build_rule_from_clause(
-            exit_clause,
-            tradable_symbol=(
-                current_config.get("tradable_symbol", tradable_symbol)
-                if has_current_config
-                else tradable_symbol
-            ),
-            fallback_reference_symbol=(
-                current_config.get("benchmark_symbol", benchmark_symbol)
-                if has_current_config
-                else benchmark_symbol
-            ),
-            side="exit",
-        )
-
-        if composite_entry_rule is None or composite_exit_rule is None:
-            raise ValueError(
-                "I could not deterministically parse that combined entry/exit rule request. "
-                "Use explicit clauses like 'entry when RSI below 30 and MACD' and "
-                "'exit when RSI above 70 or MACD'."
-            )
-
-        entry_rule = composite_entry_rule
-        exit_rule = composite_exit_rule
-        assumptions.extend(composite_entry_assumptions)
-        assumptions.extend(composite_exit_assumptions)
-        assumptions.append(
-            "Interpreted explicit entry/exit clauses as combined rules using AND/OR."
-        )
-
-    if "mean reversion" in prompt_lower and entry_rule is None and exit_rule is None:
-        entry_rule = {
-            "kind": "atomic",
-            "type": "rsi_below",
-            "symbol": tradable_symbol,
-            "lookback": 14,
-            "threshold": 30,
-        }
-        exit_rule = {
-            "kind": "atomic",
-            "type": "rsi_above",
-            "symbol": tradable_symbol,
-            "lookback": 14,
-            "threshold": 70,
-        }
-        assumptions.append("Interpreted 'mean reversion' as RSI(14) below 30 / above 70.")
-
-    if entry_rule is None and not has_current_config:
-        entry_rule = {
-            "kind": "atomic",
-            "type": "rsi_below",
-            "symbol": tradable_symbol,
-            "lookback": 14,
-            "threshold": 30,
-        }
-        warnings.append("Entry rule defaulted to RSI(14) below 30.")
-
-    if exit_rule is None and not has_current_config:
-        exit_rule = {
-            "kind": "atomic",
-            "type": "rsi_above",
-            "symbol": tradable_symbol,
-            "lookback": 14,
-            "threshold": 70,
-        }
-        warnings.append("Exit rule defaulted to RSI(14) above 70.")
+    entry_rule = finalized_rule_setup["entry_rule"]
+    exit_rule = finalized_rule_setup["exit_rule"]
+    confirmation_rules = finalized_rule_setup["confirmation_rules"]
+    
     return {
         "entry_rule": entry_rule,
         "exit_rule": exit_rule,
