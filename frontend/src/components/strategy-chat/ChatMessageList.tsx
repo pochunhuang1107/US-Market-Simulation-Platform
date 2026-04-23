@@ -532,6 +532,7 @@ export function ChatMessageList({
                 <StrategyDraftCard
                   draft={message.draft}
                   onRun={() => onRunDraft(message.id)}
+                  onUsePrompt={onUsePrompt}
                   isRunning={message.isRunning}
                   runError={message.runError}
                 />

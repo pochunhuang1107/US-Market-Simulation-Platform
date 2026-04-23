@@ -148,7 +148,38 @@ function BulletList({ items, emptyText, tone = 'default' }: { items: string[]; e
   );
 }
 
-export function StrategyDraftCard({ draft, onRun, isRunning = false, runError = null }: { draft: StrategyBuilderGenerateResponse; onRun: () => void; isRunning?: boolean; runError?: string | null; }) {
+function QuickEditChip({
+  text,
+  onClick
+}: {
+  text: string;
+  onClick: (prompt: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(text)}
+      className="app-note inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:opacity-90 cursor-pointer shadow-sm"
+    >
+      <span>{text}</span>
+      <span aria-hidden="true">↗</span>
+    </button>
+  );
+}
+
+export function StrategyDraftCard({
+  draft,
+  onRun,
+  onUsePrompt,
+  isRunning = false,
+  runError = null
+}: {
+  draft: StrategyBuilderGenerateResponse;
+  onRun: () => void;
+  onUsePrompt?: (prompt: string) => void;
+  isRunning?: boolean;
+  runError?: string | null;
+}) {
   const [showConfig, setShowConfig] = useState(false);
 
   const viewModel = useMemo(() => {
@@ -192,6 +223,54 @@ export function StrategyDraftCard({ draft, onRun, isRunning = false, runError = 
         typeof risk.cooldown_bars === 'number' && risk.cooldown_bars > 0 ? `Wait ${risk.cooldown_bars} bars before re-entering after an exit.` : null
       ].filter((item): item is string => Boolean(item))
     };
+  }, [draft]);
+
+  const quickEditPrompts = useMemo(() => {
+    const config = draft.config ?? {};
+    const risk = (config.risk as Record<string, unknown> | undefined) ?? {};
+    const allocation = (config.allocation as Record<string, unknown> | undefined) ?? {};
+    const entryRule = (config.entry_rule as Record<string, unknown> | undefined) ?? {};
+    const exitRule = (config.exit_rule as Record<string, unknown> | undefined) ?? {};
+
+    const prompts: string[] = [];
+
+    if (typeof config.benchmark_symbol === 'string') {
+      prompts.push(
+        config.benchmark_symbol === 'SPY'
+          ? 'Change benchmark to QQQ'
+          : 'Change benchmark to SPY'
+      );
+    }
+
+    if (typeof risk.stop_loss_pct === 'number') {
+      prompts.push('Remove stop loss');
+    } else {
+      prompts.push('Add 10% stop loss');
+    }
+
+    if (typeof risk.take_profit_pct === 'number') {
+      prompts.push('Remove take profit');
+    } else {
+      prompts.push('Add 15% take profit');
+    }
+
+    if (typeof allocation.max_position_pct === 'number' && allocation.max_position_pct >= 1) {
+      prompts.push('Change max position to 50%');
+    } else {
+      prompts.push('Change max position to 100%');
+    }
+
+    if (typeof exitRule.slow_window === 'number') {
+      prompts.push(`Change exit slow window to ${exitRule.slow_window + 5}`);
+    }
+
+    if (typeof entryRule.type === 'string' && entryRule.type !== 'macd_bullish_cross') {
+      prompts.push('Change this strategy to MACD');
+    }
+
+    prompts.push('Explain this draft in simple terms');
+
+    return Array.from(new Set(prompts)).slice(0, 6);
   }, [draft]);
 
   const hasChanges = draft.changes.length > 0;
@@ -271,6 +350,18 @@ export function StrategyDraftCard({ draft, onRun, isRunning = false, runError = 
               <InfoPill label="Take Profit" value={viewModel.takeProfit} />
               <InfoPill label="Cooldown" value={viewModel.cooldown} />
               <InfoPill label="Core / Overlay" value={viewModel.coreOverlayLabel} />
+            </div>
+          </Section>
+
+          <Section eyebrow="Quick edits" title="Common next adjustments">
+            <div className="flex flex-wrap gap-2">
+              {quickEditPrompts.map((prompt) => (
+                <QuickEditChip
+                  key={prompt}
+                  text={prompt}
+                  onClick={(nextPrompt) => onUsePrompt?.(nextPrompt)}
+                />
+              ))}
             </div>
           </Section>
 
