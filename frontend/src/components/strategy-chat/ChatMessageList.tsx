@@ -62,6 +62,32 @@ function InfoPill({
   );
 }
 
+function AnswerSection({
+  title,
+  items
+}: {
+  title: string;
+  items: string[];
+}) {
+  return (
+    <div className="app-surface-soft rounded-2xl border px-4 py-4">
+      <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+        {title}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {items.map((item) => (
+          <span
+            key={item}
+            className="app-chip-info rounded-full px-3 py-1 text-xs font-semibold tracking-[0.14em]"
+          >
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ActionChip({
   text,
   onClick,
@@ -94,7 +120,8 @@ function ActionChip({
 
 function StrategyAnswerCard({
   text,
-  answerData
+  answerData,
+  onUsePrompt
 }: {
   text: string;
   answerData?: {
@@ -104,6 +131,7 @@ function StrategyAnswerCard({
     supported_data_end?: string | null;
     max_backtest_years?: number | null;
   } | null;
+  onUsePrompt?: (prompt: string) => void;
 }) {
   if (answerData?.answer_type === 'SUPPORTED_SYMBOLS' && answerData.supported_symbols?.length) {
     return (
@@ -144,6 +172,102 @@ function StrategyAnswerCard({
           <InfoPill label="Supported Start" value={answerData.supported_data_start} />
           <InfoPill label="Supported End" value={answerData.supported_data_end} />
           <InfoPill label="Plan Max Years" value={String(answerData.max_backtest_years)} />
+        </div>
+      </div>
+    );
+  }
+
+  if (answerData?.answer_type === 'SUPPORTED_STRATEGY_TYPES') {
+    return (
+      <div className="app-note w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
+          Strategy Assistant
+        </div>
+        <h3 className="app-title text-lg font-semibold">Supported strategy types and indicators</h3>
+        <p className="app-text-muted mt-2 text-sm leading-6">
+          {text}
+        </p>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <AnswerSection
+            title="Core indicators"
+            items={[
+              'RSI mean reversion',
+              'SMA crossover',
+              'SMA above state',
+              'MACD',
+              'KD / stochastic',
+              'Seasonality by month',
+              'Relative strength'
+            ]}
+          />
+          <AnswerSection
+            title="Risk and portfolio controls"
+            items={[
+              'Stop loss',
+              'Take profit',
+              'Partial take profit',
+              'Cooldown',
+              'Allocation',
+              'Max position',
+              'Core / overlay',
+              'Position management'
+            ]}
+          />
+          <AnswerSection
+            title="Composite rule editing"
+            items={[
+              'AND / OR groups',
+              'Window rules',
+              'Sequence rules',
+              'NOT wrapper edits',
+              'Group condition edits',
+              'Window inner-rule edits',
+              'Sequence step edits',
+              'Confirmation filters'
+            ]}
+          />
+          <AnswerSection
+            title="Other supported edits"
+            items={[
+              'Tradable symbol',
+              'Benchmark symbol',
+              'Reference symbols',
+              'Transaction cost',
+              'Capital',
+              'Date range',
+              'Seasonality month edits',
+              'Relative strength nested edits'
+            ]}
+          />
+        </div>
+
+        <div className="mt-5">
+          <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+            Try one of these next
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <ActionChip
+              text="Create a QQQ RSI mean reversion strategy"
+              onClick={(prompt) => onUsePrompt?.(prompt)}
+            />
+            <ActionChip
+              text="Create an SPY moving average crossover strategy using 10 day and 30 day SMA"
+              onClick={(prompt) => onUsePrompt?.(prompt)}
+            />
+            <ActionChip
+              text="Change this strategy to MACD"
+              onClick={(prompt) => onUsePrompt?.(prompt)}
+            />
+            <ActionChip
+              text="Add 10% stop loss"
+              onClick={(prompt) => onUsePrompt?.(prompt)}
+            />
+            <ActionChip
+              text="Add KD confirmation"
+              onClick={(prompt) => onUsePrompt?.(prompt)}
+            />
+          </div>
         </div>
       </div>
     );
@@ -436,6 +560,7 @@ export function ChatMessageList({
               <StrategyAnswerCard
                 text={message.text}
                 answerData={message.draft?.answer_data ?? null}
+                onUsePrompt={onUsePrompt}
               />
             </div>
           );
