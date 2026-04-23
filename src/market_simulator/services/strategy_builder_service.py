@@ -217,6 +217,69 @@ def _extract_risk_and_position_inputs(
     }
 
 
+def _extract_core_prompt_inputs(
+    *,
+    prompt: str,
+    max_backtest_years: int,
+    assumptions: list[str],
+    has_current_config: bool,
+) -> dict[str, Any]:
+    tradable_symbol, symbol_assumptions = _extract_primary_symbol(prompt)
+    if has_current_config and symbol_assumptions:
+        assumptions.append("No tradable symbol detected in prompt; existing config may be reused.")
+    else:
+        assumptions.extend(symbol_assumptions)
+
+    benchmark_symbol, benchmark_assumptions = _extract_benchmark_symbol(
+        prompt,
+        tradable_symbol,
+    )
+    tradable_symbol_edit = _extract_tradable_symbol_edit(prompt)
+    assumptions.extend(benchmark_assumptions)
+
+    reference_symbols = _extract_reference_symbols(
+        prompt,
+        tradable_symbol,
+        benchmark_symbol,
+    )
+    if reference_symbols:
+        assumptions.append(
+            f"Detected reference symbols: {', '.join(reference_symbols)}."
+        )
+
+    start_date, end_date, date_assumptions = _extract_date_range(
+        prompt,
+        symbol=tradable_symbol,
+        max_backtest_years=max_backtest_years,
+    )
+    assumptions.extend(date_assumptions)
+
+    initial_capital, capital_assumptions = _extract_initial_capital(prompt)
+    assumptions.extend(capital_assumptions)
+
+    allocation_edit_value = _extract_allocation_value_edit(prompt)
+    max_position_pct_edit = _extract_max_position_pct_edit(prompt)
+    transaction_cost_bps_edit = _extract_transaction_cost_bps_edit(prompt)
+    allocation_value, allocation_assumptions = _extract_allocation_value(prompt)
+    explicit_date_edits = _extract_explicit_date_edits(prompt)
+    assumptions.extend(allocation_assumptions)
+
+    return {
+        "tradable_symbol": tradable_symbol,
+        "benchmark_symbol": benchmark_symbol,
+        "tradable_symbol_edit": tradable_symbol_edit,
+        "reference_symbols": reference_symbols,
+        "start_date": start_date,
+        "end_date": end_date,
+        "initial_capital": initial_capital,
+        "allocation_edit_value": allocation_edit_value,
+        "max_position_pct_edit": max_position_pct_edit,
+        "transaction_cost_bps_edit": transaction_cost_bps_edit,
+        "allocation_value": allocation_value,
+        "explicit_date_edits": explicit_date_edits,
+    }
+
+
 def _build_rule_setup(
     *,
     prompt: str,
@@ -1677,45 +1740,25 @@ def _generate_strategy_draft(
     current_config = req.context.current_config if req.context else None
     has_current_config = isinstance(current_config, dict) and bool(current_config)
 
-    tradable_symbol, symbol_assumptions = _extract_primary_symbol(prompt)
-    if has_current_config and symbol_assumptions:
-        assumptions.append("No tradable symbol detected in prompt; existing config may be reused.")
-    else:
-        assumptions.extend(symbol_assumptions)
-
-    benchmark_symbol, benchmark_assumptions = _extract_benchmark_symbol(
-        prompt,
-        tradable_symbol,
-    )
-    tradable_symbol_edit = _extract_tradable_symbol_edit(prompt)
-    assumptions.extend(benchmark_assumptions)
-
-    reference_symbols = _extract_reference_symbols(
-        prompt,
-        tradable_symbol,
-        benchmark_symbol,
-    )
-    if reference_symbols:
-        assumptions.append(
-            f"Detected reference symbols: {', '.join(reference_symbols)}."
-        )
-
-    start_date, end_date, date_assumptions = _extract_date_range(
-        prompt,
-        symbol=tradable_symbol,
+    core_inputs = _extract_core_prompt_inputs(
+        prompt=prompt,
         max_backtest_years=max_backtest_years,
+        assumptions=assumptions,
+        has_current_config=has_current_config,
     )
-    assumptions.extend(date_assumptions)
 
-    initial_capital, capital_assumptions = _extract_initial_capital(prompt)
-    assumptions.extend(capital_assumptions)
-
-    allocation_edit_value = _extract_allocation_value_edit(prompt)
-    max_position_pct_edit = _extract_max_position_pct_edit(prompt)
-    transaction_cost_bps_edit = _extract_transaction_cost_bps_edit(prompt)
-    allocation_value, allocation_assumptions = _extract_allocation_value(prompt)
-    explicit_date_edits = _extract_explicit_date_edits(prompt)
-    assumptions.extend(allocation_assumptions)
+    tradable_symbol = core_inputs["tradable_symbol"]
+    benchmark_symbol = core_inputs["benchmark_symbol"]
+    tradable_symbol_edit = core_inputs["tradable_symbol_edit"]
+    reference_symbols = core_inputs["reference_symbols"]
+    start_date = core_inputs["start_date"]
+    end_date = core_inputs["end_date"]
+    initial_capital = core_inputs["initial_capital"]
+    allocation_edit_value = core_inputs["allocation_edit_value"]
+    max_position_pct_edit = core_inputs["max_position_pct_edit"]
+    transaction_cost_bps_edit = core_inputs["transaction_cost_bps_edit"]
+    allocation_value = core_inputs["allocation_value"]
+    explicit_date_edits = core_inputs["explicit_date_edits"]
 
     risk_and_position = _extract_risk_and_position_inputs(
         prompt=prompt,
