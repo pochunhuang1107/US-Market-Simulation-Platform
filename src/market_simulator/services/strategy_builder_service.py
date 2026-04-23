@@ -731,16 +731,12 @@ def _finalize_rule_setup(
     }
 
 
-def _build_rule_setup(
+def _build_base_rule_candidates(
     *,
     prompt: str,
     prompt_lower: str,
     tradable_symbol: str,
-    benchmark_symbol: str,
-    current_config: dict[str, Any] | None,
-    has_current_config: bool,
     assumptions: list[str],
-    warnings: list[str],
 ) -> dict[str, Any]:
     entry_rule = None
     exit_rule = None
@@ -751,15 +747,6 @@ def _build_rule_setup(
     rsi_exit_threshold_edit = _extract_rsi_exit_threshold_edit(prompt)
     rsi_entry_lookback_edit = _extract_rsi_entry_lookback_edit(prompt)
     rsi_exit_lookback_edit = _extract_rsi_exit_lookback_edit(prompt)
-    has_partial_rsi_edit = any(
-        value is not None
-        for value in (
-            rsi_entry_threshold_edit,
-            rsi_exit_threshold_edit,
-            rsi_entry_lookback_edit,
-            rsi_exit_lookback_edit,
-        )
-    )
     sma_pair = _extract_sma_crossover_pair(prompt)
     sma_above_pair = _extract_sma_above_pair(prompt)
 
@@ -881,6 +868,52 @@ def _build_rule_setup(
             "Interpreted 'KD' as KD golden cross for entry and KD dead cross for exit."
         )
 
+    return {
+        "entry_rule": entry_rule,
+        "exit_rule": exit_rule,
+        "rsi_entry_threshold_edit": rsi_entry_threshold_edit,
+        "rsi_exit_threshold_edit": rsi_exit_threshold_edit,
+        "rsi_entry_lookback_edit": rsi_entry_lookback_edit,
+        "rsi_exit_lookback_edit": rsi_exit_lookback_edit,
+        "entry_fast_window_edit": entry_fast_window_edit,
+        "entry_slow_window_edit": entry_slow_window_edit,
+        "exit_fast_window_edit": exit_fast_window_edit,
+        "exit_slow_window_edit": exit_slow_window_edit,
+        "has_partial_sma_window_edit": has_partial_sma_window_edit,
+    }
+
+
+def _build_rule_setup(
+    *,
+    prompt: str,
+    prompt_lower: str,
+    tradable_symbol: str,
+    benchmark_symbol: str,
+    current_config: dict[str, Any] | None,
+    has_current_config: bool,
+    assumptions: list[str],
+    warnings: list[str],
+) -> dict[str, Any]:
+
+    base_rule_candidates = _build_base_rule_candidates(
+        prompt=prompt,
+        prompt_lower=prompt_lower,
+        tradable_symbol=tradable_symbol,
+        assumptions=assumptions,
+    )
+
+    entry_rule = base_rule_candidates["entry_rule"]
+    exit_rule = base_rule_candidates["exit_rule"]
+    rsi_entry_threshold_edit = base_rule_candidates["rsi_entry_threshold_edit"]
+    rsi_exit_threshold_edit = base_rule_candidates["rsi_exit_threshold_edit"]
+    rsi_entry_lookback_edit = base_rule_candidates["rsi_entry_lookback_edit"]
+    rsi_exit_lookback_edit = base_rule_candidates["rsi_exit_lookback_edit"]
+    entry_fast_window_edit = base_rule_candidates["entry_fast_window_edit"]
+    entry_slow_window_edit = base_rule_candidates["entry_slow_window_edit"]
+    exit_fast_window_edit = base_rule_candidates["exit_fast_window_edit"]
+    exit_slow_window_edit = base_rule_candidates["exit_slow_window_edit"]
+    has_partial_sma_window_edit = base_rule_candidates["has_partial_sma_window_edit"]
+
     rule_edit_intents = _extract_rule_edit_intents(
         prompt=prompt,
     )
@@ -951,7 +984,7 @@ def _build_rule_setup(
     entry_rule = finalized_rule_setup["entry_rule"]
     exit_rule = finalized_rule_setup["exit_rule"]
     confirmation_rules = finalized_rule_setup["confirmation_rules"]
-    
+
     return {
         "entry_rule": entry_rule,
         "exit_rule": exit_rule,
