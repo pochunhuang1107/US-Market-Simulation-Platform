@@ -138,6 +138,85 @@ def _has_current_config(req: StrategyBuilderGenerateRequest) -> bool:
     return isinstance(current_config, dict) and bool(current_config)
 
 
+def _extract_risk_and_position_inputs(
+    *,
+    prompt: str,
+    assumptions: list[str],
+) -> dict[str, Any]:
+    stop_loss_removed = _has_stop_loss_removal(prompt)
+    stop_loss_pct = None if stop_loss_removed else _extract_percent(
+        prompt,
+        [
+            r"stop\s+loss\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
+            r"(\d+(?:\.\d+)?)%\s+stop\s+loss",
+        ],
+    )
+    if stop_loss_pct is None and not stop_loss_removed:
+        assumptions.append("No stop loss was specified.")
+
+    take_profit_removed = _has_take_profit_removal(prompt)
+    take_profit_pct = None if take_profit_removed else _extract_percent(
+        prompt,
+        [
+            r"(?<!partial\s)take\s+profit\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
+            r"(\d+(?:\.\d+)?)%\s+take\s+profit",
+        ],
+    )
+    if take_profit_pct is None and not take_profit_removed:
+        assumptions.append("No take profit was specified.")
+
+    cooldown_removed = _has_cooldown_removal(prompt)
+    cooldown_edit = _extract_cooldown_edit(prompt)
+    cooldown_bars = 0 if cooldown_removed else cooldown_edit
+    if cooldown_bars is None:
+        cooldown_bars = 0
+        assumptions.append("Used cooldown of 0 bars by default.")
+
+    partial_take_profit_removed = _has_partial_take_profit_removal(prompt)
+    partial_take_profit, partial_take_profit_assumptions = (
+        (None, [])
+        if partial_take_profit_removed
+        else _extract_partial_take_profit(prompt)
+    )
+    assumptions.extend(partial_take_profit_assumptions)
+
+    scale_in_fraction_edit = _extract_scale_in_fraction_edit(prompt)
+    scale_out_fraction_edit = _extract_scale_out_fraction_edit(prompt)
+    profit_reduce_threshold_edit = _extract_profit_reduce_threshold_edit(prompt)
+
+    position_management_removed = _has_position_management_removal(prompt)
+    has_position_management_edit = (
+        position_management_removed
+        or scale_in_fraction_edit is not None
+        or scale_out_fraction_edit is not None
+        or profit_reduce_threshold_edit is not None
+    )
+
+    core_allocation_pct = _extract_core_allocation_pct(prompt)
+    core_overlay_disabled = _has_core_overlay_disable(prompt)
+    core_overlay_enabled = _has_core_overlay_enable(prompt) or core_allocation_pct is not None
+
+    return {
+        "stop_loss_removed": stop_loss_removed,
+        "stop_loss_pct": stop_loss_pct,
+        "take_profit_removed": take_profit_removed,
+        "take_profit_pct": take_profit_pct,
+        "cooldown_removed": cooldown_removed,
+        "cooldown_edit": cooldown_edit,
+        "cooldown_bars": cooldown_bars,
+        "partial_take_profit_removed": partial_take_profit_removed,
+        "partial_take_profit": partial_take_profit,
+        "scale_in_fraction_edit": scale_in_fraction_edit,
+        "scale_out_fraction_edit": scale_out_fraction_edit,
+        "profit_reduce_threshold_edit": profit_reduce_threshold_edit,
+        "position_management_removed": position_management_removed,
+        "has_position_management_edit": has_position_management_edit,
+        "core_allocation_pct": core_allocation_pct,
+        "core_overlay_disabled": core_overlay_disabled,
+        "core_overlay_enabled": core_overlay_enabled,
+    }
+
+
 def _build_rule_setup(
     *,
     prompt: str,
@@ -1638,57 +1717,28 @@ def _generate_strategy_draft(
     explicit_date_edits = _extract_explicit_date_edits(prompt)
     assumptions.extend(allocation_assumptions)
 
-    stop_loss_removed = _has_stop_loss_removal(prompt)
-    stop_loss_pct = None if stop_loss_removed else _extract_percent(
-        prompt,
-        [
-            r"stop\s+loss\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
-            r"(\d+(?:\.\d+)?)%\s+stop\s+loss",
-        ],
-    )
-    if stop_loss_pct is None and not stop_loss_removed:
-        assumptions.append("No stop loss was specified.")
-
-    take_profit_removed = _has_take_profit_removal(prompt)
-    take_profit_pct = None if take_profit_removed else _extract_percent(
-        prompt,
-        [
-            r"(?<!partial\s)take\s+profit\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
-            r"(\d+(?:\.\d+)?)%\s+take\s+profit",
-        ],
-    )
-    if take_profit_pct is None and not take_profit_removed:
-        assumptions.append("No take profit was specified.")
-
-    cooldown_removed = _has_cooldown_removal(prompt)
-    cooldown_edit = _extract_cooldown_edit(prompt)
-    cooldown_bars = 0 if cooldown_removed else cooldown_edit
-    if cooldown_bars is None:
-        cooldown_bars = 0
-        assumptions.append("Used cooldown of 0 bars by default.")
-
-    partial_take_profit_removed = _has_partial_take_profit_removal(prompt)
-    partial_take_profit, partial_take_profit_assumptions = (
-        (None, [])
-        if partial_take_profit_removed
-        else _extract_partial_take_profit(prompt)
-    )
-    assumptions.extend(partial_take_profit_assumptions)
-
-    scale_in_fraction_edit = _extract_scale_in_fraction_edit(prompt)
-    scale_out_fraction_edit = _extract_scale_out_fraction_edit(prompt)
-    profit_reduce_threshold_edit = _extract_profit_reduce_threshold_edit(prompt)
-    position_management_removed = _has_position_management_removal(prompt)
-    has_position_management_edit = (
-        position_management_removed
-        or scale_in_fraction_edit is not None
-        or scale_out_fraction_edit is not None
-        or profit_reduce_threshold_edit is not None
+    risk_and_position = _extract_risk_and_position_inputs(
+        prompt=prompt,
+        assumptions=assumptions,
     )
 
-    core_allocation_pct = _extract_core_allocation_pct(prompt)
-    core_overlay_disabled = _has_core_overlay_disable(prompt)
-    core_overlay_enabled = _has_core_overlay_enable(prompt) or core_allocation_pct is not None
+    stop_loss_removed = risk_and_position["stop_loss_removed"]
+    stop_loss_pct = risk_and_position["stop_loss_pct"]
+    take_profit_removed = risk_and_position["take_profit_removed"]
+    take_profit_pct = risk_and_position["take_profit_pct"]
+    cooldown_removed = risk_and_position["cooldown_removed"]
+    cooldown_edit = risk_and_position["cooldown_edit"]
+    cooldown_bars = risk_and_position["cooldown_bars"]
+    partial_take_profit_removed = risk_and_position["partial_take_profit_removed"]
+    partial_take_profit = risk_and_position["partial_take_profit"]
+    scale_in_fraction_edit = risk_and_position["scale_in_fraction_edit"]
+    scale_out_fraction_edit = risk_and_position["scale_out_fraction_edit"]
+    profit_reduce_threshold_edit = risk_and_position["profit_reduce_threshold_edit"]
+    position_management_removed = risk_and_position["position_management_removed"]
+    has_position_management_edit = risk_and_position["has_position_management_edit"]
+    core_allocation_pct = risk_and_position["core_allocation_pct"]
+    core_overlay_disabled = risk_and_position["core_overlay_disabled"]
+    core_overlay_enabled = risk_and_position["core_overlay_enabled"]
 
     rule_setup = _build_rule_setup(
         prompt=prompt,
