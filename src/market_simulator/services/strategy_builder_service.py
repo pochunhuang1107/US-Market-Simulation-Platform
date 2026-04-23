@@ -1062,6 +1062,866 @@ def _build_update_flow_default_config(
     return default_config
 
 
+def _apply_update_flow_edits(
+    *,
+    default_config: dict[str, Any],
+    base_config: dict[str, Any],
+    has_current_config: bool,
+    prompt: str,
+    prompt_lower: str,
+    tradable_symbol: str,
+    benchmark_symbol: str,
+    tradable_symbol_edit: str | None,
+    initial_capital: float,
+    allocation_value: float,
+    allocation_edit_value: float | None,
+    max_position_pct_edit: float | None,
+    transaction_cost_bps_edit: float | None,
+    stop_loss_removed: bool,
+    stop_loss_pct: float | None,
+    take_profit_removed: bool,
+    take_profit_pct: float | None,
+    cooldown_removed: bool,
+    cooldown_edit: int | None,
+    cooldown_bars: int,
+    partial_take_profit_removed: bool,
+    partial_take_profit: dict[str, Any] | None,
+    scale_in_fraction_edit: float | None,
+    scale_out_fraction_edit: float | None,
+    profit_reduce_threshold_edit: float | None,
+    position_management_removed: bool,
+    has_position_management_edit: bool,
+    core_overlay_enabled: bool,
+    core_overlay_disabled: bool,
+    core_allocation_pct: float | None,
+    entry_rule: dict | None,
+    exit_rule: dict | None,
+    rsi_entry_threshold_edit: float | None,
+    rsi_exit_threshold_edit: float | None,
+    rsi_entry_lookback_edit: int | None,
+    rsi_exit_lookback_edit: int | None,
+    entry_fast_window_edit: int | None,
+    entry_slow_window_edit: int | None,
+    exit_fast_window_edit: int | None,
+    exit_slow_window_edit: int | None,
+    has_partial_sma_window_edit: bool,
+    month_values: list[int] | None,
+    seasonality_month_edit_action: str | None,
+    has_seasonality_month_edit: bool,
+    has_partial_relative_strength_edit: bool,
+    relative_strength_reference_symbol_edit: str | None,
+    relative_strength_lookback_edit: int | None,
+    relative_strength_threshold_edit: float | None,
+    confirmation_family: str | None,
+    add_confirmation_intent: bool,
+    remove_confirmation_intent: bool,
+    has_confirmation_edit_intent: bool,
+    confirmation_rules: tuple[dict, dict, list[str]] | None,
+    entry_window_bars_edit: int | None,
+    exit_window_bars_edit: int | None,
+    entry_window_mode_edit: str | None,
+    exit_window_mode_edit: str | None,
+    entry_sequence_bars_edit: int | None,
+    exit_sequence_bars_edit: int | None,
+    entry_sequence_first_step_edit: str | None,
+    entry_sequence_second_step_edit: str | None,
+    exit_sequence_first_step_edit: str | None,
+    exit_sequence_second_step_edit: str | None,
+    has_temporal_rule_edit_intent: bool,
+    entry_group_operator_edit: str | None,
+    exit_group_operator_edit: str | None,
+    entry_group_first_condition_edit: str | None,
+    entry_group_second_condition_edit: str | None,
+    exit_group_first_condition_edit: str | None,
+    exit_group_second_condition_edit: str | None,
+    entry_window_inner_rule_edit: str | None,
+    exit_window_inner_rule_edit: str | None,
+    has_nested_composite_edit_intent: bool,
+    entry_not_inner_rule_edit: str | None,
+    exit_not_inner_rule_edit: str | None,
+    has_not_rule_edit_intent: bool,
+    remove_entry_group_first_condition: bool,
+    remove_entry_group_second_condition: bool,
+    remove_exit_group_first_condition: bool,
+    remove_exit_group_second_condition: bool,
+    remove_entry_window_wrapper: bool,
+    remove_exit_window_wrapper: bool,
+    remove_entry_not_wrapper: bool,
+    remove_exit_not_wrapper: bool,
+    remove_entry_sequence_first_step: bool,
+    remove_entry_sequence_second_step: bool,
+    remove_exit_sequence_first_step: bool,
+    remove_exit_sequence_second_step: bool,
+    has_nested_composite_removal_intent: bool,
+    assumptions: list[str],
+) -> dict[str, Any]:
+    benchmark_edit_intent = _has_benchmark_edit_intent(prompt)
+
+    if tradable_symbol_edit is not None:
+        old_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
+        if tradable_symbol_edit != old_tradable_symbol:
+            default_config["tradable_symbol"] = tradable_symbol_edit
+            default_config["entry_rule"] = _rewrite_rule_tradable_symbol(
+                default_config.get("entry_rule", {}),
+                new_symbol=tradable_symbol_edit,
+            )
+            default_config["exit_rule"] = _rewrite_rule_tradable_symbol(
+                default_config.get("exit_rule", {}),
+                new_symbol=tradable_symbol_edit,
+            )
+
+            if default_config.get("benchmark_symbol") == old_tradable_symbol and not benchmark_edit_intent:
+                default_config["benchmark_symbol"] = tradable_symbol_edit
+
+            assumptions.append(
+                f"Switched tradable symbol from {old_tradable_symbol} to {tradable_symbol_edit}."
+            )
+
+    existing_entry_rule = dict(default_config.get("entry_rule", {}))
+    existing_exit_rule = dict(default_config.get("exit_rule", {}))
+
+    applied_entry_rsi_edit = False
+    applied_exit_rsi_edit = False
+    applied_entry_moving_average_edit = False
+    applied_exit_moving_average_edit = False
+
+    if (
+        rsi_entry_threshold_edit is not None or rsi_entry_lookback_edit is not None
+    ) and _has_rsi_rule(existing_entry_rule, rule_type="rsi_below"):
+        updated_entry_rule = _update_rsi_rules(
+            existing_entry_rule,
+            rule_type="rsi_below",
+            threshold_edit=rsi_entry_threshold_edit,
+            lookback_edit=rsi_entry_lookback_edit,
+        )
+        default_config["entry_rule"] = updated_entry_rule
+        existing_entry_rule = updated_entry_rule
+        applied_entry_rsi_edit = True
+
+    if (
+        rsi_exit_threshold_edit is not None or rsi_exit_lookback_edit is not None
+    ) and _has_rsi_rule(existing_exit_rule, rule_type="rsi_above"):
+        updated_exit_rule = _update_rsi_rules(
+            existing_exit_rule,
+            rule_type="rsi_above",
+            threshold_edit=rsi_exit_threshold_edit,
+            lookback_edit=rsi_exit_lookback_edit,
+        )
+        default_config["exit_rule"] = updated_exit_rule
+        existing_exit_rule = updated_exit_rule
+        applied_exit_rsi_edit = True
+
+    if (
+        entry_fast_window_edit is not None or entry_slow_window_edit is not None
+    ) and _has_moving_average_rule(existing_entry_rule):
+        updated_entry_rule = _update_moving_average_rules(
+            existing_entry_rule,
+            fast_window_edit=entry_fast_window_edit,
+            slow_window_edit=entry_slow_window_edit,
+        )
+        default_config["entry_rule"] = updated_entry_rule
+        existing_entry_rule = updated_entry_rule
+        applied_entry_moving_average_edit = True
+
+    if (
+        exit_fast_window_edit is not None or exit_slow_window_edit is not None
+    ) and _has_moving_average_rule(existing_exit_rule):
+        updated_exit_rule = _update_moving_average_rules(
+            existing_exit_rule,
+            fast_window_edit=exit_fast_window_edit,
+            slow_window_edit=exit_slow_window_edit,
+        )
+        default_config["exit_rule"] = updated_exit_rule
+        existing_exit_rule = updated_exit_rule
+        applied_exit_moving_average_edit = True
+
+    if (
+        has_current_config
+        and month_values is not None
+        and seasonality_month_edit_action is not None
+        and (_has_month_in_rule(existing_entry_rule) or _has_month_in_rule(existing_exit_rule))
+    ):
+        has_seasonality_month_edit = True
+
+        updated_entry_rule = _update_month_in_rules(
+            existing_entry_rule,
+            action=seasonality_month_edit_action,
+            month_values=month_values,
+        )
+        updated_exit_rule = _update_month_in_rules(
+            existing_exit_rule,
+            action=seasonality_month_edit_action,
+            month_values=month_values,
+        )
+
+        default_config["entry_rule"] = updated_entry_rule
+        default_config["exit_rule"] = updated_exit_rule
+
+        existing_entry_rule = updated_entry_rule
+        existing_exit_rule = updated_exit_rule
+
+        assumptions.append(
+            f"Applied seasonality month edit using action '{seasonality_month_edit_action}'."
+        )
+
+    if has_partial_relative_strength_edit:
+        if _has_relative_strength_rule(existing_entry_rule) or _has_relative_strength_rule(existing_exit_rule):
+            updated_entry_rule = _update_relative_strength_rules(
+                existing_entry_rule,
+                reference_symbol_edit=relative_strength_reference_symbol_edit,
+                lookback_edit=relative_strength_lookback_edit,
+                threshold_edit=relative_strength_threshold_edit,
+            )
+            updated_exit_rule = _update_relative_strength_rules(
+                existing_exit_rule,
+                reference_symbol_edit=relative_strength_reference_symbol_edit,
+                lookback_edit=relative_strength_lookback_edit,
+                threshold_edit=relative_strength_threshold_edit,
+            )
+
+            default_config["entry_rule"] = updated_entry_rule
+            default_config["exit_rule"] = updated_exit_rule
+
+            existing_entry_rule = updated_entry_rule
+            existing_exit_rule = updated_exit_rule
+
+    if has_temporal_rule_edit_intent:
+        current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
+        current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
+
+        if entry_window_bars_edit is not None:
+            existing_entry_rule, changed = _update_first_window_bars(
+                existing_entry_rule,
+                window_bars=entry_window_bars_edit,
+            )
+            if changed:
+                default_config["entry_rule"] = existing_entry_rule
+
+        if entry_window_mode_edit is not None:
+            existing_entry_rule, changed = _update_first_window_mode(
+                existing_entry_rule,
+                mode=entry_window_mode_edit,
+            )
+            if changed:
+                default_config["entry_rule"] = existing_entry_rule
+
+        if exit_window_bars_edit is not None:
+            existing_exit_rule, changed = _update_first_window_bars(
+                existing_exit_rule,
+                window_bars=exit_window_bars_edit,
+            )
+            if changed:
+                default_config["exit_rule"] = existing_exit_rule
+
+        if exit_window_mode_edit is not None:
+            existing_exit_rule, changed = _update_first_window_mode(
+                existing_exit_rule,
+                mode=exit_window_mode_edit,
+            )
+            if changed:
+                default_config["exit_rule"] = existing_exit_rule
+
+        if entry_sequence_bars_edit is not None:
+            existing_entry_rule, changed = _update_first_sequence_bars(
+                existing_entry_rule,
+                window_bars=entry_sequence_bars_edit,
+            )
+            if changed:
+                default_config["entry_rule"] = existing_entry_rule
+
+        if exit_sequence_bars_edit is not None:
+            existing_exit_rule, changed = _update_first_sequence_bars(
+                existing_exit_rule,
+                window_bars=exit_sequence_bars_edit,
+            )
+            if changed:
+                default_config["exit_rule"] = existing_exit_rule
+
+        if entry_sequence_first_step_edit is not None:
+            updated_step, step_assumptions = _build_rule_from_clause(
+                entry_sequence_first_step_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="entry",
+            )
+            if updated_step is not None:
+                existing_entry_rule, changed = _update_first_sequence_step(
+                    existing_entry_rule,
+                    index=0,
+                    new_step=updated_step,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(step_assumptions)
+
+        if entry_sequence_second_step_edit is not None:
+            updated_step, step_assumptions = _build_rule_from_clause(
+                entry_sequence_second_step_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="entry",
+            )
+            if updated_step is not None:
+                existing_entry_rule, changed = _update_first_sequence_step(
+                    existing_entry_rule,
+                    index=1,
+                    new_step=updated_step,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(step_assumptions)
+
+        if exit_sequence_first_step_edit is not None:
+            updated_step, step_assumptions = _build_rule_from_clause(
+                exit_sequence_first_step_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="exit",
+            )
+            if updated_step is not None:
+                existing_exit_rule, changed = _update_first_sequence_step(
+                    existing_exit_rule,
+                    index=0,
+                    new_step=updated_step,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(step_assumptions)
+
+        if exit_sequence_second_step_edit is not None:
+            updated_step, step_assumptions = _build_rule_from_clause(
+                exit_sequence_second_step_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="exit",
+            )
+            if updated_step is not None:
+                existing_exit_rule, changed = _update_first_sequence_step(
+                    existing_exit_rule,
+                    index=1,
+                    new_step=updated_step,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(step_assumptions)
+
+    if has_nested_composite_edit_intent:
+        current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
+        current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
+
+        if entry_group_operator_edit is not None:
+            existing_entry_rule, changed = _update_first_group_operator(
+                existing_entry_rule,
+                operator=entry_group_operator_edit,
+            )
+            if changed:
+                default_config["entry_rule"] = existing_entry_rule
+
+        if exit_group_operator_edit is not None:
+            existing_exit_rule, changed = _update_first_group_operator(
+                existing_exit_rule,
+                operator=exit_group_operator_edit,
+            )
+            if changed:
+                default_config["exit_rule"] = existing_exit_rule
+
+        if entry_group_first_condition_edit is not None:
+            updated_rule, rule_assumptions = _build_rule_from_clause(
+                entry_group_first_condition_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="entry",
+            )
+            if updated_rule is not None:
+                existing_entry_rule, changed = _update_first_group_condition(
+                    existing_entry_rule,
+                    index=0,
+                    new_rule=updated_rule,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(rule_assumptions)
+
+        if entry_group_second_condition_edit is not None:
+            updated_rule, rule_assumptions = _build_rule_from_clause(
+                entry_group_second_condition_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="entry",
+            )
+            if updated_rule is not None:
+                existing_entry_rule, changed = _update_first_group_condition(
+                    existing_entry_rule,
+                    index=1,
+                    new_rule=updated_rule,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(rule_assumptions)
+
+        if exit_group_first_condition_edit is not None:
+            updated_rule, rule_assumptions = _build_rule_from_clause(
+                exit_group_first_condition_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="exit",
+            )
+            if updated_rule is not None:
+                existing_exit_rule, changed = _update_first_group_condition(
+                    existing_exit_rule,
+                    index=0,
+                    new_rule=updated_rule,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(rule_assumptions)
+
+        if exit_group_second_condition_edit is not None:
+            updated_rule, rule_assumptions = _build_rule_from_clause(
+                exit_group_second_condition_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="exit",
+            )
+            if updated_rule is not None:
+                existing_exit_rule, changed = _update_first_group_condition(
+                    existing_exit_rule,
+                    index=1,
+                    new_rule=updated_rule,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(rule_assumptions)
+
+        if entry_window_inner_rule_edit is not None:
+            updated_rule, rule_assumptions = _build_rule_from_clause(
+                entry_window_inner_rule_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="entry",
+            )
+            if updated_rule is not None:
+                existing_entry_rule, changed = _update_first_window_inner_rule(
+                    existing_entry_rule,
+                    new_inner_rule=updated_rule,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(rule_assumptions)
+
+        if exit_window_inner_rule_edit is not None:
+            updated_rule, rule_assumptions = _build_rule_from_clause(
+                exit_window_inner_rule_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="exit",
+            )
+            if updated_rule is not None:
+                existing_exit_rule, changed = _update_first_window_inner_rule(
+                    existing_exit_rule,
+                    new_inner_rule=updated_rule,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(rule_assumptions)
+
+    if has_not_rule_edit_intent:
+        current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
+        current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
+
+        if entry_not_inner_rule_edit is not None and _has_not_rule_anywhere(existing_entry_rule):
+            updated_rule, rule_assumptions = _build_rule_from_clause(
+                entry_not_inner_rule_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="entry",
+            )
+            if updated_rule is not None:
+                existing_entry_rule, changed = _update_first_not_inner_rule(
+                    existing_entry_rule,
+                    new_inner_rule=updated_rule,
+                )
+                if changed:
+                    default_config["entry_rule"] = existing_entry_rule
+                    assumptions.extend(rule_assumptions)
+
+        if exit_not_inner_rule_edit is not None and _has_not_rule_anywhere(existing_exit_rule):
+            updated_rule, rule_assumptions = _build_rule_from_clause(
+                exit_not_inner_rule_edit,
+                tradable_symbol=current_tradable_symbol,
+                fallback_reference_symbol=current_benchmark_symbol,
+                side="exit",
+            )
+            if updated_rule is not None:
+                existing_exit_rule, changed = _update_first_not_inner_rule(
+                    existing_exit_rule,
+                    new_inner_rule=updated_rule,
+                )
+                if changed:
+                    default_config["exit_rule"] = existing_exit_rule
+                    assumptions.extend(rule_assumptions)
+
+    risk = dict(default_config.get("risk", {}))
+    risk.setdefault("cooldown_bars", 0)
+    default_config["risk"] = risk
+
+    if _has_benchmark_edit_intent(prompt):
+        default_config["benchmark_symbol"] = benchmark_symbol
+
+    if re.search(r"(?:capital|start with|\$)", prompt_lower):
+        default_config["initial_capital"] = initial_capital
+
+    if transaction_cost_bps_edit is not None:
+        default_config["transaction_cost_bps"] = transaction_cost_bps_edit
+
+    if (
+        allocation_edit_value is not None
+        or max_position_pct_edit is not None
+        or re.search(r"%\s+of\s+equity|allocation|allocate|max\s+position", prompt_lower)
+    ):
+        allocation = dict(default_config.get("allocation", {}))
+        allocation["entry_mode"] = "percent_of_equity"
+        if allocation_edit_value is not None or re.search(r"%\s+of\s+equity|allocation|allocate", prompt_lower):
+            allocation["entry_value"] = (
+                allocation_edit_value if allocation_edit_value is not None else allocation_value
+            )
+        allocation.setdefault("max_position_pct", 1.0)
+        if max_position_pct_edit is not None:
+            allocation["max_position_pct"] = max_position_pct_edit
+        default_config["allocation"] = allocation
+
+    if (
+        entry_fast_window_edit is not None or entry_slow_window_edit is not None
+    ) and not applied_entry_moving_average_edit:
+        if existing_entry_rule.get("type") in {"sma_cross_above", "sma_cross_below", "sma_above"}:
+            if entry_fast_window_edit is not None:
+                existing_entry_rule["fast_window"] = entry_fast_window_edit
+            if entry_slow_window_edit is not None:
+                existing_entry_rule["slow_window"] = entry_slow_window_edit
+            default_config["entry_rule"] = existing_entry_rule
+
+    if (
+        exit_fast_window_edit is not None or exit_slow_window_edit is not None
+    ) and not applied_exit_moving_average_edit:
+        if existing_exit_rule.get("type") in {"sma_cross_above", "sma_cross_below", "sma_above"}:
+            if exit_fast_window_edit is not None:
+                existing_exit_rule["fast_window"] = exit_fast_window_edit
+            if exit_slow_window_edit is not None:
+                existing_exit_rule["slow_window"] = exit_slow_window_edit
+            default_config["exit_rule"] = existing_exit_rule
+
+    if (rsi_entry_threshold_edit is not None or rsi_entry_lookback_edit is not None) and not applied_entry_rsi_edit:
+        if existing_entry_rule.get("type") == "rsi_below":
+            if rsi_entry_threshold_edit is not None:
+                existing_entry_rule["threshold"] = rsi_entry_threshold_edit
+            if rsi_entry_lookback_edit is not None:
+                existing_entry_rule["lookback"] = rsi_entry_lookback_edit
+            existing_entry_rule.setdefault("lookback", 14)
+            existing_entry_rule.setdefault("kind", "atomic")
+            default_config["entry_rule"] = existing_entry_rule
+        else:
+            default_config["entry_rule"] = {
+                "kind": "atomic",
+                "type": "rsi_below",
+                "symbol": default_config.get("tradable_symbol", tradable_symbol),
+                "lookback": rsi_entry_lookback_edit if rsi_entry_lookback_edit is not None else 14,
+                "threshold": rsi_entry_threshold_edit if rsi_entry_threshold_edit is not None else 30,
+            }
+
+    elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_seasonality_month_edit and not has_nested_composite_removal_intent and (
+        "rsi" in prompt_lower
+        or "mean reversion" in prompt_lower
+        or "moving average" in prompt_lower
+        or "sma" in prompt_lower
+        or "macd" in prompt_lower
+        or "kd" in prompt_lower
+        or "stochastic" in prompt_lower
+        or "seasonality" in prompt_lower
+        or "month" in prompt_lower
+        or "months" in prompt_lower
+        or "relative strength" in prompt_lower
+        or "relative return" in prompt_lower
+        or "outperform" in prompt_lower
+    ):
+        default_config["entry_rule"] = entry_rule
+
+    if (rsi_exit_threshold_edit is not None or rsi_exit_lookback_edit is not None) and not applied_exit_rsi_edit:
+        if existing_exit_rule.get("type") == "rsi_above":
+            if rsi_exit_threshold_edit is not None:
+                existing_exit_rule["threshold"] = rsi_exit_threshold_edit
+            if rsi_exit_lookback_edit is not None:
+                existing_exit_rule["lookback"] = rsi_exit_lookback_edit
+            existing_exit_rule.setdefault("lookback", 14)
+            existing_exit_rule.setdefault("kind", "atomic")
+            default_config["exit_rule"] = existing_exit_rule
+        else:
+            default_config["exit_rule"] = {
+                "kind": "atomic",
+                "type": "rsi_above",
+                "symbol": default_config.get("tradable_symbol", tradable_symbol),
+                "lookback": rsi_exit_lookback_edit if rsi_exit_lookback_edit is not None else 14,
+                "threshold": rsi_exit_threshold_edit if rsi_exit_threshold_edit is not None else 70,
+            }
+
+    elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_seasonality_month_edit and not has_nested_composite_removal_intent and (
+        "rsi" in prompt_lower
+        or "mean reversion" in prompt_lower
+        or "moving average" in prompt_lower
+        or "sma" in prompt_lower
+        or "macd" in prompt_lower
+        or "kd" in prompt_lower
+        or "stochastic" in prompt_lower
+        or "seasonality" in prompt_lower
+        or "month" in prompt_lower
+        or "months" in prompt_lower
+        or "relative strength" in prompt_lower
+        or "relative return" in prompt_lower
+        or "outperform" in prompt_lower
+    ):
+        default_config["exit_rule"] = exit_rule
+
+    if has_confirmation_edit_intent:
+        current_entry_rule = dict(default_config.get("entry_rule", {}))
+        current_exit_rule = dict(default_config.get("exit_rule", {}))
+
+        if add_confirmation_intent and confirmation_rules is not None:
+            entry_confirmation_rule, exit_confirmation_rule, _ = confirmation_rules
+
+            if _has_confirmation_rule(
+                current_entry_rule,
+                family=confirmation_family,
+                side="entry",
+            ):
+                default_config["entry_rule"] = current_entry_rule
+            else:
+                updated_entry_rule, changed = _try_add_confirmation_rule_recursively(
+                    current_entry_rule,
+                    confirmation_rule=entry_confirmation_rule,
+                    family=confirmation_family,
+                    side="entry",
+                )
+                default_config["entry_rule"] = (
+                    updated_entry_rule
+                    if changed
+                    else _add_confirmation_rule(
+                        current_entry_rule,
+                        entry_confirmation_rule,
+                    )
+                )
+
+            if _has_confirmation_rule(
+                current_exit_rule,
+                family=confirmation_family,
+                side="exit",
+            ):
+                default_config["exit_rule"] = current_exit_rule
+            else:
+                updated_exit_rule, changed = _try_add_confirmation_rule_recursively(
+                    current_exit_rule,
+                    confirmation_rule=exit_confirmation_rule,
+                    family=confirmation_family,
+                    side="exit",
+                )
+                default_config["exit_rule"] = (
+                    updated_exit_rule
+                    if changed
+                    else _add_confirmation_rule(
+                        current_exit_rule,
+                        exit_confirmation_rule,
+                    )
+                )
+
+        elif remove_confirmation_intent and confirmation_family is not None:
+            if _has_confirmation_rule(
+                current_entry_rule,
+                family=confirmation_family,
+                side="entry",
+            ):
+                default_config["entry_rule"] = _remove_confirmation_rule(
+                    current_entry_rule,
+                    family=confirmation_family,
+                    side="entry",
+                )
+
+            if _has_confirmation_rule(
+                current_exit_rule,
+                family=confirmation_family,
+                side="exit",
+            ):
+                default_config["exit_rule"] = _remove_confirmation_rule(
+                    current_exit_rule,
+                    family=confirmation_family,
+                    side="exit",
+                )
+
+    if has_nested_composite_removal_intent:
+        if remove_entry_group_first_condition:
+            updated_entry_rule, changed = _remove_first_group_condition(
+                existing_entry_rule,
+                index=0,
+            )
+            if changed:
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+        if remove_entry_group_second_condition:
+            updated_entry_rule, changed = _remove_first_group_condition(
+                existing_entry_rule,
+                index=1,
+            )
+            if changed:
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+        if remove_exit_group_first_condition:
+            updated_exit_rule, changed = _remove_first_group_condition(
+                existing_exit_rule,
+                index=0,
+            )
+            if changed:
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+        if remove_exit_group_second_condition:
+            updated_exit_rule, changed = _remove_first_group_condition(
+                existing_exit_rule,
+                index=1,
+            )
+            if changed:
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+        if remove_entry_not_wrapper:
+            updated_entry_rule, changed = _remove_first_not_wrapper(existing_entry_rule)
+            if changed:
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+        if remove_exit_not_wrapper:
+            updated_exit_rule, changed = _remove_first_not_wrapper(existing_exit_rule)
+            if changed:
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+        if remove_entry_window_wrapper:
+            updated_entry_rule, changed = _remove_first_window_wrapper(existing_entry_rule)
+            if changed:
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+        if remove_exit_window_wrapper:
+            updated_exit_rule, changed = _remove_first_window_wrapper(existing_exit_rule)
+            if changed:
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+        if remove_entry_sequence_first_step:
+            updated_entry_rule, changed = _remove_first_sequence_step(
+                existing_entry_rule,
+                index=0,
+            )
+            if changed:
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+        if remove_entry_sequence_second_step:
+            updated_entry_rule, changed = _remove_first_sequence_step(
+                existing_entry_rule,
+                index=1,
+            )
+            if changed:
+                default_config["entry_rule"] = updated_entry_rule
+                existing_entry_rule = updated_entry_rule
+
+        if remove_exit_sequence_first_step:
+            updated_exit_rule, changed = _remove_first_sequence_step(
+                existing_exit_rule,
+                index=0,
+            )
+            if changed:
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+        if remove_exit_sequence_second_step:
+            updated_exit_rule, changed = _remove_first_sequence_step(
+                existing_exit_rule,
+                index=1,
+            )
+            if changed:
+                default_config["exit_rule"] = updated_exit_rule
+                existing_exit_rule = updated_exit_rule
+
+    if has_position_management_edit:
+        if position_management_removed:
+            default_config["position_management"] = None
+        else:
+            default_config["position_management"] = _build_position_management(
+                existing=default_config.get("position_management") or None,
+                scale_in_fraction=scale_in_fraction_edit,
+                scale_out_fraction=scale_out_fraction_edit,
+                profit_reduce_threshold=profit_reduce_threshold_edit,
+            )
+
+    if core_overlay_disabled:
+        default_config["core_overlay"] = {
+            "enabled": False,
+            "core_allocation_pct": 0.0,
+        }
+    elif core_overlay_enabled:
+        core_overlay = dict(default_config.get("core_overlay") or {})
+        core_overlay["enabled"] = True
+        if core_allocation_pct is not None:
+            core_overlay["core_allocation_pct"] = core_allocation_pct
+        elif core_overlay.get("core_allocation_pct", 0.0) == 0.0:
+            core_overlay["core_allocation_pct"] = 0.60
+            assumptions.append("Used 60.0% core allocation by default.")
+        default_config["core_overlay"] = core_overlay
+
+    risk = dict(default_config.get("risk", {}))
+
+    if partial_take_profit_removed:
+        risk["partial_take_profit"] = None
+    elif partial_take_profit is not None:
+        risk["partial_take_profit"] = partial_take_profit
+
+    if stop_loss_removed:
+        risk["stop_loss_pct"] = None
+    elif stop_loss_pct is not None:
+        risk["stop_loss_pct"] = stop_loss_pct
+
+    if take_profit_removed:
+        risk["take_profit_pct"] = None
+    elif take_profit_pct is not None:
+        risk["take_profit_pct"] = take_profit_pct
+
+    if cooldown_removed:
+        risk["cooldown_bars"] = 0
+    elif cooldown_edit is not None or "cooldown" in prompt_lower:
+        risk["cooldown_bars"] = cooldown_bars
+    default_config["risk"] = risk
+
+    if (
+        default_config.get("tradable_symbol") != base_config.get("tradable_symbol")
+        or default_config.get("entry_rule") != base_config.get("entry_rule")
+        or default_config.get("exit_rule") != base_config.get("exit_rule")
+    ):
+        default_config["name"] = _build_strategy_name(
+            default_config["tradable_symbol"],
+            default_config["entry_rule"],
+            default_config["exit_rule"],
+        )
+    else:
+        default_config["name"] = base_config.get(
+            "name",
+            _build_strategy_name(
+                default_config["tradable_symbol"],
+                default_config["entry_rule"],
+                default_config["exit_rule"],
+            ),
+        )
+    return default_config
+
+
 def _generate_strategy_draft(
     req: StrategyBuilderGenerateRequest,
     *,
@@ -1728,770 +2588,98 @@ def _generate_strategy_draft(
             explicit_date_edits=explicit_date_edits,
         )
 
-        benchmark_edit_intent = _has_benchmark_edit_intent(prompt)
-
-        if tradable_symbol_edit is not None:
-            old_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
-            if tradable_symbol_edit != old_tradable_symbol:
-                default_config["tradable_symbol"] = tradable_symbol_edit
-                default_config["entry_rule"] = _rewrite_rule_tradable_symbol(
-                    default_config.get("entry_rule", {}),
-                    new_symbol=tradable_symbol_edit,
-                )
-                default_config["exit_rule"] = _rewrite_rule_tradable_symbol(
-                    default_config.get("exit_rule", {}),
-                    new_symbol=tradable_symbol_edit,
-                )
-
-                if default_config.get("benchmark_symbol") == old_tradable_symbol and not benchmark_edit_intent:
-                    default_config["benchmark_symbol"] = tradable_symbol_edit
-
-                assumptions.append(
-                    f"Switched tradable symbol from {old_tradable_symbol} to {tradable_symbol_edit}."
-                )
-
-        existing_entry_rule = dict(default_config.get("entry_rule", {}))
-        existing_exit_rule = dict(default_config.get("exit_rule", {}))
-
-        applied_entry_rsi_edit = False
-        applied_exit_rsi_edit = False
-        applied_entry_moving_average_edit = False
-        applied_exit_moving_average_edit = False
-
-        if (
-            rsi_entry_threshold_edit is not None or rsi_entry_lookback_edit is not None
-        ) and _has_rsi_rule(existing_entry_rule, rule_type="rsi_below"):
-            updated_entry_rule = _update_rsi_rules(
-                existing_entry_rule,
-                rule_type="rsi_below",
-                threshold_edit=rsi_entry_threshold_edit,
-                lookback_edit=rsi_entry_lookback_edit,
-            )
-            default_config["entry_rule"] = updated_entry_rule
-            existing_entry_rule = updated_entry_rule
-            applied_entry_rsi_edit = True
-
-        if (
-            rsi_exit_threshold_edit is not None or rsi_exit_lookback_edit is not None
-        ) and _has_rsi_rule(existing_exit_rule, rule_type="rsi_above"):
-            updated_exit_rule = _update_rsi_rules(
-                existing_exit_rule,
-                rule_type="rsi_above",
-                threshold_edit=rsi_exit_threshold_edit,
-                lookback_edit=rsi_exit_lookback_edit,
-            )
-            default_config["exit_rule"] = updated_exit_rule
-            existing_exit_rule = updated_exit_rule
-            applied_exit_rsi_edit = True
-
-        if (
-            entry_fast_window_edit is not None or entry_slow_window_edit is not None
-        ) and _has_moving_average_rule(existing_entry_rule):
-            updated_entry_rule = _update_moving_average_rules(
-                existing_entry_rule,
-                fast_window_edit=entry_fast_window_edit,
-                slow_window_edit=entry_slow_window_edit,
-            )
-            default_config["entry_rule"] = updated_entry_rule
-            existing_entry_rule = updated_entry_rule
-            applied_entry_moving_average_edit = True
-
-        if (
-            exit_fast_window_edit is not None or exit_slow_window_edit is not None
-        ) and _has_moving_average_rule(existing_exit_rule):
-            updated_exit_rule = _update_moving_average_rules(
-                existing_exit_rule,
-                fast_window_edit=exit_fast_window_edit,
-                slow_window_edit=exit_slow_window_edit,
-            )
-            default_config["exit_rule"] = updated_exit_rule
-            existing_exit_rule = updated_exit_rule
-            applied_exit_moving_average_edit = True
-
-        if (
-            has_current_config
-            and month_values is not None
-            and seasonality_month_edit_action is not None
-            and (_has_month_in_rule(existing_entry_rule) or _has_month_in_rule(existing_exit_rule))
-        ):
-            has_seasonality_month_edit = True
-
-            updated_entry_rule = _update_month_in_rules(
-                existing_entry_rule,
-                action=seasonality_month_edit_action,
-                month_values=month_values,
-            )
-            updated_exit_rule = _update_month_in_rules(
-                existing_exit_rule,
-                action=seasonality_month_edit_action,
-                month_values=month_values,
-            )
-
-            default_config["entry_rule"] = updated_entry_rule
-            default_config["exit_rule"] = updated_exit_rule
-
-            existing_entry_rule = updated_entry_rule
-            existing_exit_rule = updated_exit_rule
-
-            assumptions.append(
-                f"Applied seasonality month edit using action '{seasonality_month_edit_action}'."
-            )
-
-        if has_partial_relative_strength_edit:
-            if _has_relative_strength_rule(existing_entry_rule) or _has_relative_strength_rule(existing_exit_rule):
-                updated_entry_rule = _update_relative_strength_rules(
-                    existing_entry_rule,
-                    reference_symbol_edit=relative_strength_reference_symbol_edit,
-                    lookback_edit=relative_strength_lookback_edit,
-                    threshold_edit=relative_strength_threshold_edit,
-                )
-                updated_exit_rule = _update_relative_strength_rules(
-                    existing_exit_rule,
-                    reference_symbol_edit=relative_strength_reference_symbol_edit,
-                    lookback_edit=relative_strength_lookback_edit,
-                    threshold_edit=relative_strength_threshold_edit,
-                )
-
-                default_config["entry_rule"] = updated_entry_rule
-                default_config["exit_rule"] = updated_exit_rule
-
-                existing_entry_rule = updated_entry_rule
-                existing_exit_rule = updated_exit_rule
-
-        if has_temporal_rule_edit_intent:
-            current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
-            current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
-
-            if entry_window_bars_edit is not None:
-                existing_entry_rule, changed = _update_first_window_bars(
-                    existing_entry_rule,
-                    window_bars=entry_window_bars_edit,
-                )
-                if changed:
-                    default_config["entry_rule"] = existing_entry_rule
-
-            if entry_window_mode_edit is not None:
-                existing_entry_rule, changed = _update_first_window_mode(
-                    existing_entry_rule,
-                    mode=entry_window_mode_edit,
-                )
-                if changed:
-                    default_config["entry_rule"] = existing_entry_rule
-
-            if exit_window_bars_edit is not None:
-                existing_exit_rule, changed = _update_first_window_bars(
-                    existing_exit_rule,
-                    window_bars=exit_window_bars_edit,
-                )
-                if changed:
-                    default_config["exit_rule"] = existing_exit_rule
-
-            if exit_window_mode_edit is not None:
-                existing_exit_rule, changed = _update_first_window_mode(
-                    existing_exit_rule,
-                    mode=exit_window_mode_edit,
-                )
-                if changed:
-                    default_config["exit_rule"] = existing_exit_rule
-
-            if entry_sequence_bars_edit is not None:
-                existing_entry_rule, changed = _update_first_sequence_bars(
-                    existing_entry_rule,
-                    window_bars=entry_sequence_bars_edit,
-                )
-                if changed:
-                    default_config["entry_rule"] = existing_entry_rule
-
-            if exit_sequence_bars_edit is not None:
-                existing_exit_rule, changed = _update_first_sequence_bars(
-                    existing_exit_rule,
-                    window_bars=exit_sequence_bars_edit,
-                )
-                if changed:
-                    default_config["exit_rule"] = existing_exit_rule
-
-            if entry_sequence_first_step_edit is not None:
-                updated_step, step_assumptions = _build_rule_from_clause(
-                    entry_sequence_first_step_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="entry",
-                )
-                if updated_step is not None:
-                    existing_entry_rule, changed = _update_first_sequence_step(
-                        existing_entry_rule,
-                        index=0,
-                        new_step=updated_step,
-                    )
-                    if changed:
-                        default_config["entry_rule"] = existing_entry_rule
-                        assumptions.extend(step_assumptions)
-
-            if entry_sequence_second_step_edit is not None:
-                updated_step, step_assumptions = _build_rule_from_clause(
-                    entry_sequence_second_step_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="entry",
-                )
-                if updated_step is not None:
-                    existing_entry_rule, changed = _update_first_sequence_step(
-                        existing_entry_rule,
-                        index=1,
-                        new_step=updated_step,
-                    )
-                    if changed:
-                        default_config["entry_rule"] = existing_entry_rule
-                        assumptions.extend(step_assumptions)
-
-            if exit_sequence_first_step_edit is not None:
-                updated_step, step_assumptions = _build_rule_from_clause(
-                    exit_sequence_first_step_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="exit",
-                )
-                if updated_step is not None:
-                    existing_exit_rule, changed = _update_first_sequence_step(
-                        existing_exit_rule,
-                        index=0,
-                        new_step=updated_step,
-                    )
-                    if changed:
-                        default_config["exit_rule"] = existing_exit_rule
-                        assumptions.extend(step_assumptions)
-
-            if exit_sequence_second_step_edit is not None:
-                updated_step, step_assumptions = _build_rule_from_clause(
-                    exit_sequence_second_step_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="exit",
-                )
-                if updated_step is not None:
-                    existing_exit_rule, changed = _update_first_sequence_step(
-                        existing_exit_rule,
-                        index=1,
-                        new_step=updated_step,
-                    )
-                    if changed:
-                        default_config["exit_rule"] = existing_exit_rule
-                        assumptions.extend(step_assumptions)
-
-        if has_nested_composite_edit_intent:
-            current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
-            current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
-
-            if entry_group_operator_edit is not None:
-                existing_entry_rule, changed = _update_first_group_operator(
-                    existing_entry_rule,
-                    operator=entry_group_operator_edit,
-                )
-                if changed:
-                    default_config["entry_rule"] = existing_entry_rule
-
-            if exit_group_operator_edit is not None:
-                existing_exit_rule, changed = _update_first_group_operator(
-                    existing_exit_rule,
-                    operator=exit_group_operator_edit,
-                )
-                if changed:
-                    default_config["exit_rule"] = existing_exit_rule
-
-            if entry_group_first_condition_edit is not None:
-                updated_rule, rule_assumptions = _build_rule_from_clause(
-                    entry_group_first_condition_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="entry",
-                )
-                if updated_rule is not None:
-                    existing_entry_rule, changed = _update_first_group_condition(
-                        existing_entry_rule,
-                        index=0,
-                        new_rule=updated_rule,
-                    )
-                    if changed:
-                        default_config["entry_rule"] = existing_entry_rule
-                        assumptions.extend(rule_assumptions)
-
-            if entry_group_second_condition_edit is not None:
-                updated_rule, rule_assumptions = _build_rule_from_clause(
-                    entry_group_second_condition_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="entry",
-                )
-                if updated_rule is not None:
-                    existing_entry_rule, changed = _update_first_group_condition(
-                        existing_entry_rule,
-                        index=1,
-                        new_rule=updated_rule,
-                    )
-                    if changed:
-                        default_config["entry_rule"] = existing_entry_rule
-                        assumptions.extend(rule_assumptions)
-
-            if exit_group_first_condition_edit is not None:
-                updated_rule, rule_assumptions = _build_rule_from_clause(
-                    exit_group_first_condition_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="exit",
-                )
-                if updated_rule is not None:
-                    existing_exit_rule, changed = _update_first_group_condition(
-                        existing_exit_rule,
-                        index=0,
-                        new_rule=updated_rule,
-                    )
-                    if changed:
-                        default_config["exit_rule"] = existing_exit_rule
-                        assumptions.extend(rule_assumptions)
-
-            if exit_group_second_condition_edit is not None:
-                updated_rule, rule_assumptions = _build_rule_from_clause(
-                    exit_group_second_condition_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="exit",
-                )
-                if updated_rule is not None:
-                    existing_exit_rule, changed = _update_first_group_condition(
-                        existing_exit_rule,
-                        index=1,
-                        new_rule=updated_rule,
-                    )
-                    if changed:
-                        default_config["exit_rule"] = existing_exit_rule
-                        assumptions.extend(rule_assumptions)
-
-            if entry_window_inner_rule_edit is not None:
-                updated_rule, rule_assumptions = _build_rule_from_clause(
-                    entry_window_inner_rule_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="entry",
-                )
-                if updated_rule is not None:
-                    existing_entry_rule, changed = _update_first_window_inner_rule(
-                        existing_entry_rule,
-                        new_inner_rule=updated_rule,
-                    )
-                    if changed:
-                        default_config["entry_rule"] = existing_entry_rule
-                        assumptions.extend(rule_assumptions)
-
-            if exit_window_inner_rule_edit is not None:
-                updated_rule, rule_assumptions = _build_rule_from_clause(
-                    exit_window_inner_rule_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="exit",
-                )
-                if updated_rule is not None:
-                    existing_exit_rule, changed = _update_first_window_inner_rule(
-                        existing_exit_rule,
-                        new_inner_rule=updated_rule,
-                    )
-                    if changed:
-                        default_config["exit_rule"] = existing_exit_rule
-                        assumptions.extend(rule_assumptions)
-
-        if has_not_rule_edit_intent:
-            current_tradable_symbol = default_config.get("tradable_symbol", tradable_symbol)
-            current_benchmark_symbol = default_config.get("benchmark_symbol", benchmark_symbol)
-
-            if entry_not_inner_rule_edit is not None and _has_not_rule_anywhere(existing_entry_rule):
-                updated_rule, rule_assumptions = _build_rule_from_clause(
-                    entry_not_inner_rule_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="entry",
-                )
-                if updated_rule is not None:
-                    existing_entry_rule, changed = _update_first_not_inner_rule(
-                        existing_entry_rule,
-                        new_inner_rule=updated_rule,
-                    )
-                    if changed:
-                        default_config["entry_rule"] = existing_entry_rule
-                        assumptions.extend(rule_assumptions)
-
-            if exit_not_inner_rule_edit is not None and _has_not_rule_anywhere(existing_exit_rule):
-                updated_rule, rule_assumptions = _build_rule_from_clause(
-                    exit_not_inner_rule_edit,
-                    tradable_symbol=current_tradable_symbol,
-                    fallback_reference_symbol=current_benchmark_symbol,
-                    side="exit",
-                )
-                if updated_rule is not None:
-                    existing_exit_rule, changed = _update_first_not_inner_rule(
-                        existing_exit_rule,
-                        new_inner_rule=updated_rule,
-                    )
-                    if changed:
-                        default_config["exit_rule"] = existing_exit_rule
-                        assumptions.extend(rule_assumptions)
-
-        risk = dict(default_config.get("risk", {}))
-        risk.setdefault("cooldown_bars", 0)
-        default_config["risk"] = risk
-
-        if _has_benchmark_edit_intent(prompt):
-            default_config["benchmark_symbol"] = benchmark_symbol
-
-        if re.search(r"(?:capital|start with|\$)", prompt_lower):
-            default_config["initial_capital"] = initial_capital
-
-        if transaction_cost_bps_edit is not None:
-            default_config["transaction_cost_bps"] = transaction_cost_bps_edit
-
-        if (
-            allocation_edit_value is not None
-            or max_position_pct_edit is not None
-            or re.search(r"%\s+of\s+equity|allocation|allocate|max\s+position", prompt_lower)
-        ):
-            allocation = dict(default_config.get("allocation", {}))
-            allocation["entry_mode"] = "percent_of_equity"
-            if allocation_edit_value is not None or re.search(r"%\s+of\s+equity|allocation|allocate", prompt_lower):
-                allocation["entry_value"] = (
-                    allocation_edit_value if allocation_edit_value is not None else allocation_value
-                )
-            allocation.setdefault("max_position_pct", 1.0)
-            if max_position_pct_edit is not None:
-                allocation["max_position_pct"] = max_position_pct_edit
-            default_config["allocation"] = allocation
-
-        if (
-            entry_fast_window_edit is not None or entry_slow_window_edit is not None
-        ) and not applied_entry_moving_average_edit:
-            if existing_entry_rule.get("type") in {"sma_cross_above", "sma_cross_below", "sma_above"}:
-                if entry_fast_window_edit is not None:
-                    existing_entry_rule["fast_window"] = entry_fast_window_edit
-                if entry_slow_window_edit is not None:
-                    existing_entry_rule["slow_window"] = entry_slow_window_edit
-                default_config["entry_rule"] = existing_entry_rule
-
-        if (
-            exit_fast_window_edit is not None or exit_slow_window_edit is not None
-        ) and not applied_exit_moving_average_edit:
-            if existing_exit_rule.get("type") in {"sma_cross_above", "sma_cross_below", "sma_above"}:
-                if exit_fast_window_edit is not None:
-                    existing_exit_rule["fast_window"] = exit_fast_window_edit
-                if exit_slow_window_edit is not None:
-                    existing_exit_rule["slow_window"] = exit_slow_window_edit
-                default_config["exit_rule"] = existing_exit_rule
-
-        if (rsi_entry_threshold_edit is not None or rsi_entry_lookback_edit is not None) and not applied_entry_rsi_edit:
-            if existing_entry_rule.get("type") == "rsi_below":
-                if rsi_entry_threshold_edit is not None:
-                    existing_entry_rule["threshold"] = rsi_entry_threshold_edit
-                if rsi_entry_lookback_edit is not None:
-                    existing_entry_rule["lookback"] = rsi_entry_lookback_edit
-                existing_entry_rule.setdefault("lookback", 14)
-                existing_entry_rule.setdefault("kind", "atomic")
-                default_config["entry_rule"] = existing_entry_rule
-            else:
-                default_config["entry_rule"] = {
-                    "kind": "atomic",
-                    "type": "rsi_below",
-                    "symbol": default_config.get("tradable_symbol", tradable_symbol),
-                    "lookback": rsi_entry_lookback_edit if rsi_entry_lookback_edit is not None else 14,
-                    "threshold": rsi_entry_threshold_edit if rsi_entry_threshold_edit is not None else 30,
-                }
-
-        elif entry_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_seasonality_month_edit and not has_nested_composite_removal_intent and (
-            "rsi" in prompt_lower
-            or "mean reversion" in prompt_lower
-            or "moving average" in prompt_lower
-            or "sma" in prompt_lower
-            or "macd" in prompt_lower
-            or "kd" in prompt_lower
-            or "stochastic" in prompt_lower
-            or "seasonality" in prompt_lower
-            or "month" in prompt_lower
-            or "months" in prompt_lower
-            or "relative strength" in prompt_lower
-            or "relative return" in prompt_lower
-            or "outperform" in prompt_lower
-        ):
-            default_config["entry_rule"] = entry_rule
-
-        if (rsi_exit_threshold_edit is not None or rsi_exit_lookback_edit is not None) and not applied_exit_rsi_edit:
-            if existing_exit_rule.get("type") == "rsi_above":
-                if rsi_exit_threshold_edit is not None:
-                    existing_exit_rule["threshold"] = rsi_exit_threshold_edit
-                if rsi_exit_lookback_edit is not None:
-                    existing_exit_rule["lookback"] = rsi_exit_lookback_edit
-                existing_exit_rule.setdefault("lookback", 14)
-                existing_exit_rule.setdefault("kind", "atomic")
-                default_config["exit_rule"] = existing_exit_rule
-            else:
-                default_config["exit_rule"] = {
-                    "kind": "atomic",
-                    "type": "rsi_above",
-                    "symbol": default_config.get("tradable_symbol", tradable_symbol),
-                    "lookback": rsi_exit_lookback_edit if rsi_exit_lookback_edit is not None else 14,
-                    "threshold": rsi_exit_threshold_edit if rsi_exit_threshold_edit is not None else 70,
-                }
-
-        elif exit_rule is not None and not has_partial_sma_window_edit and not has_partial_relative_strength_edit and not has_confirmation_edit_intent and not has_temporal_rule_edit_intent and not has_nested_composite_edit_intent and not has_not_rule_edit_intent and not has_seasonality_month_edit and not has_nested_composite_removal_intent and (
-            "rsi" in prompt_lower
-            or "mean reversion" in prompt_lower
-            or "moving average" in prompt_lower
-            or "sma" in prompt_lower
-            or "macd" in prompt_lower
-            or "kd" in prompt_lower
-            or "stochastic" in prompt_lower
-            or "seasonality" in prompt_lower
-            or "month" in prompt_lower
-            or "months" in prompt_lower
-            or "relative strength" in prompt_lower
-            or "relative return" in prompt_lower
-            or "outperform" in prompt_lower
-        ):
-            default_config["exit_rule"] = exit_rule
-
-        if has_confirmation_edit_intent:
-            current_entry_rule = dict(default_config.get("entry_rule", {}))
-            current_exit_rule = dict(default_config.get("exit_rule", {}))
-
-            if add_confirmation_intent and confirmation_rules is not None:
-                entry_confirmation_rule, exit_confirmation_rule, _ = confirmation_rules
-
-                if _has_confirmation_rule(
-                    current_entry_rule,
-                    family=confirmation_family,
-                    side="entry",
-                ):
-                    default_config["entry_rule"] = current_entry_rule
-                else:
-                    updated_entry_rule, changed = _try_add_confirmation_rule_recursively(
-                        current_entry_rule,
-                        confirmation_rule=entry_confirmation_rule,
-                        family=confirmation_family,
-                        side="entry",
-                    )
-                    default_config["entry_rule"] = (
-                        updated_entry_rule
-                        if changed
-                        else _add_confirmation_rule(
-                            current_entry_rule,
-                            entry_confirmation_rule,
-                        )
-                    )
-
-                if _has_confirmation_rule(
-                    current_exit_rule,
-                    family=confirmation_family,
-                    side="exit",
-                ):
-                    default_config["exit_rule"] = current_exit_rule
-                else:
-                    updated_exit_rule, changed = _try_add_confirmation_rule_recursively(
-                        current_exit_rule,
-                        confirmation_rule=exit_confirmation_rule,
-                        family=confirmation_family,
-                        side="exit",
-                    )
-                    default_config["exit_rule"] = (
-                        updated_exit_rule
-                        if changed
-                        else _add_confirmation_rule(
-                            current_exit_rule,
-                            exit_confirmation_rule,
-                        )
-                    )
-
-            elif remove_confirmation_intent and confirmation_family is not None:
-                if _has_confirmation_rule(
-                    current_entry_rule,
-                    family=confirmation_family,
-                    side="entry",
-                ):
-                    default_config["entry_rule"] = _remove_confirmation_rule(
-                        current_entry_rule,
-                        family=confirmation_family,
-                        side="entry",
-                    )
-
-                if _has_confirmation_rule(
-                    current_exit_rule,
-                    family=confirmation_family,
-                    side="exit",
-                ):
-                    default_config["exit_rule"] = _remove_confirmation_rule(
-                        current_exit_rule,
-                        family=confirmation_family,
-                        side="exit",
-                    )
-
-        if has_nested_composite_removal_intent:
-            if remove_entry_group_first_condition:
-                updated_entry_rule, changed = _remove_first_group_condition(
-                    existing_entry_rule,
-                    index=0,
-                )
-                if changed:
-                    default_config["entry_rule"] = updated_entry_rule
-                    existing_entry_rule = updated_entry_rule
-
-            if remove_entry_group_second_condition:
-                updated_entry_rule, changed = _remove_first_group_condition(
-                    existing_entry_rule,
-                    index=1,
-                )
-                if changed:
-                    default_config["entry_rule"] = updated_entry_rule
-                    existing_entry_rule = updated_entry_rule
-
-            if remove_exit_group_first_condition:
-                updated_exit_rule, changed = _remove_first_group_condition(
-                    existing_exit_rule,
-                    index=0,
-                )
-                if changed:
-                    default_config["exit_rule"] = updated_exit_rule
-                    existing_exit_rule = updated_exit_rule
-
-            if remove_exit_group_second_condition:
-                updated_exit_rule, changed = _remove_first_group_condition(
-                    existing_exit_rule,
-                    index=1,
-                )
-                if changed:
-                    default_config["exit_rule"] = updated_exit_rule
-                    existing_exit_rule = updated_exit_rule
-
-            if remove_entry_not_wrapper:
-                updated_entry_rule, changed = _remove_first_not_wrapper(existing_entry_rule)
-                if changed:
-                    default_config["entry_rule"] = updated_entry_rule
-                    existing_entry_rule = updated_entry_rule
-
-            if remove_exit_not_wrapper:
-                updated_exit_rule, changed = _remove_first_not_wrapper(existing_exit_rule)
-                if changed:
-                    default_config["exit_rule"] = updated_exit_rule
-                    existing_exit_rule = updated_exit_rule
-
-            if remove_entry_window_wrapper:
-                updated_entry_rule, changed = _remove_first_window_wrapper(existing_entry_rule)
-                if changed:
-                    default_config["entry_rule"] = updated_entry_rule
-                    existing_entry_rule = updated_entry_rule
-
-            if remove_exit_window_wrapper:
-                updated_exit_rule, changed = _remove_first_window_wrapper(existing_exit_rule)
-                if changed:
-                    default_config["exit_rule"] = updated_exit_rule
-                    existing_exit_rule = updated_exit_rule
-
-            if remove_entry_sequence_first_step:
-                updated_entry_rule, changed = _remove_first_sequence_step(
-                    existing_entry_rule,
-                    index=0,
-                )
-                if changed:
-                    default_config["entry_rule"] = updated_entry_rule
-                    existing_entry_rule = updated_entry_rule
-
-            if remove_entry_sequence_second_step:
-                updated_entry_rule, changed = _remove_first_sequence_step(
-                    existing_entry_rule,
-                    index=1,
-                )
-                if changed:
-                    default_config["entry_rule"] = updated_entry_rule
-                    existing_entry_rule = updated_entry_rule
-
-            if remove_exit_sequence_first_step:
-                updated_exit_rule, changed = _remove_first_sequence_step(
-                    existing_exit_rule,
-                    index=0,
-                )
-                if changed:
-                    default_config["exit_rule"] = updated_exit_rule
-                    existing_exit_rule = updated_exit_rule
-
-            if remove_exit_sequence_second_step:
-                updated_exit_rule, changed = _remove_first_sequence_step(
-                    existing_exit_rule,
-                    index=1,
-                )
-                if changed:
-                    default_config["exit_rule"] = updated_exit_rule
-                    existing_exit_rule = updated_exit_rule
-
-        if has_position_management_edit:
-            if position_management_removed:
-                default_config["position_management"] = None
-            else:
-                default_config["position_management"] = _build_position_management(
-                    existing=default_config.get("position_management") or None,
-                    scale_in_fraction=scale_in_fraction_edit,
-                    scale_out_fraction=scale_out_fraction_edit,
-                    profit_reduce_threshold=profit_reduce_threshold_edit,
-                )
-
-        if core_overlay_disabled:
-            default_config["core_overlay"] = {
-                "enabled": False,
-                "core_allocation_pct": 0.0,
-            }
-        elif core_overlay_enabled:
-            core_overlay = dict(default_config.get("core_overlay") or {})
-            core_overlay["enabled"] = True
-            if core_allocation_pct is not None:
-                core_overlay["core_allocation_pct"] = core_allocation_pct
-            elif core_overlay.get("core_allocation_pct", 0.0) == 0.0:
-                core_overlay["core_allocation_pct"] = 0.60
-                assumptions.append("Used 60.0% core allocation by default.")
-            default_config["core_overlay"] = core_overlay
-
-        risk = dict(default_config.get("risk", {}))
-
-        if partial_take_profit_removed:
-            risk["partial_take_profit"] = None
-        elif partial_take_profit is not None:
-            risk["partial_take_profit"] = partial_take_profit
-
-        if stop_loss_removed:
-            risk["stop_loss_pct"] = None
-        elif stop_loss_pct is not None:
-            risk["stop_loss_pct"] = stop_loss_pct
-
-        if take_profit_removed:
-            risk["take_profit_pct"] = None
-        elif take_profit_pct is not None:
-            risk["take_profit_pct"] = take_profit_pct
-
-        if cooldown_removed:
-            risk["cooldown_bars"] = 0
-        elif cooldown_edit is not None or "cooldown" in prompt_lower:
-            risk["cooldown_bars"] = cooldown_bars
-        default_config["risk"] = risk
-
-        if (
-            default_config.get("tradable_symbol") != base_config.get("tradable_symbol")
-            or default_config.get("entry_rule") != base_config.get("entry_rule")
-            or default_config.get("exit_rule") != base_config.get("exit_rule")
-        ):
-            default_config["name"] = _build_strategy_name(
-                default_config["tradable_symbol"],
-                default_config["entry_rule"],
-                default_config["exit_rule"],
-            )
-        else:
-            default_config["name"] = base_config.get(
-                "name",
-                _build_strategy_name(
-                    default_config["tradable_symbol"],
-                    default_config["entry_rule"],
-                    default_config["exit_rule"],
-                ),
-            )
+        default_config = _apply_update_flow_edits(
+            default_config=default_config,
+            has_current_config=has_current_config,
+            base_config=base_config,
+            prompt=prompt,
+            prompt_lower=prompt_lower,
+            tradable_symbol=tradable_symbol,
+            benchmark_symbol=benchmark_symbol,
+            tradable_symbol_edit=tradable_symbol_edit,
+            initial_capital=initial_capital,
+            allocation_value=allocation_value,
+            allocation_edit_value=allocation_edit_value,
+            max_position_pct_edit=max_position_pct_edit,
+            transaction_cost_bps_edit=transaction_cost_bps_edit,
+            stop_loss_removed=stop_loss_removed,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_removed=take_profit_removed,
+            take_profit_pct=take_profit_pct,
+            cooldown_removed=cooldown_removed,
+            cooldown_edit=cooldown_edit,
+            cooldown_bars=cooldown_bars,
+            partial_take_profit_removed=partial_take_profit_removed,
+            partial_take_profit=partial_take_profit,
+            scale_in_fraction_edit=scale_in_fraction_edit,
+            scale_out_fraction_edit=scale_out_fraction_edit,
+            profit_reduce_threshold_edit=profit_reduce_threshold_edit,
+            position_management_removed=position_management_removed,
+            has_position_management_edit=has_position_management_edit,
+            core_overlay_enabled=core_overlay_enabled,
+            core_overlay_disabled=core_overlay_disabled,
+            core_allocation_pct=core_allocation_pct,
+            entry_rule=entry_rule,
+            exit_rule=exit_rule,
+            rsi_entry_threshold_edit=rsi_entry_threshold_edit,
+            rsi_exit_threshold_edit=rsi_exit_threshold_edit,
+            rsi_entry_lookback_edit=rsi_entry_lookback_edit,
+            rsi_exit_lookback_edit=rsi_exit_lookback_edit,
+            entry_fast_window_edit=entry_fast_window_edit,
+            entry_slow_window_edit=entry_slow_window_edit,
+            exit_fast_window_edit=exit_fast_window_edit,
+            exit_slow_window_edit=exit_slow_window_edit,
+            has_partial_sma_window_edit=has_partial_sma_window_edit,
+            month_values=month_values,
+            seasonality_month_edit_action=seasonality_month_edit_action,
+            has_seasonality_month_edit=has_seasonality_month_edit,
+            has_partial_relative_strength_edit=has_partial_relative_strength_edit,
+            relative_strength_reference_symbol_edit=relative_strength_reference_symbol_edit,
+            relative_strength_lookback_edit=relative_strength_lookback_edit,
+            relative_strength_threshold_edit=relative_strength_threshold_edit,
+            confirmation_family=confirmation_family,
+            add_confirmation_intent=add_confirmation_intent,
+            remove_confirmation_intent=remove_confirmation_intent,
+            has_confirmation_edit_intent=has_confirmation_edit_intent,
+            confirmation_rules=confirmation_rules,
+            entry_window_bars_edit=entry_window_bars_edit,
+            exit_window_bars_edit=exit_window_bars_edit,
+            entry_window_mode_edit=entry_window_mode_edit,
+            exit_window_mode_edit=exit_window_mode_edit,
+            entry_sequence_bars_edit=entry_sequence_bars_edit,
+            exit_sequence_bars_edit=exit_sequence_bars_edit,
+            entry_sequence_first_step_edit=entry_sequence_first_step_edit,
+            entry_sequence_second_step_edit=entry_sequence_second_step_edit,
+            exit_sequence_first_step_edit=exit_sequence_first_step_edit,
+            exit_sequence_second_step_edit=exit_sequence_second_step_edit,
+            has_temporal_rule_edit_intent=has_temporal_rule_edit_intent,
+            entry_group_operator_edit=entry_group_operator_edit,
+            exit_group_operator_edit=exit_group_operator_edit,
+            entry_group_first_condition_edit=entry_group_first_condition_edit,
+            entry_group_second_condition_edit=entry_group_second_condition_edit,
+            exit_group_first_condition_edit=exit_group_first_condition_edit,
+            exit_group_second_condition_edit=exit_group_second_condition_edit,
+            entry_window_inner_rule_edit=entry_window_inner_rule_edit,
+            exit_window_inner_rule_edit=exit_window_inner_rule_edit,
+            has_nested_composite_edit_intent=has_nested_composite_edit_intent,
+            entry_not_inner_rule_edit=entry_not_inner_rule_edit,
+            exit_not_inner_rule_edit=exit_not_inner_rule_edit,
+            has_not_rule_edit_intent=has_not_rule_edit_intent,
+            remove_entry_group_first_condition=remove_entry_group_first_condition,
+            remove_entry_group_second_condition=remove_entry_group_second_condition,
+            remove_exit_group_first_condition=remove_exit_group_first_condition,
+            remove_exit_group_second_condition=remove_exit_group_second_condition,
+            remove_entry_window_wrapper=remove_entry_window_wrapper,
+            remove_exit_window_wrapper=remove_exit_window_wrapper,
+            remove_entry_not_wrapper=remove_entry_not_wrapper,
+            remove_exit_not_wrapper=remove_exit_not_wrapper,
+            remove_entry_sequence_first_step=remove_entry_sequence_first_step,
+            remove_entry_sequence_second_step=remove_entry_sequence_second_step,
+            remove_exit_sequence_first_step=remove_exit_sequence_first_step,
+            remove_exit_sequence_second_step=remove_exit_sequence_second_step,
+            has_nested_composite_removal_intent=has_nested_composite_removal_intent,
+            assumptions=assumptions,
+        )
 
     config = _sync_reference_symbols(_merge_dict(base_config, default_config))
 
