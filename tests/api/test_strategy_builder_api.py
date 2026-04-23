@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 import market_simulator.services.strategy_builder_service as builder_service
+import market_simulator.services.strategy_builder_parsers as builder_parsers
 from market_simulator.settings import get_settings
 from market_simulator.db.models import Plan
 
@@ -18,7 +19,7 @@ def default_builder_test_user(create_user, current_user_ctx):
 
 @pytest.fixture(autouse=True)
 def default_builder_metadata_lookup(monkeypatch):
-    monkeypatch.setattr(builder_service, "get_etf_history_range", lambda symbol: None)
+    monkeypatch.setattr(builder_parsers, "get_etf_history_range", lambda symbol: None)
 
 
 def test_generate_strategy_builder_draft_returns_valid_strategy_v2_config(client):
@@ -3526,7 +3527,7 @@ def test_generate_strategy_builder_draft_uses_symbol_history_aware_default_windo
             self.last_available_date = last_date
 
     monkeypatch.setattr(
-        builder_service,
+        builder_parsers,
         "get_etf_history_range",
         lambda symbol: StubHistory(symbol, date(2010, 1, 1), date(2026, 4, 17)),
     )
@@ -3557,7 +3558,7 @@ def test_generate_strategy_builder_draft_shortens_default_window_for_newer_symbo
             self.last_available_date = last_date
 
     monkeypatch.setattr(
-        builder_service,
+        builder_parsers,
         "get_etf_history_range",
         lambda symbol: StubHistory(symbol, date(2024, 1, 11), date(2026, 4, 17)),
     )
@@ -3586,7 +3587,7 @@ def test_generate_strategy_builder_draft_preserves_explicit_dates_even_with_symb
             self.last_available_date = last_date
 
     monkeypatch.setattr(
-        builder_service,
+        builder_parsers,
         "get_etf_history_range",
         lambda symbol: StubHistory(symbol, date(2024, 1, 11), date(2026, 4, 17)),
     )
@@ -3607,7 +3608,7 @@ def test_generate_strategy_builder_draft_falls_back_when_metadata_is_missing(
     client,
     monkeypatch,
 ):
-    monkeypatch.setattr(builder_service, "get_etf_history_range", lambda symbol: None)
+    monkeypatch.setattr(builder_parsers, "get_etf_history_range", lambda symbol: None)
 
     response = client.post(
         "/strategy-builder/generate",
@@ -3634,7 +3635,7 @@ def test_generate_strategy_builder_draft_returns_assumptions_in_response(
             self.last_available_date = last_date
 
     monkeypatch.setattr(
-        builder_service,
+        builder_parsers,
         "get_etf_history_range",
         lambda symbol: StubHistory(symbol, date(2024, 1, 11), date(2026, 4, 17)),
     )
@@ -3669,7 +3670,7 @@ def test_generate_strategy_builder_summary_mentions_available_history_when_metad
             self.last_available_date = last_date
 
     monkeypatch.setattr(
-        builder_service,
+        builder_parsers,
         "get_etf_history_range",
         lambda symbol: StubHistory(symbol, date(2024, 1, 11), date(2026, 4, 17)),
     )
@@ -3690,7 +3691,7 @@ def test_generate_strategy_builder_summary_mentions_default_platform_range_when_
     client,
     monkeypatch,
 ):
-    monkeypatch.setattr(builder_service, "get_etf_history_range", lambda symbol: None)
+    monkeypatch.setattr(builder_parsers, "get_etf_history_range", lambda symbol: None)
 
     response = client.post(
         "/strategy-builder/generate",
