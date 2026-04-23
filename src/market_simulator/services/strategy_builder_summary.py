@@ -80,6 +80,18 @@ def _rule_signature(rule: dict | None) -> str | None:
     return str(rule)
 
 
+def _is_structural_rule_change(before: dict | None, after: dict | None) -> bool:
+    if not before and not after:
+        return False
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return before != after
+
+    return (
+        before.get("kind") != after.get("kind")
+        or _rule_label(before) != _rule_label(after)
+    )
+
+
 def _format_enabled(value: Any) -> str:
     return "enabled" if bool(value) else "disabled"
 
@@ -209,18 +221,21 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         final_exit.get("threshold"),
         "exit threshold",
     )
-    _record_change(
-        changes,
-        _rule_signature(base_entry),
-        _rule_signature(final_entry),
-        "entry rule",
-    )
-    _record_change(
-        changes,
-        _rule_signature(base_exit),
-        _rule_signature(final_exit),
-        "exit rule",
-    )
+    if _is_structural_rule_change(base_entry, final_entry):
+        _record_change(
+            changes,
+            _rule_label(base_entry),
+            _rule_label(final_entry),
+            "entry rule",
+        )
+
+    if _is_structural_rule_change(base_exit, final_exit):
+        _record_change(
+            changes,
+            _rule_label(base_exit),
+            _rule_label(final_exit),
+            "exit rule",
+        )
     _record_change(
         changes,
         base_entry.get("fast_window"),
