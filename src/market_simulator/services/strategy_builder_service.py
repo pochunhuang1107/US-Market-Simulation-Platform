@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from market_simulator.api.schemas.strategy_builder import (
+    StrategyBuilderAnswerType,
     StrategyBuilderGenerateRequest,
     StrategyBuilderGuidanceType,
     StrategyBuilderResponseType,
@@ -136,6 +137,27 @@ from market_simulator.services.strategy_builder_parsers import (
 def _has_current_config(req: StrategyBuilderGenerateRequest) -> bool:
     current_config = req.context.current_config if req.context else None
     return isinstance(current_config, dict) and bool(current_config)
+
+
+def _should_attach_question_guidance(
+    *,
+    prompt: str,
+    has_current_config: bool,
+    answer_type: StrategyBuilderAnswerType | str | None,
+) -> bool:
+    if not has_current_config:
+        return False
+
+    if answer_type != StrategyBuilderAnswerType.GENERAL:
+        return False
+
+    prompt_lower = prompt.lower()
+    return (
+        "this draft" in prompt_lower
+        or "current draft" in prompt_lower
+        or "what can this draft do" in prompt_lower
+        or "tell me what this draft can do" in prompt_lower
+    )
 
 
 def _resolve_effective_symbols(
@@ -2257,7 +2279,11 @@ def generate_strategy_builder_response(
                 _build_guidance_data(
                     guidance_type=StrategyBuilderGuidanceType.NO_CHANGE,
                 )
-                if has_current_config
+                if _should_attach_question_guidance(
+                    prompt=prompt,
+                    has_current_config=has_current_config,
+                    answer_type=answer_data.get("answer_type"),
+                )
                 else None
             ),
         )

@@ -12,7 +12,10 @@ import {
   fetchMeEntitlements,
   generateStrategyDraft
 } from '../lib/api';
-import type { MeEntitlementsResponse } from '../types/api';
+import type {
+  MeEntitlementsResponse,
+  StrategyBuilderGenerateResponse
+} from '../types/api';
 
 function extractDraftConfig(draft: unknown): Record<string, unknown> | null {
   if (!draft || typeof draft !== 'object') return null;
@@ -40,6 +43,28 @@ function getLatestDraftConfig(messages: ChatMessage[]): Record<string, unknown> 
 
     const config = extractDraftConfig(message.draft);
     if (config) return config;
+  }
+
+  return null;
+}
+
+function getLatestDraftHeadline(messages: ChatMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== 'assistant' || !message.draft) continue;
+
+    const config = extractDraftConfig(message.draft);
+    if (!config) continue;
+
+    if (typeof config.name === 'string' && config.name.trim()) {
+      return config.name;
+    }
+
+    if (typeof config.tradable_symbol === 'string' && config.tradable_symbol.trim()) {
+      return `${config.tradable_symbol} draft`;
+    }
+
+    return 'Latest draft';
   }
 
   return null;
@@ -149,6 +174,48 @@ function formatDuplicateRunMessage(error: unknown): string {
   return formatLimitError(error);
 }
 
+function extractStructuredBuilderError(
+  error: unknown
+): StrategyBuilderGenerateResponse | null {
+  if (!(error instanceof ApiRequestError)) return null;
+  if (!error.body || typeof error.body !== 'object') return null;
+
+  const record = error.body as Partial<StrategyBuilderGenerateResponse> & {
+    message?: unknown;
+    response_type?: unknown;
+    validation_data?: unknown;
+    guidance_data?: unknown;
+  };
+
+  const responseType =
+    typeof record.response_type === 'string' ? record.response_type : null;
+
+  if (
+    responseType !== 'VALIDATION_ERROR' &&
+    responseType !== 'ANSWER' &&
+    !record.validation_data &&
+    !record.guidance_data
+  ) {
+    return null;
+  }
+
+  return {
+    response_type: (responseType ?? 'VALIDATION_ERROR') as StrategyBuilderGenerateResponse['response_type'],
+    message:
+      typeof record.message === 'string' ? record.message : formatUnknownError(error),
+    config: (record.config as StrategyBuilderGenerateResponse['config']) ?? null,
+    summary: (record.summary as StrategyBuilderGenerateResponse['summary']) ?? null,
+    warnings: Array.isArray(record.warnings) ? record.warnings : [],
+    assumptions: Array.isArray(record.assumptions) ? record.assumptions : [],
+    changes: Array.isArray(record.changes) ? record.changes : [],
+    answer_data: (record.answer_data as StrategyBuilderGenerateResponse['answer_data']) ?? null,
+    validation_data:
+      (record.validation_data as StrategyBuilderGenerateResponse['validation_data']) ?? null,
+    guidance_data:
+      (record.guidance_data as StrategyBuilderGenerateResponse['guidance_data']) ?? null
+  };
+}
+
 function EntitlementSummary({
   entitlements,
   loading,
@@ -215,6 +282,9 @@ export function StrategyChatPage() {
 
   const hasMessages = messages.length > 0;
 
+  const latestDraftConfig = getLatestDraftConfig(messages);
+  const latestDraftHeadline = getLatestDraftHeadline(messages);
+
   const promptMaxChars = entitlements?.limits.builder_prompt_max_chars ?? 1000;
   const promptChars = input.length;
   const isPromptTooLong = promptChars > promptMaxChars;
@@ -276,7 +346,7 @@ export function StrategyChatPage() {
     };
 
     const nextMessages = [...messages, userMessage];
-    const currentConfig = getLatestDraftConfig(messages);
+    const currentConfig = latestDraftConfig;
 
     setMessages(nextMessages);
     setInput('');
@@ -296,24 +366,22 @@ export function StrategyChatPage() {
             }
       );
 
-      const hasDraftConfig =
-        (response.response_type === 'CREATE_DRAFT' ||
-          response.response_type === 'UPDATE_DRAFT') &&
-        Boolean(extractDraftConfig(response));
-
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
         text: response.message,
-        draft: hasDraftConfig ? response : undefined
+        draft: response
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
+      const structuredError = extractStructuredBuilderError(error);
+
       const assistantError: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        text: formatUnknownError(error)
+        text: structuredError?.message ?? formatUnknownError(error),
+        draft: structuredError ?? undefined
       };
 
       setMessages((prev) => [...prev, assistantError]);
@@ -432,6 +500,16 @@ export function StrategyChatPage() {
     });
   }
 
+  function handleStartNewDraft() {
+    setMessages([]);
+    setInput('');
+    setComposerFocusKey((value) => value + 1);
+
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {!hasMessages ? (
@@ -494,6 +572,30 @@ export function StrategyChatPage() {
         <>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-4xl px-4 py-6 pb-40">
+              {latestDraftConfig ? (
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 app-surface-soft">
+                  <div className="min-w-0">
+                    <div className="app-text-muted text-[11px] font-semibold uppercase tracking-[0.22em]">
+                      Current editing context
+                    </div>
+                    <div className="app-title truncate text-sm font-semibold">
+                      {latestDraftHeadline ?? 'Latest draft'}
+                    </div>
+                    <div className="app-text-muted mt-1 text-xs">
+                      New prompts will continue editing this draft until you start a new one.
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleStartNewDraft}
+                    className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
+                  >
+                    Start New Draft
+                  </button>
+                </div>
+              ) : null}
+
               <div className="mb-5">
                 <EntitlementSummary
                   entitlements={entitlements}

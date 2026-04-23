@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from market_simulator.api.deps import get_current_user, get_db
@@ -122,30 +124,27 @@ def generate_strategy_draft_api(
                 reason=message,
             )
 
-            has_current_config = (
-                req.context is not None
-                and isinstance(req.context.current_config, dict)
-                and bool(req.context.current_config)
+            return JSONResponse(
+                status_code=400,
+                content=jsonable_encoder(
+                    {
+                        "detail": message,
+                        "response_type": StrategyBuilderResponseType.VALIDATION_ERROR,
+                        "message": message,
+                        "config": None,
+                        "summary": None,
+                        "warnings": [],
+                        "assumptions": [],
+                        "changes": [],
+                        "answer_data": None,
+                        "validation_data": build_validation_data(
+                            message=message,
+                            max_backtest_years=entitlements.max_backtest_years,
+                        ),
+                        "guidance_data": None,
+                    }
+                ),
             )
-
-            if has_current_config:
-                return StrategyBuilderGenerateResponse(
-                    response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
-                    message=message,
-                    config=None,
-                    summary=None,
-                    warnings=[],
-                    assumptions=[],
-                    changes=[],
-                    answer_data=None,
-                    validation_data=build_validation_data(
-                        message=message,
-                        max_backtest_years=entitlements.max_backtest_years,
-                    ),
-                    guidance_data=None,
-                )
-
-            raise HTTPException(status_code=400, detail=message) from exc
 
     create_builder_prompt_event(
         db,

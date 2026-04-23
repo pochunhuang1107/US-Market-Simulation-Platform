@@ -12,24 +12,17 @@ function AssistantMessageCard({
 }) {
   const toneClass =
     tone === 'warning'
-      ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+      ? 'app-alert-warning'
       : tone === 'info'
-        ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-100'
+        ? 'app-note'
         : 'app-card app-shadow border';
 
-  const eyebrowClass =
-    tone === 'warning'
-      ? 'text-amber-200'
-      : tone === 'info'
-        ? 'text-cyan-200'
-        : 'app-label';
+  const eyebrowClass = 'app-label';
 
   const bodyClass =
-    tone === 'warning'
-      ? 'text-amber-100/90'
-      : tone === 'info'
-        ? 'text-cyan-100/90'
-        : 'app-title';
+    tone === 'default'
+      ? 'app-title'
+      : 'app-text-muted';
 
   return (
     <div className={`w-full max-w-5xl rounded-[32px] p-4 ${toneClass}`}>
@@ -52,18 +45,12 @@ function InfoPill({
 }) {
   const borderClass =
     tone === 'warning'
-      ? 'border-amber-500/20 bg-slate-950/20'
-      : 'border-cyan-500/20 bg-slate-950/20';
+      ? 'app-alert-warning'
+      : 'app-note';
 
-  const labelClass =
-    tone === 'warning'
-      ? 'text-amber-200'
-      : 'text-cyan-200';
+  const labelClass = 'app-label';
 
-  const valueClass =
-    tone === 'warning'
-      ? 'text-amber-50'
-      : 'text-cyan-50';
+  const valueClass = 'app-title';
 
   return (
     <div className={`rounded-2xl border px-4 py-3 ${borderClass}`}>
@@ -78,20 +65,29 @@ function InfoPill({
 function ActionChip({
   text,
   onClick,
-  tone = 'info'
+  tone = 'info',
+  buttonLabel,
+  promptText
 }: {
   text: string;
-  onClick: () => void;
+  onClick: (prompt: string) => void;
   tone?: 'info' | 'warning';
+  buttonLabel?: string;
+  promptText?: string;
 }) {
   const className =
     tone === 'warning'
-      ? 'rounded-2xl border border-amber-500/30 bg-slate-950/20 px-4 py-3 text-left text-sm text-amber-50 transition hover:border-amber-400/50 hover:bg-amber-500/10'
-      : 'rounded-2xl border border-cyan-500/30 bg-slate-950/20 px-4 py-3 text-left text-sm text-cyan-50 transition hover:border-cyan-400/50 hover:bg-cyan-500/10';
+      ? 'app-alert-warning inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:opacity-90 cursor-pointer shadow-sm'
+      : 'app-note inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:opacity-90 cursor-pointer shadow-sm';
 
   return (
-    <button type="button" onClick={onClick} className={className}>
-      {text}
+    <button
+      type="button"
+      onClick={() => onClick(promptText ?? text)}
+      className={className}
+    >
+      <span>{buttonLabel ?? text}</span>
+      <span aria-hidden="true">↗</span>
     </button>
   );
 }
@@ -111,17 +107,17 @@ function StrategyAnswerCard({
 }) {
   if (answerData?.answer_type === 'SUPPORTED_SYMBOLS' && answerData.supported_symbols?.length) {
     return (
-      <div className="w-full max-w-5xl rounded-[32px] border border-cyan-500/30 bg-cyan-500/10 p-5 text-cyan-100">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
+      <div className="app-note w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Strategy Assistant
         </div>
-        <h3 className="text-lg font-semibold text-cyan-50">Supported ETF symbols</h3>
-        <p className="mt-2 text-sm leading-6 text-cyan-100/90">{text}</p>
+        <h3 className="app-title text-lg font-semibold">Supported ETF symbols</h3>
+        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           {answerData.supported_symbols.map((symbol) => (
             <span
               key={symbol}
-              className="rounded-full border border-cyan-400/30 bg-slate-950/20 px-3 py-1 text-xs font-semibold tracking-[0.14em] text-cyan-50"
+              className="app-chip-info rounded-full px-3 py-1 text-xs font-semibold tracking-[0.14em]"
             >
               {symbol}
             </span>
@@ -138,12 +134,12 @@ function StrategyAnswerCard({
     answerData.max_backtest_years
   ) {
     return (
-      <div className="w-full max-w-5xl rounded-[32px] border border-cyan-500/30 bg-cyan-500/10 p-5 text-cyan-100">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
+      <div className="app-note w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Strategy Assistant
         </div>
-        <h3 className="text-lg font-semibold text-cyan-50">Coverage and plan window</h3>
-        <p className="mt-2 text-sm leading-6 text-cyan-100/90">{text}</p>
+        <h3 className="app-title text-lg font-semibold">Coverage and plan window</h3>
+        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <InfoPill label="Supported Start" value={answerData.supported_data_start} />
           <InfoPill label="Supported End" value={answerData.supported_data_end} />
@@ -155,15 +151,15 @@ function StrategyAnswerCard({
 
   if (answerData?.answer_type === 'PLAN_LIMITS' && answerData.max_backtest_years) {
     return (
-      <div className="w-full max-w-5xl rounded-[32px] border border-cyan-500/30 bg-cyan-500/10 p-5 text-cyan-100">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
+      <div className="app-note w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Strategy Assistant
         </div>
-        <h3 className="text-lg font-semibold text-cyan-50">Current plan limits</h3>
+        <h3 className="app-title text-lg font-semibold">Current plan limits</h3>
         <div className="mt-4 grid gap-3 md:grid-cols-1">
           <InfoPill label="Plan Max Years" value={String(answerData.max_backtest_years)} />
         </div>
-        <p className="mt-4 text-sm leading-6 text-cyan-100/90">{text}</p>
+        <p className="app-text-muted mt-4 text-sm leading-6">{text}</p>
       </div>
     );
   }
@@ -194,12 +190,12 @@ function StrategyValidationCard({
     validationData.unsupported_symbols?.length
   ) {
     return (
-      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+      <div className="app-alert-warning w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Validation guidance
         </div>
-        <h3 className="text-lg font-semibold text-amber-50">Unsupported symbol</h3>
-        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        <h3 className="app-title text-lg font-semibold">Unsupported symbol</h3>
+        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           {validationData.unsupported_symbols.map((symbol) => (
             <span
@@ -215,8 +211,10 @@ function StrategyValidationCard({
             <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
             <ActionChip
               text={suggestionAction}
+              buttonLabel="Use suggestion"
+              promptText="Show me supported ETF symbols"
               tone="warning"
-              onClick={() => onUsePrompt?.(suggestionAction)}
+              onClick={(prompt) => onUsePrompt?.(prompt)}
             />
           </div>
         ) : null}
@@ -230,12 +228,12 @@ function StrategyValidationCard({
     validationData.supported_data_end
   ) {
     return (
-      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+      <div className="app-alert-warning w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Validation guidance
         </div>
-        <h3 className="text-lg font-semibold text-amber-50">Date range outside coverage</h3>
-        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        <h3 className="app-title text-lg font-semibold">Date range outside coverage</h3>
+        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <InfoPill label="Supported Start" value={validationData.supported_data_start} tone="warning" />
           <InfoPill label="Supported End" value={validationData.supported_data_end} tone="warning" />
@@ -245,8 +243,10 @@ function StrategyValidationCard({
             <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
             <ActionChip
               text={suggestionAction}
+              buttonLabel="Use suggestion"
+              promptText="What date range is supported for ETF backtests?"
               tone="warning"
-              onClick={() => onUsePrompt?.(suggestionAction)}
+              onClick={(prompt) => onUsePrompt?.(prompt)}
             />
           </div>
         ) : null}
@@ -261,18 +261,24 @@ function StrategyValidationCard({
     const actionText = suggestionAction ?? 'Shorten the date range and try again.';
 
     return (
-      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+      <div className="app-alert-warning w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Validation guidance
         </div>
-        <h3 className="text-lg font-semibold text-amber-50">Plan limit exceeded</h3>
-        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        <h3 className="app-title text-lg font-semibold">Plan limit exceeded</h3>
+        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <InfoPill label="Plan Max Years" value={String(validationData.max_backtest_years)} tone="warning" />
           <InfoPill label="Suggested action" value={actionText} tone="warning" />
         </div>
         <div className="mt-4">
-          <ActionChip text={actionText} tone="warning" onClick={() => onUsePrompt?.(actionText)} />
+          <ActionChip
+            text={actionText}
+            buttonLabel="Use suggestion"
+            promptText="Shorten this strategy to fit my current plan limit"
+            tone="warning"
+            onClick={(prompt) => onUsePrompt?.(prompt)}
+          />
         </div>
       </div>
     );
@@ -280,19 +286,21 @@ function StrategyValidationCard({
 
   if (validationData?.validation_type === 'INVALID_DATE_FORMAT') {
     return (
-      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+      <div className="app-alert-warning w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Validation guidance
         </div>
-        <h3 className="text-lg font-semibold text-amber-50">Invalid date format</h3>
-        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        <h3 className="app-title text-lg font-semibold">Invalid date format</h3>
+        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
         {suggestionAction ? (
           <div className="mt-4 space-y-3">
             <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
             <ActionChip
               text={suggestionAction}
+              buttonLabel="Use suggestion"
+              promptText="Use ISO format like 2021-04-14"
               tone="warning"
-              onClick={() => onUsePrompt?.(suggestionAction)}
+              onClick={(prompt) => onUsePrompt?.(prompt)}
             />
           </div>
         ) : null}
@@ -302,19 +310,21 @@ function StrategyValidationCard({
 
   if (validationData?.validation_type === 'UNSUPPORTED_EDIT') {
     return (
-      <div className="w-full max-w-5xl rounded-[32px] border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
+      <div className="app-alert-warning w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Validation guidance
         </div>
-        <h3 className="text-lg font-semibold text-amber-50">Unsupported edit type</h3>
-        <p className="mt-2 text-sm leading-6 text-amber-100/90">{text}</p>
+        <h3 className="app-title text-lg font-semibold">Unsupported edit type</h3>
+        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
         {suggestionAction ? (
           <div className="mt-4 space-y-3">
             <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
             <ActionChip
               text={suggestionAction}
+              buttonLabel="Use suggestion"
+              promptText="What strategy types or indicators are supported?"
               tone="warning"
-              onClick={() => onUsePrompt?.(suggestionAction)}
+              onClick={(prompt) => onUsePrompt?.(prompt)}
             />
           </div>
         ) : null}
@@ -339,20 +349,20 @@ function StrategyGuidanceCard({
 }) {
   if (guidanceData?.guidance_type && guidanceData.suggested_actions?.length) {
     return (
-      <div className="w-full max-w-5xl rounded-[32px] border border-cyan-500/30 bg-cyan-500/10 p-5 text-cyan-100">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
+      <div className="app-note w-full max-w-5xl rounded-[32px] p-5">
+        <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Strategy Assistant
         </div>
-        <h3 className="text-lg font-semibold text-cyan-50">
+        <h3 className="app-title text-lg font-semibold">
           {guidanceData.guidance_type === 'NO_CHANGE' ? 'No draft changes made' : 'Draft guidance'}
         </h3>
-        <p className="mt-2 text-sm leading-6 text-cyan-100/90">{text}</p>
+        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {guidanceData.suggested_actions.map((action) => (
             <ActionChip
               key={action}
               text={action}
-              onClick={() => onUsePrompt?.(action)}
+              onClick={(prompt) => onUsePrompt?.(prompt)}
             />
           ))}
         </div>

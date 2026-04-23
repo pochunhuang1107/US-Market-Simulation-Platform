@@ -105,14 +105,13 @@ def build_validation_data(
 
     unsupported_match = re.findall(r"\b[A-Z]{2,6}\b", message)
     if "not supported yet" in message and "ETF-first" in message:
-        unsupported_symbols = [
-            token
-            for token in unsupported_match
-            if token in {"SPY", "QQQ", "IWM", "DIA", "VTI"} or token not in settings.supported_etf_symbols
-        ]
-        inferred = [
-            token for token in unsupported_symbols if token not in settings.supported_etf_symbols
-        ]
+        inferred = sorted(
+            {
+                token
+                for token in unsupported_match
+                if token not in settings.supported_etf_symbols and token != "ETF"
+            }
+        )
         return {
             "validation_type": StrategyBuilderValidationType.UNSUPPORTED_SYMBOL,
             "unsupported_symbols": inferred,

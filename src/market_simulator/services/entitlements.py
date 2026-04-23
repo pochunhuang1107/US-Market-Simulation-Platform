@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from market_simulator.settings import get_settings
 from market_simulator.repositories.plans import (
     count_runs_created_today,
     count_saved_strategies,
@@ -16,6 +19,7 @@ from market_simulator.repositories.plans import (
 class UserEntitlements:
     plan_code: str
     plan_name: str
+    monthly_price_usd: float
     daily_free_runs: int
     max_saved_strategies: int
     max_tracked_strategies: int
@@ -29,7 +33,44 @@ class UserEntitlements:
     allow_strategy_history: bool
 
 
+def _get_dev_admin_override_entitlements(user_id: str) -> UserEntitlements | None:
+    settings = get_settings()
+
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return None
+
+    if settings.env != "local":
+        return None
+
+    if not settings.enable_dev_admin_override:
+        return None
+
+    if user_id not in settings.dev_admin_user_ids:
+        return None
+
+    return UserEntitlements(
+        plan_code="DEV_ADMIN",
+        plan_name="Developer Admin",
+        monthly_price_usd=settings.dev_admin_monthly_price_usd,
+        daily_free_runs=settings.dev_admin_daily_free_runs,
+        max_saved_strategies=settings.dev_admin_max_saved_strategies,
+        max_tracked_strategies=settings.dev_admin_max_tracked_strategies,
+        builder_prompt_daily_limit=settings.dev_admin_builder_prompt_daily_limit,
+        builder_prompt_max_chars=settings.dev_admin_builder_prompt_max_chars,
+        max_backtest_years=settings.dev_admin_max_backtest_years,
+        allow_portfolio_runs=True,
+        allow_comparison_runs=True,
+        allow_parameter_sweeps=True,
+        allow_ai_builder=True,
+        allow_strategy_history=True,
+    )
+
+
 def get_user_entitlements(db: Session, user_id: str) -> UserEntitlements:
+    override = _get_dev_admin_override_entitlements(user_id)
+    if override is not None:
+        return override
+
     row = get_active_subscription_with_plan(db, user_id)
     if row is None:
         raise HTTPException(status_code=403, detail="No active subscription plan found")
@@ -39,6 +80,7 @@ def get_user_entitlements(db: Session, user_id: str) -> UserEntitlements:
     return UserEntitlements(
         plan_code=plan.code,
         plan_name=plan.name,
+        monthly_price_usd=float(plan.monthly_price_usd),
         daily_free_runs=plan.daily_free_runs,
         max_saved_strategies=plan.max_saved_strategies,
         max_tracked_strategies=plan.max_tracked_strategies,

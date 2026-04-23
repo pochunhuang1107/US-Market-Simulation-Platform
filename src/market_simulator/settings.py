@@ -81,6 +81,35 @@ class Settings(BaseModel):
         "00000000-0000-0000-0000-000000000001",
     )
 
+    enable_dev_admin_override: bool = os.getenv(
+        "ENABLE_DEV_ADMIN_OVERRIDE",
+        "false",
+    ).lower() == "true"
+
+    dev_admin_user_ids_csv: str = os.getenv("DEV_ADMIN_USER_IDS", "")
+
+    dev_admin_monthly_price_usd: float = float(
+        os.getenv("DEV_ADMIN_MONTHLY_PRICE_USD", "0")
+    )
+    dev_admin_daily_free_runs: int = int(
+        os.getenv("DEV_ADMIN_DAILY_FREE_RUNS", "999999")
+    )
+    dev_admin_max_saved_strategies: int = int(
+        os.getenv("DEV_ADMIN_MAX_SAVED_STRATEGIES", "999999")
+    )
+    dev_admin_max_tracked_strategies: int = int(
+        os.getenv("DEV_ADMIN_MAX_TRACKED_STRATEGIES", "999999")
+    )
+    dev_admin_builder_prompt_daily_limit: int = int(
+        os.getenv("DEV_ADMIN_BUILDER_PROMPT_DAILY_LIMIT", "999999")
+    )
+    dev_admin_builder_prompt_max_chars: int = int(
+        os.getenv("DEV_ADMIN_BUILDER_PROMPT_MAX_CHARS", "20000")
+    )
+    dev_admin_max_backtest_years: int = int(
+        os.getenv("DEV_ADMIN_MAX_BACKTEST_YEARS", "25")
+    )
+
     supported_data_start_date: str = os.getenv(
         "SUPPORTED_DATA_START_DATE",
         "2018-01-02",
@@ -93,6 +122,19 @@ class Settings(BaseModel):
         "SUPPORTED_ETF_SYMBOLS",
         DEFAULT_SUPPORTED_ETF_SYMBOLS,
     )
+
+    @property
+    def dev_admin_user_ids(self) -> tuple[str, ...]:
+        values = {
+            user_id.strip()
+            for user_id in self.dev_admin_user_ids_csv.split(",")
+            if user_id.strip()
+        }
+
+        if not values and self.dev_default_user_id:
+            values.add(self.dev_default_user_id)
+
+        return tuple(sorted(values))
 
     @property
     def supported_etf_symbols(self) -> tuple[str, ...]:
