@@ -334,6 +334,62 @@ function StrategyAnswerCard({
   return <AssistantMessageCard tone="info" title="Strategy Assistant" text={text} />;
 }
 
+function getValidationBodyText({
+  validationType,
+  fallbackText
+}: {
+  validationType?: string;
+  fallbackText: string;
+}) {
+  switch (validationType) {
+    case 'UNSUPPORTED_SYMBOL':
+      return 'This platform is currently ETF-first. Choose one of the supported ETF symbols to create a valid strategy draft.';
+
+    case 'DATA_COVERAGE':
+      return 'The requested date range is outside the available ETF data window. Use the supported coverage range below.';
+
+    case 'PLAN_LIMIT':
+      return 'The requested backtest is longer than your current plan allows. Shorten the date range and try again.';
+
+    case 'INVALID_DATE_FORMAT':
+      return 'The date could not be parsed. Use ISO date format so the builder can apply the change safely.';
+
+    case 'UNSUPPORTED_EDIT':
+      return 'That edit is not supported by the deterministic builder yet. You can review the supported indicators and edit types.';
+
+    default:
+      return fallbackText;
+  }
+}
+
+function getValidationSuggestionText({
+  validationType,
+  fallbackSuggestion
+}: {
+  validationType?: string;
+  fallbackSuggestion: string | null;
+}) {
+  switch (validationType) {
+    case 'UNSUPPORTED_SYMBOL':
+      return 'View supported ETF symbols.';
+
+    case 'DATA_COVERAGE':
+      return 'Check supported ETF date coverage.';
+
+    case 'PLAN_LIMIT':
+      return 'Shorten this strategy to fit the current plan.';
+
+    case 'INVALID_DATE_FORMAT':
+      return 'Use ISO format like 2021-04-14.';
+
+    case 'UNSUPPORTED_EDIT':
+      return 'Review supported strategy types and indicators.';
+
+    default:
+      return fallbackSuggestion;
+  }
+}
+
 function StrategyValidationCard({
   text,
   validationData,
@@ -350,7 +406,16 @@ function StrategyValidationCard({
   } | null;
   onUsePrompt?: (prompt: string) => void;
 }) {
+  const validationType = validationData?.validation_type;
   const suggestionAction = validationData?.suggested_action?.trim() || null;
+  const bodyText = getValidationBodyText({
+    validationType,
+    fallbackText: text
+  });
+  const suggestionText = getValidationSuggestionText({
+    validationType,
+    fallbackSuggestion: suggestionAction
+  });
 
   if (
     validationData?.validation_type === 'UNSUPPORTED_SYMBOL' &&
@@ -362,12 +427,12 @@ function StrategyValidationCard({
           Validation guidance
         </div>
         <h3 className="app-title text-lg font-semibold">Unsupported symbol</h3>
-        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
+        <p className="app-text-muted mt-2 text-sm leading-6">{bodyText}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           {validationData.unsupported_symbols.map((symbol) => (
             <span
               key={symbol}
-              className="rounded-full border border-amber-400/30 bg-slate-950/20 px-3 py-1 text-xs font-semibold tracking-[0.14em] text-amber-50"
+              className="app-chip-warning rounded-full px-3 py-1 text-xs font-semibold tracking-[0.14em]"
             >
               {symbol}
             </span>
@@ -375,10 +440,10 @@ function StrategyValidationCard({
         </div>
         {suggestionAction ? (
           <div className="mt-4 space-y-3">
-            <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
+            <InfoPill label="Suggested action" value={suggestionText ?? suggestionAction ?? 'Review the suggested next step.'} tone="warning" />
             <ActionChip
               text={suggestionAction}
-              buttonLabel="Use suggestion"
+              buttonLabel="Use as next prompt"
               promptText="Show me supported ETF symbols"
               tone="warning"
               onClick={(prompt) => onUsePrompt?.(prompt)}
@@ -400,17 +465,17 @@ function StrategyValidationCard({
           Validation guidance
         </div>
         <h3 className="app-title text-lg font-semibold">Date range outside coverage</h3>
-        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
+        <p className="app-text-muted mt-2 text-sm leading-6">{bodyText}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <InfoPill label="Supported Start" value={validationData.supported_data_start} tone="warning" />
           <InfoPill label="Supported End" value={validationData.supported_data_end} tone="warning" />
         </div>
         {suggestionAction ? (
           <div className="mt-4 space-y-3">
-            <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
+            <InfoPill label="Suggested action" value={suggestionText ?? suggestionAction ?? 'Review the suggested next step.'} tone="warning" />
             <ActionChip
               text={suggestionAction}
-              buttonLabel="Use suggestion"
+              buttonLabel="Use as next prompt"
               promptText="What date range is supported for ETF backtests?"
               tone="warning"
               onClick={(prompt) => onUsePrompt?.(prompt)}
@@ -433,15 +498,15 @@ function StrategyValidationCard({
           Validation guidance
         </div>
         <h3 className="app-title text-lg font-semibold">Plan limit exceeded</h3>
-        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
+        <p className="app-text-muted mt-2 text-sm leading-6">{bodyText}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <InfoPill label="Plan Max Years" value={String(validationData.max_backtest_years)} tone="warning" />
-          <InfoPill label="Suggested action" value={actionText} tone="warning" />
+          <InfoPill label="Suggested action" value={suggestionText ?? actionText} tone="warning" />
         </div>
         <div className="mt-4">
           <ActionChip
             text={actionText}
-            buttonLabel="Use suggestion"
+            buttonLabel="Use as next prompt"
             promptText="Shorten this strategy to fit my current plan limit"
             tone="warning"
             onClick={(prompt) => onUsePrompt?.(prompt)}
@@ -458,13 +523,13 @@ function StrategyValidationCard({
           Validation guidance
         </div>
         <h3 className="app-title text-lg font-semibold">Invalid date format</h3>
-        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
+        <p className="app-text-muted mt-2 text-sm leading-6">{bodyText}</p>
         {suggestionAction ? (
           <div className="mt-4 space-y-3">
-            <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
+            <InfoPill label="Suggested action" value={suggestionText ?? suggestionAction ?? 'Review the suggested next step.'} tone="warning" />
             <ActionChip
               text={suggestionAction}
-              buttonLabel="Use suggestion"
+              buttonLabel="Use as next prompt"
               promptText="Use ISO format like 2021-04-14"
               tone="warning"
               onClick={(prompt) => onUsePrompt?.(prompt)}
@@ -482,13 +547,13 @@ function StrategyValidationCard({
           Validation guidance
         </div>
         <h3 className="app-title text-lg font-semibold">Unsupported edit type</h3>
-        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
+        <p className="app-text-muted mt-2 text-sm leading-6">{bodyText}</p>
         {suggestionAction ? (
           <div className="mt-4 space-y-3">
-            <InfoPill label="Suggested action" value={suggestionAction} tone="warning" />
+            <InfoPill label="Suggested action" value={suggestionText ?? suggestionAction ?? 'Review the suggested next step.'} tone="warning" />
             <ActionChip
               text={suggestionAction}
-              buttonLabel="Use suggestion"
+              buttonLabel="Use as next prompt"
               promptText="What strategy types or indicators are supported?"
               tone="warning"
               onClick={(prompt) => onUsePrompt?.(prompt)}
@@ -523,7 +588,11 @@ function StrategyGuidanceCard({
         <h3 className="app-title text-lg font-semibold">
           {guidanceData.guidance_type === 'NO_CHANGE' ? 'No draft changes made' : 'Draft guidance'}
         </h3>
-        <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
+        <p className="app-text-muted mt-2 text-sm leading-6">
+          {guidanceData.guidance_type === 'NO_CHANGE'
+            ? 'No draft settings changed. Try one of these supported edits to keep iterating.'
+            : text}
+        </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {guidanceData.suggested_actions.map((action) => (
             <ActionChip
