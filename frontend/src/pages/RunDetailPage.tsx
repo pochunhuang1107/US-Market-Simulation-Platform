@@ -3,6 +3,7 @@ import { useLocation, useParams } from 'react-router-dom';
 
 import { RunCharts } from '../components/run-detail/RunCharts';
 import { RunHeader } from '../components/run-detail/RunHeader';
+import { RunInsightHero } from '../components/run-detail/RunInsightHero';
 import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
 import { MetricCard } from '../components/shared/MetricCard';
@@ -312,6 +313,8 @@ export function RunDetailPage() {
             }}
           />
         ) : null}
+
+        <RunInsightHero run={data.run} chartData={data.chart_data} />
 
         <RunCharts chartData={data.chart_data} />
 
