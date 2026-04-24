@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import { formatDecimal, formatNumber, formatPct } from '../../lib/formatters';
 import type { RunResponse } from '../../types/api';
 
@@ -9,12 +11,34 @@ type InsightItem = {
   tone?: Tone;
 };
 
+type NextStep = {
+  label: string;
+  prompt: string;
+};
+
 function toNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function getSummaryNumber(summary: Record<string, unknown>, key: string): number | null {
   return toNumber(summary[key]);
+}
+
+function getDraftConfig(run: RunResponse): Record<string, unknown> | null {
+  const draftConfig = run.request_payload?.draft_config;
+
+  if (draftConfig && typeof draftConfig === 'object' && !Array.isArray(draftConfig)) {
+    return draftConfig as Record<string, unknown>;
+  }
+
+  return null;
+}
+
+function getStrategySymbol(run: RunResponse): string {
+  const draftConfig = getDraftConfig(run);
+  const symbol = draftConfig?.tradable_symbol;
+
+  return typeof symbol === 'string' && symbol.trim() ? symbol : 'this ETF';
 }
 
 function toneClass(tone: Tone = 'default') {
@@ -32,6 +56,25 @@ function InsightCard({ item }: { item: InsightItem }) {
       </div>
       <p className="app-title mt-3 text-sm leading-6">{item.body}</p>
     </div>
+  );
+}
+
+function ResearchPromptButton({
+  step,
+  onCopy
+}: {
+  step: NextStep;
+  onCopy: (prompt: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onCopy(step.prompt)}
+      className="app-note inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:opacity-90 cursor-pointer shadow-sm"
+    >
+      <span>{step.label}</span>
+      <span aria-hidden="true">Copy prompt ↗</span>
+    </button>
   );
 }
 
@@ -139,34 +182,52 @@ function buildActivityInsight({ tradeCount }: { tradeCount: number | null }): In
 }
 
 function buildNextSteps({
+  run,
   alphaPct,
   maxDrawdownPct,
   tradeCount
 }: {
+  run: RunResponse;
   alphaPct: number | null;
   maxDrawdownPct: number | null;
   tradeCount: number | null;
-}): string[] {
-  const steps: string[] = [];
+}): NextStep[] {
+  const symbol = getStrategySymbol(run);
+  const steps: NextStep[] = [];
 
   if (maxDrawdownPct !== null && maxDrawdownPct <= -25) {
-    steps.push('Try a tighter stop loss or lower max position size.');
+    steps.push({
+      label: 'Reduce drawdown',
+      prompt: `Create a variant of this ${symbol} strategy with a tighter stop loss and lower max position size.`
+    });
   }
 
   if (alphaPct !== null && alphaPct < 0) {
-    steps.push('Test whether a different entry/exit rule improves benchmark-relative return.');
+    steps.push({
+      label: 'Improve benchmark alpha',
+      prompt: `Create a variant of this ${symbol} strategy with a different entry and exit rule to improve benchmark-relative return.`
+    });
   }
 
   if (tradeCount !== null && tradeCount <= 5) {
-    steps.push('Relax the entry rule or extend the backtest range to get more trade samples.');
+    steps.push({
+      label: 'Get more trade samples',
+      prompt: `Create a less restrictive version of this ${symbol} strategy so it can generate more trade samples.`
+    });
   }
 
-  steps.push('Compare this run against another version before deciding whether to save it.');
+  steps.push({
+    label: 'Compare another version',
+    prompt: `Create another version of this ${symbol} strategy so I can compare it against this run.`
+  });
 
-  return Array.from(new Set(steps)).slice(0, 4);
+  return Array.from(
+    new Map(steps.map((step) => [step.label, step])).values()
+  ).slice(0, 4);
 }
 
 export function RunInsightBreakdown({ run }: { run: RunResponse }) {
+  const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
   const summary = run.summary_json ?? {};
 
   const totalReturnPct = getSummaryNumber(summary, 'total_return_pct');
@@ -182,7 +243,16 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
     buildActivityInsight({ tradeCount })
   ];
 
-  const nextSteps = buildNextSteps({ alphaPct, maxDrawdownPct, tradeCount });
+  const nextSteps = buildNextSteps({ run, alphaPct, maxDrawdownPct, tradeCount });
+
+  async function handleCopyPrompt(prompt: string) {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCopiedPrompt(prompt);
+    } catch {
+      setCopiedPrompt(null);
+    }
+  }
 
   return (
     <section className="app-card app-shadow rounded-[32px] border p-5">
@@ -206,19 +276,30 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
         <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
           Suggested next research steps
         </div>
-        <ul className="mt-3 space-y-2 text-sm">
+        <p className="app-text-muted mt-2 text-sm leading-6">
+          Copy one of these prompts and paste it into the builder to create the next variant.
+        </p>
+
+        <div className="mt-4 flex flex-wrap gap-2">
           {nextSteps.map((step) => (
-            <li key={step} className="app-title flex items-start gap-3">
-              <span
-                aria-hidden="true"
-                className="mt-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-cyan-400/40 bg-cyan-500/10"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
-              </span>
-              <span className="min-w-0 leading-6">{step}</span>
-            </li>
+            <ResearchPromptButton
+              key={step.label}
+              step={step}
+              onCopy={(prompt) => {
+                void handleCopyPrompt(prompt);
+              }}
+            />
           ))}
-        </ul>
+        </div>
+
+        {copiedPrompt ? (
+          <div className="app-note mt-4 rounded-2xl px-4 py-3 text-sm">
+            <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+              Copied prompt
+            </div>
+            <p className="app-title mt-2 leading-6">{copiedPrompt}</p>
+          </div>
+        ) : null}
       </div>
     </section>
   );
