@@ -55,29 +55,43 @@ function explainAtomicRule(rule: RuleNode): string {
 
   switch (type) {
     case 'rsi_below':
-      return `${symbol ?? 'Asset'} RSI${lookback ? `(${lookback})` : ''} falls below ${
-        threshold ?? '—'
-      }`;
+      return `${symbol ?? 'Asset'} RSI${lookback ? `(${lookback})` : ''} falls below ${threshold ?? '—'}`;
+
     case 'rsi_above':
-      return `${symbol ?? 'Asset'} RSI${lookback ? `(${lookback})` : ''} rises above ${
-        threshold ?? '—'
-      }`;
+      return `${symbol ?? 'Asset'} RSI${lookback ? `(${lookback})` : ''} rises above ${threshold ?? '—'}`;
+
     case 'sma_cross_above':
-      return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA crosses above ${
-        slowWindow ?? 'slow'
-      }-day SMA`;
+      return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA crosses above ${slowWindow ?? 'slow'}-day SMA`;
+
     case 'sma_cross_below':
-      return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA crosses below ${
-        slowWindow ?? 'slow'
-      }-day SMA`;
+      return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA crosses below ${slowWindow ?? 'slow'}-day SMA`;
+
+    case 'sma_above':
+      return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA stays above ${slowWindow ?? 'slow'}-day SMA`;
+
     case 'macd_bullish_cross':
       return `${symbol ?? 'Asset'} MACD turns bullish`;
+
     case 'macd_bearish_cross':
       return `${symbol ?? 'Asset'} MACD turns bearish`;
+
+    case 'kd_golden_cross':
+      return `${symbol ?? 'Asset'} KD / stochastic turns bullish`;
+
+    case 'kd_dead_cross':
+      return `${symbol ?? 'Asset'} KD / stochastic turns bearish`;
+
+    case 'relative_strength_above':
+      return `${symbol ?? 'Asset'} outperforms reference strength threshold${lookback ? ` over ${lookback} bars` : ''}${threshold !== null ? ` by ${threshold}` : ''}`;
+
+    case 'relative_strength_below':
+      return `${symbol ?? 'Asset'} underperforms reference strength threshold${lookback ? ` over ${lookback} bars` : ''}${threshold !== null ? ` by ${threshold}` : ''}`;
+
     case 'month_in':
       return monthValues.length > 0
         ? `Only trade during months ${monthValues.join(', ')}`
         : 'Month filter is applied';
+
     default:
       return `${compactRuleLabel(type)}${symbol ? ` on ${symbol}` : ''}`;
   }
@@ -91,10 +105,32 @@ function explainRule(rule: unknown): string {
 
   if (kind === 'atomic') return explainAtomicRule(node);
 
+  if (kind === 'not') {
+    const innerRule = 'rule' in node ? explainRule(node.rule) : 'the inner rule';
+    return `NOT: ${innerRule}`;
+  }
+
+  if (kind === 'window') {
+    const windowBars = typeof node.window_bars === 'number' ? node.window_bars : null;
+    const mode = typeof node.mode === 'string' ? node.mode : null;
+    const innerRule = 'rule' in node ? explainRule(node.rule) : 'the inner rule';
+
+    if (windowBars && mode) {
+      return `${titleCase(mode)} the following within ${windowBars} bars: ${innerRule}`;
+    }
+
+    if (windowBars) {
+      return `Within ${windowBars} bars: ${innerRule}`;
+    }
+
+    return `Window rule: ${innerRule}`;
+  }
+
   if (kind === 'sequence') {
     const steps = Array.isArray(node.steps) ? node.steps : [];
     const windowBars = typeof node.window_bars === 'number' ? node.window_bars : null;
     const explainedSteps = steps.map((step) => explainRule(step));
+
     return explainedSteps.length > 0
       ? `Sequence${windowBars ? ` within ${windowBars} bars` : ''}: ${explainedSteps.join(' → ')}`
       : 'Sequence rule';
@@ -104,6 +140,7 @@ function explainRule(rule: unknown): string {
     const operator = typeof node.operator === 'string' ? node.operator.toUpperCase() : 'AND';
     const rules = Array.isArray(node.rules) ? node.rules : [];
     const explainedRules = rules.map((child) => explainRule(child));
+
     return explainedRules.length > 0
       ? `${operator} group: ${explainedRules.join(` ${operator} `)}`
       : `${operator} group`;
@@ -132,16 +169,33 @@ function Section({ eyebrow, title, children }: { eyebrow?: string; title: string
 }
 
 function BulletList({ items, emptyText, tone = 'default' }: { items: string[]; emptyText: string; tone?: 'default' | 'warning' | 'success' }) {
-  const bulletClass = tone === 'warning' ? 'app-chip-warning' : tone === 'success' ? 'app-chip-success' : 'app-chip-info';
+  const markerClass =
+    tone === 'warning'
+      ? 'border-amber-400/40 bg-amber-500/10'
+      : tone === 'success'
+        ? 'border-emerald-400/40 bg-emerald-500/10'
+        : 'border-cyan-400/40 bg-cyan-500/10';
+
+  const dotClass =
+    tone === 'warning'
+      ? 'bg-amber-300'
+      : tone === 'success'
+        ? 'bg-emerald-300'
+        : 'bg-cyan-300';
 
   if (items.length === 0) return <p className="app-text-muted text-sm">{emptyText}</p>;
 
   return (
     <ul className="space-y-2 text-sm">
       {items.map((item, index) => (
-        <li key={`${item}-${index}`} className="app-title flex gap-2">
-          <span className={`${bulletClass} inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px]`}>•</span>
-          <span>{item}</span>
+        <li key={`${item}-${index}`} className="app-title flex items-start gap-2">
+          <span
+            aria-hidden="true"
+            className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${markerClass}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+          </span>
+          <span className="min-w-0 leading-6">{item}</span>
         </li>
       ))}
     </ul>
@@ -215,12 +269,29 @@ export function StrategyDraftCard({
       coreOverlayLabel: coreOverlayEnabled ? `Enabled · ${coreAllocation}` : 'Disabled',
       readableExplanation: [
         `Trade ${typeof config.tradable_symbol === 'string' ? config.tradable_symbol : 'the selected asset'} from ${typeof config.start_date === 'string' ? config.start_date : 'the chosen start date'} to ${typeof config.end_date === 'string' ? config.end_date : 'the chosen end date'}.`,
+        typeof config.benchmark_symbol === 'string'
+          ? `Compare performance against ${config.benchmark_symbol}.`
+          : null,
         `Enter when ${explainRule(config.entry_rule)}.`,
         `Exit when ${explainRule(config.exit_rule)}.`,
-        typeof allocation.entry_value === 'number' ? `Use ${(allocation.entry_value * 100).toFixed(1)}% of equity per entry.` : null,
-        typeof risk.stop_loss_pct === 'number' ? `Protect downside with a ${formatPercent(risk.stop_loss_pct)} stop loss.` : null,
-        typeof risk.take_profit_pct === 'number' ? `Take profit at ${formatPercent(risk.take_profit_pct)}.` : null,
-        typeof risk.cooldown_bars === 'number' && risk.cooldown_bars > 0 ? `Wait ${risk.cooldown_bars} bars before re-entering after an exit.` : null
+        typeof allocation.entry_value === 'number'
+          ? `Use ${(allocation.entry_value * 100).toFixed(1)}% of equity per entry.`
+          : null,
+        typeof allocation.max_position_pct === 'number'
+          ? `Cap any single position at ${(allocation.max_position_pct * 100).toFixed(1)}% of equity.`
+          : null,
+        typeof risk.stop_loss_pct === 'number'
+          ? `Protect downside with a ${formatPercent(risk.stop_loss_pct)} stop loss.`
+          : null,
+        typeof risk.take_profit_pct === 'number'
+          ? `Take profit at ${formatPercent(risk.take_profit_pct)}.`
+          : null,
+        typeof risk.cooldown_bars === 'number' && risk.cooldown_bars > 0
+          ? `Wait ${risk.cooldown_bars} bars before re-entering after an exit.`
+          : null,
+        coreOverlayEnabled && typeof coreOverlay.core_allocation_pct === 'number'
+          ? `Keep ${(coreOverlay.core_allocation_pct * 100).toFixed(1)}% in the core sleeve while overlays trade around it.`
+          : null
       ].filter((item): item is string => Boolean(item))
     };
   }, [draft]);
