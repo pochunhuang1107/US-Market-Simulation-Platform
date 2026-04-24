@@ -160,6 +160,41 @@ def _should_attach_question_guidance(
     )
 
 
+def _requires_existing_draft_context(prompt: str) -> bool:
+    text = prompt.strip().lower()
+
+    explicit_context_phrases = (
+        "this strategy",
+        "this draft",
+        "current strategy",
+        "current draft",
+        "existing strategy",
+        "existing draft",
+    )
+    if any(phrase in text for phrase in explicit_context_phrases):
+        return True
+
+    contextual_starters = (
+        "change ",
+        "set ",
+        "update ",
+        "remove ",
+        "delete ",
+        "replace ",
+        "switch ",
+    )
+    if text.startswith(contextual_starters):
+        return True
+
+    if text.startswith("add ") and "strategy" not in text:
+        return True
+
+    if " instead" in text:
+        return True
+
+    return False
+
+
 def _resolve_effective_symbols(
     *,
     tradable_symbol: str,
@@ -2285,6 +2320,30 @@ def generate_strategy_builder_response(
                     answer_type=answer_data.get("answer_type"),
                 )
                 else None
+            ),
+        )
+
+    if not has_current_config and _requires_existing_draft_context(prompt):
+        if "confirmation" in prompt.lower():
+            message = (
+                "Confirmation filters require an existing draft. "
+                "Create a base ETF strategy first, then ask me to add or remove confirmation filters."
+            )
+        else:
+            message = (
+                "I need an existing draft before I can apply that edit. "
+                "Create a base ETF strategy first, then ask me to modify it."
+            )
+
+        return _build_response(
+            response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+            message=message,
+            validation_data=build_validation_data(
+                message=message,
+                max_backtest_years=max_backtest_years,
+            ),
+            guidance_data=_build_guidance_data(
+                guidance_type=StrategyBuilderGuidanceType.UNSUPPORTED_EDIT_TARGET,
             ),
         )
 
