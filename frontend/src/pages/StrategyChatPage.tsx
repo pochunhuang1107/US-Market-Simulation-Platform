@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ChatMessageList } from '../components/strategy-chat/ChatMessageList';
 import { ExamplePromptChips } from '../components/strategy-chat/ExamplePromptChips';
@@ -16,6 +16,12 @@ import type {
   MeEntitlementsResponse,
   StrategyBuilderGenerateResponse
 } from '../types/api';
+
+type StrategyChatLocationState = {
+  prefillPrompt?: string;
+  source?: string;
+  sourceRunId?: string;
+} | null;
 
 function extractDraftConfig(draft: unknown): Record<string, unknown> | null {
   if (!draft || typeof draft !== 'object') return null;
@@ -269,6 +275,7 @@ function EntitlementSummary({
 
 export function StrategyChatPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -279,6 +286,7 @@ export function StrategyChatPage() {
   const [composerFocusKey, setComposerFocusKey] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const consumedPrefillRef = useRef<string | null>(null);
 
   const hasMessages = messages.length > 0;
 
@@ -322,6 +330,23 @@ export function StrategyChatPage() {
     if (!hasMessages) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length, hasMessages]);
+
+  useEffect(() => {
+    const state = location.state as StrategyChatLocationState;
+    const prefillPrompt = state?.prefillPrompt?.trim();
+
+    if (!prefillPrompt) return;
+    if (consumedPrefillRef.current === prefillPrompt) return;
+
+    consumedPrefillRef.current = prefillPrompt;
+    setInput(prefillPrompt);
+    setComposerFocusKey((value) => value + 1);
+
+    navigate(location.pathname, {
+      replace: true,
+      state: null
+    });
+  }, [location.pathname, location.state, navigate]);
 
   async function handleSubmit(promptText?: string) {
     const prompt = (promptText ?? input).trim();

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { formatDecimal, formatNumber, formatPct } from '../../lib/formatters';
 import type { RunResponse } from '../../types/api';
@@ -61,19 +62,19 @@ function InsightCard({ item }: { item: InsightItem }) {
 
 function ResearchPromptButton({
   step,
-  onCopy
+  onOpen
 }: {
   step: NextStep;
-  onCopy: (prompt: string) => void;
+  onOpen: (prompt: string) => void;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onCopy(step.prompt)}
+      onClick={() => onOpen(step.prompt)}
       className="app-note inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:opacity-90 cursor-pointer shadow-sm"
     >
       <span>{step.label}</span>
-      <span aria-hidden="true">Copy prompt ↗</span>
+      <span aria-hidden="true">Open in builder ↗</span>
     </button>
   );
 }
@@ -227,7 +228,8 @@ function buildNextSteps({
 }
 
 export function RunInsightBreakdown({ run }: { run: RunResponse }) {
-  const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [openedPrompt, setOpenedPrompt] = useState<string | null>(null);
   const summary = run.summary_json ?? {};
 
   const totalReturnPct = getSummaryNumber(summary, 'total_return_pct');
@@ -245,13 +247,15 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
 
   const nextSteps = buildNextSteps({ run, alphaPct, maxDrawdownPct, tradeCount });
 
-  async function handleCopyPrompt(prompt: string) {
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setCopiedPrompt(prompt);
-    } catch {
-      setCopiedPrompt(null);
-    }
+  function handleOpenPrompt(prompt: string) {
+    setOpenedPrompt(prompt);
+    navigate('/chat', {
+      state: {
+        prefillPrompt: prompt,
+        source: 'run_insight',
+        sourceRunId: run.id
+      }
+    });
   }
 
   return (
@@ -277,7 +281,7 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
           Suggested next research steps
         </div>
         <p className="app-text-muted mt-2 text-sm leading-6">
-          Copy one of these prompts and paste it into the builder to create the next variant.
+          Open one of these prompts in the builder to create the next strategy variant.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -285,19 +289,17 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
             <ResearchPromptButton
               key={step.label}
               step={step}
-              onCopy={(prompt) => {
-                void handleCopyPrompt(prompt);
-              }}
+              onOpen={handleOpenPrompt}
             />
           ))}
         </div>
 
-        {copiedPrompt ? (
+        {openedPrompt ? (
           <div className="app-note mt-4 rounded-2xl px-4 py-3 text-sm">
             <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
-              Copied prompt
+              Opening builder with prompt
             </div>
-            <p className="app-title mt-2 leading-6">{copiedPrompt}</p>
+            <p className="app-title mt-2 leading-6">{openedPrompt}</p>
           </div>
         ) : null}
       </div>
