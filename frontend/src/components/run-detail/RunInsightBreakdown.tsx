@@ -248,12 +248,15 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
   const nextSteps = buildNextSteps({ run, alphaPct, maxDrawdownPct, tradeCount });
 
   function handleOpenPrompt(prompt: string) {
+    const sourceDraftConfig = getDraftConfig(run);
+
     setOpenedPrompt(prompt);
     navigate('/chat', {
       state: {
         prefillPrompt: prompt,
         source: 'run_insight',
-        sourceRunId: run.id
+        sourceRunId: run.id,
+        sourceDraftConfig
       }
     });
   }

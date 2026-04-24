@@ -21,7 +21,12 @@ type StrategyChatLocationState = {
   prefillPrompt?: string;
   source?: string;
   sourceRunId?: string;
+  sourceDraftConfig?: Record<string, unknown> | null;
 } | null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
 function extractDraftConfig(draft: unknown): Record<string, unknown> | null {
   if (!draft || typeof draft !== 'object') return null;
@@ -31,12 +36,12 @@ function extractDraftConfig(draft: unknown): Record<string, unknown> | null {
     config?: unknown;
   };
 
-  if (record.strategy_config && typeof record.strategy_config === 'object') {
-    return record.strategy_config as Record<string, unknown>;
+  if (isRecord(record.strategy_config)) {
+    return record.strategy_config;
   }
 
-  if (record.config && typeof record.config === 'object') {
-    return record.config as Record<string, unknown>;
+  if (isRecord(record.config)) {
+    return record.config;
   }
 
   return null;
@@ -74,6 +79,43 @@ function getLatestDraftHeadline(messages: ChatMessage[]): string | null {
   }
 
   return null;
+}
+
+function buildSeededDraftMessage({
+  config,
+  sourceRunId
+}: {
+  config: Record<string, unknown>;
+  sourceRunId?: string;
+}): ChatMessage {
+  const strategyName =
+    typeof config.name === 'string' && config.name.trim()
+      ? config.name
+      : typeof config.tradable_symbol === 'string' && config.tradable_symbol.trim()
+        ? `${config.tradable_symbol} strategy`
+        : 'Imported strategy';
+
+  return {
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    text: sourceRunId
+      ? `Loaded ${strategyName} from run ${sourceRunId}.`
+      : `Loaded ${strategyName}.`,
+    draft: {
+      response_type: 'UPDATE_DRAFT',
+      message: sourceRunId
+        ? `Loaded ${strategyName} from run ${sourceRunId}.`
+        : `Loaded ${strategyName}.`,
+      config,
+      summary: `Loaded ${strategyName} as the current editing context.`,
+      warnings: [],
+      assumptions: ['Imported the previous run configuration as the current builder context.'],
+      changes: [],
+      answer_data: null,
+      validation_data: null,
+      guidance_data: null
+    }
+  };
 }
 
 function formatUnknownError(error: unknown): string {
@@ -334,13 +376,38 @@ export function StrategyChatPage() {
   useEffect(() => {
     const state = location.state as StrategyChatLocationState;
     const prefillPrompt = state?.prefillPrompt?.trim();
+    const sourceDraftConfig = isRecord(state?.sourceDraftConfig)
+      ? state.sourceDraftConfig
+      : null;
 
-    if (!prefillPrompt) return;
-    if (consumedPrefillRef.current === prefillPrompt) return;
+    if (!prefillPrompt && !sourceDraftConfig) return;
 
-    consumedPrefillRef.current = prefillPrompt;
-    setInput(prefillPrompt);
-    setComposerFocusKey((value) => value + 1);
+    const consumptionKey = `${prefillPrompt ?? ''}:${state?.sourceRunId ?? ''}`;
+    if (consumedPrefillRef.current === consumptionKey) return;
+
+    consumedPrefillRef.current = consumptionKey;
+
+    if (sourceDraftConfig) {
+      setMessages((prev) => {
+        const existingConfig = getLatestDraftConfig(prev);
+
+        if (existingConfig) {
+          return prev;
+        }
+
+        return [
+          buildSeededDraftMessage({
+            config: sourceDraftConfig,
+            sourceRunId: state?.sourceRunId
+          })
+        ];
+      });
+    }
+
+    if (prefillPrompt) {
+      setInput(prefillPrompt);
+      setComposerFocusKey((value) => value + 1);
+    }
 
     navigate(location.pathname, {
       replace: true,
