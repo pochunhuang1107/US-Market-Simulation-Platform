@@ -11,6 +11,28 @@ interface RunHeaderProps {
   onSaveDraftStrategy?: () => void;
 }
 
+function getDraftConfig(run: RunResponse): Record<string, unknown> | null {
+  const draftConfig = run.request_payload?.draft_config;
+
+  if (draftConfig && typeof draftConfig === 'object' && !Array.isArray(draftConfig)) {
+    return draftConfig as Record<string, unknown>;
+  }
+
+  return null;
+}
+
+function getModifyBuilderState(run: RunResponse) {
+  const sourceDraftConfig = getDraftConfig(run);
+
+  if (!sourceDraftConfig) return null;
+
+  return {
+    source: 'run_header',
+    sourceRunId: run.id,
+    sourceDraftConfig
+  };
+}
+
 export function RunHeader({
   run,
   canSaveDraftStrategy = false,
@@ -20,6 +42,8 @@ export function RunHeader({
   const title = run.strategy_id
     ? formatRunLabel(run.strategy_name, run.strategy_version_number)
     : 'Unsaved draft run';
+
+  const modifyBuilderState = getModifyBuilderState(run);
 
   return (
     <section className="app-card app-shadow rounded-3xl border p-6">
@@ -48,6 +72,16 @@ export function RunHeader({
               Back to runs
             </Link>
 
+            {modifyBuilderState ? (
+              <Link
+                to="/chat"
+                state={modifyBuilderState}
+                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+              >
+                Modify in Builder
+              </Link>
+            ) : null}
+
             {run.strategy_id ? (
               <Link
                 to={`/strategies/${run.strategy_id}`}
@@ -60,7 +94,7 @@ export function RunHeader({
             {run.strategy_id ? (
               <Link
                 to={`/strategies/${run.strategy_id}/versions/new`}
-                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+                className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
               >
                 New version
               </Link>
@@ -69,7 +103,7 @@ export function RunHeader({
             {run.strategy_id ? (
               <Link
                 to={`/runs/new?strategyId=${run.strategy_id}`}
-                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+                className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
               >
                 Create similar run
               </Link>
