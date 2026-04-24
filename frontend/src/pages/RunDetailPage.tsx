@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 
 import { RunCharts } from '../components/run-detail/RunCharts';
 import { RunHeader } from '../components/run-detail/RunHeader';
+import { RunInsightBreakdown } from '../components/run-detail/RunInsightBreakdown';
 import { RunInsightHero } from '../components/run-detail/RunInsightHero';
 import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
-import { MetricCard } from '../components/shared/MetricCard';
 import { StateCard } from '../components/shared/StateCard';
 import { fetchRun, fetchRunDashboard, saveDraftRunAsStrategy } from '../lib/api';
-import { formatCurrency, formatDecimal, formatNumber, formatPct } from '../lib/formatters';
 import type { RunDashboardResponse, RunResponse } from '../types/api';
 
 const ACTIVE_RUN_STATUSES = new Set(['PENDING', 'QUEUED', 'RUNNING']);
@@ -208,34 +207,6 @@ export function RunDetailPage() {
     }
   }
 
-  const summaryMetrics = useMemo(() => {
-    const summary = data?.run.summary_json ?? {};
-    const toNumber = (value: unknown): number | null => (typeof value === 'number' ? value : null);
-
-    return [
-      { label: 'Ending Equity', value: formatCurrency(toNumber(summary['ending_equity'])) },
-      {
-        label: 'Total Return',
-        value: formatPct(toNumber(summary['total_return_pct'])),
-        tone: (toNumber(summary['total_return_pct']) ?? 0) >= 0 ? ('positive' as const) : ('negative' as const)
-      },
-      { label: 'Benchmark Return', value: formatPct(toNumber(summary['benchmark_return_pct'])) },
-      {
-        label: 'Alpha vs Benchmark',
-        value: formatPct(toNumber(summary['alpha_vs_benchmark_pct'])),
-        tone: (toNumber(summary['alpha_vs_benchmark_pct']) ?? 0) >= 0 ? ('positive' as const) : ('negative' as const)
-      },
-      { label: 'CAGR', value: formatPct(toNumber(summary['cagr_pct'])) },
-      { label: 'Sharpe Ratio', value: formatDecimal(toNumber(summary['sharpe_ratio'])) },
-      {
-        label: 'Max Drawdown',
-        value: formatPct(toNumber(summary['max_drawdown_pct'])),
-        tone: 'negative' as const
-      },
-      { label: 'Trades', value: formatNumber(toNumber(summary['trade_count'])) }
-    ];
-  }, [data]);
-
   if (loading) {
     return <StateCard title="Loading run" description="Fetching run status and dashboard data from the backend." />;
   }
@@ -316,13 +287,9 @@ export function RunDetailPage() {
 
         <RunInsightHero run={data.run} chartData={data.chart_data} />
 
-        <RunCharts chartData={data.chart_data} />
+        <RunInsightBreakdown run={data.run} />
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {summaryMetrics.map((metric) => (
-            <MetricCard key={metric.label} label={metric.label} value={metric.value} tone={metric.tone} />
-          ))}
-        </div>
+        <RunCharts chartData={data.chart_data} />
 
         <RunMetaPanel run={data.run} />
       </div>
