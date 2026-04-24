@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { ChatMessageList } from '../components/strategy-chat/ChatMessageList';
 import { ExamplePromptChips } from '../components/strategy-chat/ExamplePromptChips';
@@ -326,6 +326,7 @@ export function StrategyChatPage() {
   const [isLoadingEntitlements, setIsLoadingEntitlements] = useState(true);
   const [entitlementError, setEntitlementError] = useState<string | null>(null);
   const [composerFocusKey, setComposerFocusKey] = useState(0);
+  const [sourceRunId, setSourceRunId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const consumedPrefillRef = useRef<string | null>(null);
@@ -388,6 +389,8 @@ export function StrategyChatPage() {
     consumedPrefillRef.current = consumptionKey;
 
     if (sourceDraftConfig) {
+      setSourceRunId(typeof state?.sourceRunId === 'string' ? state.sourceRunId : null);
+
       setMessages((prev) => {
         const existingConfig = getLatestDraftConfig(prev);
 
@@ -595,6 +598,7 @@ export function StrategyChatPage() {
   function handleStartNewDraft() {
     setMessages([]);
     setInput('');
+    setSourceRunId(null);
     setComposerFocusKey((value) => value + 1);
 
     requestAnimationFrame(() => {
@@ -674,17 +678,30 @@ export function StrategyChatPage() {
                       {latestDraftHeadline ?? 'Latest draft'}
                     </div>
                     <div className="app-text-muted mt-1 text-xs">
-                      New prompts will continue editing this draft until you start a new one.
+                      {sourceRunId
+                        ? 'Imported from a previous run. New prompts will create variants from that run config.'
+                        : 'New prompts will continue editing this draft until you start a new one.'}
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleStartNewDraft}
-                    className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
-                  >
-                    Start New Draft
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {sourceRunId ? (
+                      <Link
+                        to={`/runs/${sourceRunId}`}
+                        className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
+                      >
+                        Back to Source Run
+                      </Link>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={handleStartNewDraft}
+                      className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
+                    >
+                      Start New Draft
+                    </button>
+                  </div>
                 </div>
               ) : null}
 
