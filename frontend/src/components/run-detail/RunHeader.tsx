@@ -93,7 +93,7 @@ export function RunHeader({
 
                 <Link
                   to={`/compare?runIds=${run.parent_run_id},${run.id}`}
-                  className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+                  className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
                 >
                   Compare with parent
                 </Link>
