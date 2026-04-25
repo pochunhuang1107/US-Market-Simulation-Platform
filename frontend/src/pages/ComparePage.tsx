@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { ComparisonInsightSummary } from '../components/compare/ComparisonInsightSummary';
 import { CurveChart, pctFormatter } from '../components/compare/CurveChart';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
@@ -201,8 +202,10 @@ export function ComparePage() {
         </div>
       </SectionCard>
 
+      {comparison ? <ComparisonInsightSummary comparison={comparison} /> : null}
+
       {comparison ? (
-        <SectionCard title="Comparison Summary" subtitle="Metadata-only summary from GET /runs/compare.">
+        <SectionCard title="Comparison Summary" subtitle="Metric summary for the selected runs.">
           <div className="app-table overflow-auto rounded-2xl border">
             <table className="min-w-full divide-y app-divider text-sm">
               <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
