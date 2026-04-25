@@ -125,7 +125,7 @@ export function ComparePage() {
       <PageHeader
         eyebrow="Compare"
         title="Run Comparison Workspace"
-        description="Select multiple succeeded runs, then compare normalized strategy curves, benchmark curves, and drawdown series using the finalized split endpoints."
+        description="Select multiple succeeded runs, then compare normalized strategy curves, benchmark curves, and drawdown series."
         actions={
           <button
             type="button"
@@ -141,6 +141,70 @@ export function ComparePage() {
       />
 
       {errorMessage ? <StateCard title="Comparison issue" description={errorMessage} tone="error" /> : null}
+
+      {comparison ? <ComparisonInsightSummary comparison={comparison} /> : null}
+
+      {comparison ? (
+        <SectionCard title="Comparison Summary" subtitle="Metric summary for the selected runs.">
+          <div className="app-table overflow-auto rounded-2xl border">
+            <table className="min-w-full divide-y app-divider text-sm">
+              <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
+                <tr>
+                  <th className="px-4 py-3">Run</th>
+                  <th className="px-4 py-3">Total Return</th>
+                  <th className="px-4 py-3">Alpha</th>
+                  <th className="px-4 py-3">CAGR</th>
+                  <th className="px-4 py-3">Sharpe</th>
+                  <th className="px-4 py-3">Max DD</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y app-divider">
+                {comparison.runs.map((run) => (
+                  <tr key={run.run_id} className="app-row-hover">
+                    <td className="px-4 py-3 font-medium app-title">
+                      {formatRunLabel(run.strategy_name, run.strategy_version_number)}
+                    </td>
+                    <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
+                    <td className="px-4 py-3 app-text-muted">{formatPct(run.alpha_vs_benchmark_pct)}</td>
+                    <td className="px-4 py-3 app-text-muted">{formatPct(run.cagr_pct)}</td>
+                    <td className="px-4 py-3 app-text-muted">{formatNumber(run.sharpe_ratio)}</td>
+                    <td className="px-4 py-3 app-text-muted">{formatPct(run.max_drawdown_pct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {comparisonChart ? (
+        <div className="grid gap-6 xl:grid-cols-2">
+          <CurveChart
+            title="Strategy Curves"
+            subtitle="Normalized strategy equity curves for the selected runs."
+            curves={comparisonChart.strategy_curves}
+          />
+          <CurveChart
+            title="Benchmark Curves"
+            subtitle="Normalized benchmark equity curves for the same runs."
+            curves={comparisonChart.benchmark_curves}
+          />
+          <CurveChart
+            title="Strategy Drawdowns"
+            subtitle="Strategy drawdown overlays for selected runs."
+            curves={comparisonChart.strategy_drawdown_curves}
+            yFormatter={pctFormatter}
+            zeroLine
+          />
+          <CurveChart
+            title="Benchmark Drawdowns"
+            subtitle="Benchmark drawdown overlays for selected runs."
+            curves={comparisonChart.benchmark_drawdown_curves}
+            yFormatter={pctFormatter}
+            zeroLine
+          />
+        </div>
+      ) : null}
 
       <SectionCard title="Selected Runs" subtitle="Choose at least two succeeded runs. Latest selections are kept if you go over the cap.">
         {selectedRuns.length === 0 ? (
@@ -176,7 +240,9 @@ export function ComparePage() {
             <tbody className="divide-y app-divider">
               {loadingRuns ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center app-text-muted">Loading succeeded runs…</td>
+                  <td colSpan={5} className="px-4 py-12 text-center app-text-muted">
+                    Loading succeeded runs…
+                  </td>
                 </tr>
               ) : (
                 availableRuns.map((run) => {
@@ -184,10 +250,17 @@ export function ComparePage() {
                   return (
                     <tr key={run.run_id} className="app-row-hover">
                       <td className="px-4 py-3">
-                        <input type="checkbox" checked={checked} onChange={() => toggleRun(run.run_id)} className="app-checkbox h-4 w-4 rounded" />
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleRun(run.run_id)}
+                          className="app-checkbox h-4 w-4 rounded"
+                        />
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-medium app-title">{formatRunLabel(run.strategy_name, run.strategy_version_number)}</div>
+                        <div className="font-medium app-title">
+                          {formatRunLabel(run.strategy_name, run.strategy_version_number)}
+                        </div>
                         <div className="mt-1 font-mono text-xs app-text-soft">{run.run_id}</div>
                       </td>
                       <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
@@ -201,48 +274,6 @@ export function ComparePage() {
           </table>
         </div>
       </SectionCard>
-
-      {comparison ? <ComparisonInsightSummary comparison={comparison} /> : null}
-
-      {comparison ? (
-        <SectionCard title="Comparison Summary" subtitle="Metric summary for the selected runs.">
-          <div className="app-table overflow-auto rounded-2xl border">
-            <table className="min-w-full divide-y app-divider text-sm">
-              <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
-                <tr>
-                  <th className="px-4 py-3">Run</th>
-                  <th className="px-4 py-3">Total Return</th>
-                  <th className="px-4 py-3">Alpha</th>
-                  <th className="px-4 py-3">CAGR</th>
-                  <th className="px-4 py-3">Sharpe</th>
-                  <th className="px-4 py-3">Max DD</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y app-divider">
-                {comparison.runs.map((run) => (
-                  <tr key={run.run_id} className="app-row-hover">
-                    <td className="px-4 py-3 font-medium app-title">{formatRunLabel(run.strategy_name, run.strategy_version_number)}</td>
-                    <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
-                    <td className="px-4 py-3 app-text-muted">{formatPct(run.alpha_vs_benchmark_pct)}</td>
-                    <td className="px-4 py-3 app-text-muted">{formatPct(run.cagr_pct)}</td>
-                    <td className="px-4 py-3 app-text-muted">{formatNumber(run.sharpe_ratio)}</td>
-                    <td className="px-4 py-3 app-text-muted">{formatPct(run.max_drawdown_pct)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </SectionCard>
-      ) : null}
-
-      {comparisonChart ? (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <CurveChart title="Strategy Curves" subtitle="Normalized strategy equity curves from GET /runs/compare/chart." curves={comparisonChart.strategy_curves} />
-          <CurveChart title="Benchmark Curves" subtitle="Normalized benchmark equity curves for the same runs." curves={comparisonChart.benchmark_curves} />
-          <CurveChart title="Strategy Drawdowns" subtitle="Strategy drawdown overlays for selected runs." curves={comparisonChart.strategy_drawdown_curves} yFormatter={pctFormatter} zeroLine />
-          <CurveChart title="Benchmark Drawdowns" subtitle="Benchmark drawdown overlays for selected runs." curves={comparisonChart.benchmark_drawdown_curves} yFormatter={pctFormatter} zeroLine />
-        </div>
-      ) : null}
     </div>
   );
 }
