@@ -6,12 +6,9 @@ import { RunStatusBadge } from '../runs/RunStatusBadge';
 
 interface RunHeaderProps {
   run: RunResponse;
-  canSaveDraftStrategy?: boolean;
-  isSavingDraftStrategy?: boolean;
-  onSaveDraftStrategy?: () => void;
 }
 
-function getDraftConfig(run: RunResponse): Record<string, unknown> | null {
+export function getDraftConfig(run: RunResponse): Record<string, unknown> | null {
   const draftConfig = run.request_payload?.draft_config;
 
   if (draftConfig && typeof draftConfig === 'object' && !Array.isArray(draftConfig)) {
@@ -21,7 +18,7 @@ function getDraftConfig(run: RunResponse): Record<string, unknown> | null {
   return null;
 }
 
-function getModifyBuilderState(run: RunResponse) {
+export function getModifyBuilderState(run: RunResponse) {
   const sourceDraftConfig = getDraftConfig(run);
 
   if (!sourceDraftConfig) return null;
@@ -33,17 +30,10 @@ function getModifyBuilderState(run: RunResponse) {
   };
 }
 
-export function RunHeader({
-  run,
-  canSaveDraftStrategy = false,
-  isSavingDraftStrategy = false,
-  onSaveDraftStrategy
-}: RunHeaderProps) {
+export function RunHeader({ run }: RunHeaderProps) {
   const title = run.strategy_id
     ? formatRunLabel(run.strategy_name, run.strategy_version_number)
     : 'Unsaved draft run';
-
-  const modifyBuilderState = getModifyBuilderState(run);
 
   return (
     <section className="app-card app-shadow rounded-3xl border p-6">
@@ -72,32 +62,13 @@ export function RunHeader({
               Back to runs
             </Link>
 
-            {modifyBuilderState ? (
-              <Link
-                to="/chat"
-                state={modifyBuilderState}
-                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
-              >
-                Create Draft Variant
-              </Link>
-            ) : null}
-
             {run.parent_run_id ? (
-              <>
-                <Link
-                  to={`/runs/${run.parent_run_id}`}
-                  className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
-                >
-                  Parent run
-                </Link>
-
-                <Link
-                  to={`/compare?runIds=${run.parent_run_id},${run.id}`}
-                  className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
-                >
-                  Compare with parent
-                </Link>
-              </>
+              <Link
+                to={`/runs/${run.parent_run_id}`}
+                className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
+              >
+                Parent run
+              </Link>
             ) : null}
 
             {run.strategy_id ? (
@@ -127,16 +98,6 @@ export function RunHeader({
               </Link>
             ) : null}
 
-            {canSaveDraftStrategy ? (
-              <button
-                type="button"
-                onClick={onSaveDraftStrategy}
-                disabled={isSavingDraftStrategy}
-                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSavingDraftStrategy ? 'Saving...' : 'Save strategy'}
-              </button>
-            ) : null}
           </div>
         </div>
 
