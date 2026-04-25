@@ -225,12 +225,14 @@ export function StrategyDraftCard({
   draft,
   onRun,
   onUsePrompt,
+  isLatestDraft = true,
   isRunning = false,
   runError = null
 }: {
   draft: StrategyBuilderGenerateResponse;
   onRun: () => void;
   onUsePrompt?: (prompt: string) => void;
+  isLatestDraft?: boolean;
   isRunning?: boolean;
   runError?: string | null;
 }) {
@@ -372,9 +374,15 @@ export function StrategyDraftCard({
             <button type="button" onClick={() => setShowConfig((value) => !value)} className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition">
               {showConfig ? 'Hide JSON' : 'Show JSON'}
             </button>
-            <button type="button" onClick={onRun} disabled={isRunning} className="app-button-primary rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60">
-              {isRunning ? 'Running...' : 'Run Simulation'}
-            </button>
+            {isLatestDraft ? (
+              <button type="button" onClick={onRun} disabled={isRunning} className="app-button-primary rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60">
+                {isRunning ? 'Running...' : 'Run Simulation'}
+              </button>
+            ) : (
+              <div className="app-surface-soft rounded-2xl border px-4 py-2 text-sm font-medium app-text-muted">
+                Superseded by a newer draft
+              </div>
+            )}
           </div>
         </div>
 
