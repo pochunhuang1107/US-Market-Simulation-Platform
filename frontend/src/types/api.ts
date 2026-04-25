@@ -249,6 +249,7 @@ export type RunType = 'SIMULATION' | 'PORTFOLIO' | 'COMPARISON' | 'PARAMETER_SWE
 export interface CreateRunRequest {
   strategy_id?: string | null;
   strategy_version_id?: string | null;
+  parent_run_id?: string | null;
   draft_config?: Record<string, unknown> | null;
   run_type: RunType;
   executor_type: string;

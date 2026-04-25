@@ -82,6 +82,15 @@ export function RunHeader({
               </Link>
             ) : null}
 
+            {run.parent_run_id ? (
+              <Link
+                to={`/runs/${run.parent_run_id}`}
+                className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
+              >
+                Parent run
+              </Link>
+            ) : null}
+
             {run.strategy_id ? (
               <Link
                 to={`/strategies/${run.strategy_id}`}

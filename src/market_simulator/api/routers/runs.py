@@ -106,7 +106,16 @@ def create_run_api(
             strategy_version_id=req.strategy_version_id,
         )
 
+    parent_run_id = None
+    if req.parent_run_id is not None:
+        parent_run = get_run_for_user(db, str(req.parent_run_id), user["id"])
+        if parent_run is None:
+            raise HTTPException(status_code=404, detail="Parent run not found")
+        parent_run_id = parent_run.id
+
     request_payload = dict(req.request_payload or {})
+    if parent_run_id is not None:
+        request_payload["parent_run_id"] = str(parent_run_id)
     if req.draft_config is not None:
         try:
             validate_draft_config(
@@ -145,6 +154,7 @@ def create_run_api(
         req.executor_type,
         request_payload,
         max_attempts=req.max_attempts,
+        parent_run_id=parent_run_id,
     )
     return _build_run_response(run)
 

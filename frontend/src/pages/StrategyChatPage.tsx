@@ -511,9 +511,15 @@ export function StrategyChatPage() {
 
       const run = await createRun({
         draft_config: config,
+        parent_run_id: sourceRunId,
         run_type: 'SIMULATION',
         executor_type: 'SIMULATION_EXECUTOR',
-        request_payload: {},
+        request_payload: sourceRunId
+          ? {
+              source: 'builder_variant',
+              parent_run_id: sourceRunId
+            }
+          : {},
         max_attempts: 1
       });
 

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ConfigDict, field_serializer, model_valid
 class CreateRunRequest(BaseModel):
     strategy_id: str | None = None
     strategy_version_id: str | None = None
+    parent_run_id: UUID | None = None
     draft_config: dict[str, Any] | None = None
     run_type: str
     executor_type: str

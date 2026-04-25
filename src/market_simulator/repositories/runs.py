@@ -36,12 +36,14 @@ def create_run(
     payload,
     *,
     max_attempts: int = 3,
+    parent_run_id=None,
 ):
     run = Run(
         id=uuid.uuid4(),
         user_id=user_id,
         strategy_id=strategy_id,
         strategy_version_id=strategy_version_id,
+        parent_run_id=parent_run_id,
         run_type=run_type,
         executor_type=executor_type,
         status=RunStatus.PENDING,
