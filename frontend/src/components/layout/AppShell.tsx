@@ -5,9 +5,9 @@ import { useTheme } from '../../theme';
 const navItems = [
   { to: '/', label: 'Home', end: true },
   { to: '/runs', label: 'Runs', end: true },
-  { to: '/strategies/new', label: 'Strategy', end: true },
-  { to: '/runs/new', label: 'Simulation', end: true },
-  { to: '/compare', label: 'Compare', end: true }
+  { to: '/compare', label: 'Compare', end: true },
+  { to: '/strategies', label: 'Strategy Library', end: false },
+  { to: '/runs/new', label: 'Advanced', end: true }
 ];
 
 export function AppShell() {
@@ -25,7 +25,7 @@ export function AppShell() {
           </div>
 
           <div className="flex items-center gap-3 self-start lg:self-auto">
-            <nav className="app-nav flex items-center gap-2 rounded-2xl border p-1.5">
+            <nav className="app-nav flex flex-wrap items-center gap-2 rounded-2xl border p-1.5">
               {navItems.map((item) => (
                 <NavLink
                   key={item.to}
