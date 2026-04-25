@@ -204,9 +204,9 @@ export function CreateSimulationPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Create"
-        title="Create Simulation Run"
-        description="Submit a new run using your existing strategy and version records. This page uses only the current backend endpoints: GET /strategies, GET /strategies/{id}/dashboard, POST /runs, and POST /runs/{id}/enqueue."
+        eyebrow="Advanced"
+        title="Advanced Run"
+        description="Manually submit a new run using existing strategy and version records. The chat-first builder remains the primary path for drafting and running ideas."
         actions={
           <>
             <Link to="/runs" className="app-button-secondary rounded-xl px-4 py-2 text-sm transition">
@@ -231,7 +231,7 @@ export function CreateSimulationPage() {
       {successMessage ? <StateCard title="Run request accepted" description={successMessage} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <SectionCard title="Run Request" subtitle="Choose a strategy and version, then submit a simulation request payload.">
+        <SectionCard title="Advanced Run Request" subtitle="Choose a strategy and version, then submit a manual run request payload.">
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Strategy">

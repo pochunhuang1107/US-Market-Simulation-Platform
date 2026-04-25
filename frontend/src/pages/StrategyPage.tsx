@@ -82,7 +82,7 @@ export function StrategyPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Strategy"
+        eyebrow="Strategy Library"
         title={data.strategy.name}
         description={data.strategy.description ?? 'No strategy description was provided.'}
         actions={

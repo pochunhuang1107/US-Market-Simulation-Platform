@@ -76,7 +76,7 @@ export function RunsPage() {
             to="/runs/new"
             className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
           >
-            Create simulation
+            Advanced run
           </Link>
         }
       />
