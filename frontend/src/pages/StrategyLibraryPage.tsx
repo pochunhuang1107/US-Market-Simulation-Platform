@@ -1,12 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { MetricCard } from '../components/shared/MetricCard';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
 import { fetchStrategies } from '../lib/api';
 import { formatDateTime } from '../lib/formatters';
 import type { StrategyListItem } from '../types/api';
+
+const strategyTypeLabels: Record<string, string> = {
+  SINGLE_ASSET: 'Single ETF',
+  SIMULATION: 'Single ETF',
+  PORTFOLIO: 'Portfolio',
+  COMPARISON: 'Comparison',
+  PARAMETER_SWEEP: 'Parameter Sweep'
+};
+
+function formatStrategyType(strategyType: string): string {
+  return (
+    strategyTypeLabels[strategyType] ??
+    strategyType
+      .toLowerCase()
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  );
+}
 
 export function StrategyLibraryPage() {
   const [strategies, setStrategies] = useState<StrategyListItem[]>([]);
@@ -47,6 +67,12 @@ export function StrategyLibraryPage() {
     return [...strategies].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
   }, [strategies]);
 
+  const activeStrategyCount = useMemo(() => {
+    return strategies.filter((strategy) => strategy.status?.toLowerCase() === 'active').length;
+  }, [strategies]);
+
+  const mostRecentlyUpdatedStrategy = sortedStrategies[0];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -56,27 +82,53 @@ export function StrategyLibraryPage() {
         actions={
           <Link
             to="/strategies/new"
-            className="app-button-secondary rounded-xl px-4 py-2 text-sm transition"
+            className="rounded-xl border px-4 py-2 text-sm font-medium app-text-muted transition hover:border-cyan-400/60 hover:text-cyan-500 dark:hover:text-cyan-300"
           >
-            Create manually
+            Advanced manual create
           </Link>
         }
       />
 
       {errorMessage ? <StateCard title="Failed to load strategy library" description={errorMessage} tone="error" /> : null}
 
+      {!loading && sortedStrategies.length > 0 ? (
+        <section className="grid gap-4 md:grid-cols-3">
+          <MetricCard label="Saved strategies" value={String(sortedStrategies.length)} />
+          <MetricCard label="Active strategies" value={String(activeStrategyCount)} />
+          <div className="app-card-soft rounded-2xl border p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] app-text-soft">Most recently updated</p>
+            <p className="mt-3 truncate text-lg font-semibold app-title">{mostRecentlyUpdatedStrategy.name}</p>
+            <p className="mt-1 text-sm app-text-muted">{formatDateTime(mostRecentlyUpdatedStrategy.updated_at)}</p>
+          </div>
+        </section>
+      ) : null}
+
       <SectionCard title="Strategy Library" subtitle="Saved strategies available from the existing strategy records.">
         {loading ? (
           <p className="app-text-muted text-sm">Loading saved strategies...</p>
         ) : sortedStrategies.length === 0 ? (
           <div className="space-y-4">
-            <p className="app-text-muted text-sm">No saved strategies yet.</p>
-            <Link
-              to="/"
-              className="app-button-primary inline-flex rounded-xl px-4 py-2 text-sm font-semibold transition"
-            >
-              Start from Home
-            </Link>
+            <div>
+              <h4 className="app-title text-base font-semibold">No saved strategies yet</h4>
+              <p className="mt-2 max-w-2xl text-sm leading-6 app-text-muted">
+                Saved strategies are created from successful draft runs. Start with the chat-first builder,
+                run a simulation, then save the result once it is worth keeping.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                to="/"
+                className="app-button-primary inline-flex rounded-xl px-4 py-2 text-sm font-semibold transition"
+              >
+                Build a strategy
+              </Link>
+              <Link
+                to="/runs"
+                className="app-button-secondary inline-flex rounded-xl px-4 py-2 text-sm font-medium transition"
+              >
+                View runs
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="app-table overflow-hidden rounded-2xl border">
@@ -85,8 +137,8 @@ export function StrategyLibraryPage() {
                 <tr>
                   <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] app-text-muted">Name</th>
                   <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] app-text-muted">Type</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] app-text-muted">Status</th>
                   <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] app-text-muted">Updated</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-[0.18em] app-text-muted">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y app-divider">
@@ -100,9 +152,16 @@ export function StrategyLibraryPage() {
                         <p className="mt-1 max-w-xl text-xs app-text-muted">{strategy.description}</p>
                       ) : null}
                     </td>
-                    <td className="px-4 py-4 app-text-muted">{strategy.strategy_type}</td>
-                    <td className="px-4 py-4 app-text-muted">{strategy.status}</td>
+                    <td className="px-4 py-4 app-text-muted">{formatStrategyType(strategy.strategy_type)}</td>
                     <td className="px-4 py-4 app-text-muted">{formatDateTime(strategy.updated_at)}</td>
+                    <td className="px-4 py-4 text-right">
+                      <Link
+                        to={`/strategies/${strategy.id}`}
+                        className="text-sm font-semibold text-cyan-600 transition hover:text-cyan-500 dark:text-cyan-300 dark:hover:text-cyan-200"
+                      >
+                        Open →
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>
