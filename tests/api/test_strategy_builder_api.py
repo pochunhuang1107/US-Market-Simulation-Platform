@@ -595,13 +595,17 @@ def test_generate_strategy_builder_draft_applies_sequential_rsi_entry_edit_from_
     )
 
     assert response.status_code == 200
-    config = response.json()["config"]
+    body = response.json()
+    config = body["config"]
 
     assert config["benchmark_symbol"] == "SPY"
     assert config["risk"]["stop_loss_pct"] == 0.08
     assert config["entry_rule"]["type"] == "rsi_below"
     assert config["entry_rule"]["threshold"] == 25
     assert config["exit_rule"]["threshold"] == 70
+    assert "Updated RSI entry threshold from 30 to 25." in body["changes"]
+    assert not any("3000.0%" in change or "2500.0%" in change for change in body["changes"])
+    assert not any("relative strength threshold" in change for change in body["changes"])
 
 
 def test_generate_strategy_builder_draft_applies_sequential_rsi_exit_edit_from_current_config(client):

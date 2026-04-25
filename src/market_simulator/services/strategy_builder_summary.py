@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+_RELATIVE_STRENGTH_RULE_TYPES = {
+    "relative_return_above",
+    "relative_strength_above",
+    "relative_strength_below",
+}
+_RSI_RULE_TYPES = {"rsi_below", "rsi_above"}
+
+
 def _build_strategy_name(
     symbol: str,
     entry_rule: dict,
@@ -102,6 +110,12 @@ def _format_pct(value: Any) -> str:
     return f"{float(value) * 100:.1f}%"
 
 
+def _format_number(value: Any) -> str:
+    if value is None:
+        return "none"
+    return f"{float(value):g}"
+
+
 def _format_month_values(value: Any) -> str:
     if not value:
         return "none"
@@ -112,6 +126,41 @@ def _record_change(changes: list[str], before: Any, after: Any, label: str, form
     if before == after:
         return
     changes.append(f"Updated {label} from {formatter(before)} to {formatter(after)}.")
+
+
+def _rule_type(rule: dict[str, Any]) -> str | None:
+    rule_type = rule.get("type")
+    return rule_type if isinstance(rule_type, str) else None
+
+
+def _is_relative_strength_rule(rule: dict[str, Any]) -> bool:
+    return _rule_type(rule) in _RELATIVE_STRENGTH_RULE_TYPES
+
+
+def _record_threshold_change(
+    changes: list[str],
+    base_rule: dict[str, Any],
+    final_rule: dict[str, Any],
+    side: str,
+) -> None:
+    rule_type = _rule_type(final_rule) or _rule_type(base_rule)
+    if rule_type in _RSI_RULE_TYPES:
+        label = f"RSI {side} threshold"
+        formatter = _format_number
+    elif rule_type in _RELATIVE_STRENGTH_RULE_TYPES:
+        label = "relative strength threshold" if side == "entry" else "relative strength exit threshold"
+        formatter = _format_pct
+    else:
+        label = f"{side} threshold"
+        formatter = str
+
+    _record_change(
+        changes,
+        base_rule.get("threshold"),
+        final_rule.get("threshold"),
+        label,
+        formatter,
+    )
 
 
 def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> list[str]:
@@ -209,18 +258,8 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         final_partial_take_profit.get("max_triggers"),
         "partial take profit max triggers",
     )
-    _record_change(
-        changes,
-        base_entry.get("threshold"),
-        final_entry.get("threshold"),
-        "entry threshold",
-    )
-    _record_change(
-        changes,
-        base_exit.get("threshold"),
-        final_exit.get("threshold"),
-        "exit threshold",
-    )
+    _record_threshold_change(changes, base_entry, final_entry, "entry")
+    _record_threshold_change(changes, base_exit, final_exit, "exit")
     if _is_structural_rule_change(base_entry, final_entry):
         _record_change(
             changes,
@@ -423,25 +462,19 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         "core allocation percentage",
         _format_pct,
     )
-    _record_change(
-        changes,
-        base_entry.get("reference_symbol"),
-        final_entry.get("reference_symbol"),
-        "relative strength reference symbol",
-    )
-    _record_change(
-        changes,
-        base_entry.get("lookback"),
-        final_entry.get("lookback"),
-        "relative strength lookback",
-    )
-    _record_change(
-        changes,
-        base_entry.get("threshold"),
-        final_entry.get("threshold"),
-        "relative strength threshold",
-        _format_pct,
-    )
+    if _is_relative_strength_rule(base_entry) or _is_relative_strength_rule(final_entry):
+        _record_change(
+            changes,
+            base_entry.get("reference_symbol"),
+            final_entry.get("reference_symbol"),
+            "relative strength reference symbol",
+        )
+        _record_change(
+            changes,
+            base_entry.get("lookback"),
+            final_entry.get("lookback"),
+            "relative strength lookback",
+        )
 
     if base_exit_nested or final_exit_nested:
         _record_change(
