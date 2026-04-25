@@ -83,12 +83,21 @@ export function RunHeader({
             ) : null}
 
             {run.parent_run_id ? (
-              <Link
-                to={`/runs/${run.parent_run_id}`}
-                className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
-              >
-                Parent run
-              </Link>
+              <>
+                <Link
+                  to={`/runs/${run.parent_run_id}`}
+                  className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
+                >
+                  Parent run
+                </Link>
+
+                <Link
+                  to={`/compare?runIds=${run.parent_run_id},${run.id}`}
+                  className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+                >
+                  Compare with parent
+                </Link>
+              </>
             ) : null}
 
             {run.strategy_id ? (

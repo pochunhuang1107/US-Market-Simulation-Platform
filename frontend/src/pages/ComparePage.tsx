@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { CurveChart, pctFormatter } from '../components/compare/CurveChart';
 import { PageHeader } from '../components/shared/PageHeader';
@@ -8,14 +9,40 @@ import { fetchRunComparison, fetchRunComparisonChart, fetchRunsDashboard } from 
 import { formatNumber, formatPct, formatRunLabel } from '../lib/formatters';
 import type { RunComparisonChartResponse, RunComparisonResponse, RunDashboardListItem } from '../types/api';
 
+function parseRunIdsParam(value: string | null): string[] {
+  if (!value) return [];
+
+  return Array.from(
+    new Set(
+      value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 6);
+}
+
 export function ComparePage() {
+  const [searchParams] = useSearchParams();
+  const initialSelectedRunIds = useMemo(
+    () => parseRunIdsParam(searchParams.get('runIds')),
+    [searchParams]
+  );
+  const autoCompareKeyRef = useRef<string | null>(null);
+
   const [availableRuns, setAvailableRuns] = useState<RunDashboardListItem[]>([]);
-  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
+  const [selectedRunIds, setSelectedRunIds] = useState<string[]>(initialSelectedRunIds);
   const [comparison, setComparison] = useState<RunComparisonResponse | null>(null);
   const [comparisonChart, setComparisonChart] = useState<RunComparisonChartResponse | null>(null);
   const [loadingRuns, setLoadingRuns] = useState(true);
   const [loadingComparison, setLoadingComparison] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialSelectedRunIds.length >= 2) {
+      setSelectedRunIds(initialSelectedRunIds);
+    }
+  }, [initialSelectedRunIds]);
 
   useEffect(() => {
     let ignore = false;
@@ -49,8 +76,10 @@ export function ComparePage() {
     [availableRuns, selectedRunIds]
   );
 
-  async function handleCompare() {
-    if (selectedRunIds.length < 2) {
+  async function handleCompare(runIdsOverride?: string[]) {
+    const runIds = runIdsOverride ?? selectedRunIds;
+
+    if (runIds.length < 2) {
       setErrorMessage('Select at least two succeeded runs to compare.');
       return;
     }
@@ -60,8 +89,8 @@ export function ComparePage() {
 
     try {
       const [summary, chart] = await Promise.all([
-        fetchRunComparison(selectedRunIds),
-        fetchRunComparisonChart(selectedRunIds)
+        fetchRunComparison(runIds),
+        fetchRunComparisonChart(runIds)
       ]);
       setComparison(summary);
       setComparisonChart(chart);
@@ -73,6 +102,16 @@ export function ComparePage() {
       setLoadingComparison(false);
     }
   }
+
+  useEffect(() => {
+    if (initialSelectedRunIds.length < 2) return;
+
+    const compareKey = initialSelectedRunIds.join(',');
+    if (autoCompareKeyRef.current === compareKey) return;
+
+    autoCompareKeyRef.current = compareKey;
+    void handleCompare(initialSelectedRunIds);
+  }, [initialSelectedRunIds]);
 
   function toggleRun(runId: string) {
     setSelectedRunIds((current) =>
@@ -89,7 +128,9 @@ export function ComparePage() {
         actions={
           <button
             type="button"
-            onClick={handleCompare}
+            onClick={() => {
+              void handleCompare();
+            }}
             disabled={loadingComparison || selectedRunIds.length < 2}
             className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
           >
