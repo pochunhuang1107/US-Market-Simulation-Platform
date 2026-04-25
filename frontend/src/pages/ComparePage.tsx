@@ -10,6 +10,8 @@ import { fetchRunComparison, fetchRunComparisonChart, fetchRunsDashboard } from 
 import { formatNumber, formatPct, formatRunLabel } from '../lib/formatters';
 import type { RunComparisonChartResponse, RunComparisonResponse, RunDashboardListItem } from '../types/api';
 
+const MAX_COMPARE_RUNS = 4;
+
 function parseRunIdsParam(value: string | null): string[] {
   if (!value) return [];
 
@@ -20,7 +22,7 @@ function parseRunIdsParam(value: string | null): string[] {
         .map((item) => item.trim())
         .filter(Boolean)
     )
-  ).slice(0, 6);
+  ).slice(0, MAX_COMPARE_RUNS);
 }
 
 export function ComparePage() {
@@ -77,6 +79,8 @@ export function ComparePage() {
     [availableRuns, selectedRunIds]
   );
 
+  const selectionLimitReached = selectedRunIds.length >= MAX_COMPARE_RUNS;
+
   async function handleCompare(runIdsOverride?: string[]) {
     const runIds = runIdsOverride ?? selectedRunIds;
 
@@ -115,9 +119,17 @@ export function ComparePage() {
   }, [initialSelectedRunIds]);
 
   function toggleRun(runId: string) {
-    setSelectedRunIds((current) =>
-      current.includes(runId) ? current.filter((value) => value !== runId) : [...current, runId].slice(-6)
-    );
+    setSelectedRunIds((current) => {
+      if (current.includes(runId)) {
+        return current.filter((value) => value !== runId);
+      }
+
+      if (current.length >= MAX_COMPARE_RUNS) {
+        return current;
+      }
+
+      return [...current, runId];
+    });
   }
 
   return (
@@ -141,6 +153,13 @@ export function ComparePage() {
       />
 
       {errorMessage ? <StateCard title="Comparison issue" description={errorMessage} tone="error" /> : null}
+
+      {loadingComparison ? (
+        <StateCard
+          title="Comparing selected runs"
+          description="Loading comparison metrics and chart overlays. This may take a few seconds for larger run artifacts."
+        />
+      ) : null}
 
       {comparison ? <ComparisonInsightSummary comparison={comparison} /> : null}
 
@@ -206,7 +225,14 @@ export function ComparePage() {
         </div>
       ) : null}
 
-      <SectionCard title="Selected Runs" subtitle="Choose at least two succeeded runs. Latest selections are kept if you go over the cap.">
+      <SectionCard
+        title={`Selected Runs (${selectedRunIds.length} / ${MAX_COMPARE_RUNS})`}
+        subtitle={
+          selectionLimitReached
+            ? 'Comparison limit reached. Remove one selected run before adding another.'
+            : 'Choose at least two succeeded runs to compare.'
+        }
+      >
         {selectedRuns.length === 0 ? (
           <p className="text-sm app-text-muted">No runs selected yet.</p>
         ) : (
@@ -225,7 +251,10 @@ export function ComparePage() {
         )}
       </SectionCard>
 
-      <SectionCard title="Succeeded Runs" subtitle="Recent finished runs available for comparison.">
+      <SectionCard
+        title="Succeeded Runs"
+        subtitle={`Recent finished runs available for comparison. Select up to ${MAX_COMPARE_RUNS} runs.`}
+      >
         <div className="app-table overflow-auto rounded-2xl border">
           <table className="min-w-full divide-y app-divider text-sm">
             <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
@@ -253,8 +282,9 @@ export function ComparePage() {
                         <input
                           type="checkbox"
                           checked={checked}
+                          disabled={!checked && selectionLimitReached}
                           onChange={() => toggleRun(run.run_id)}
-                          className="app-checkbox h-4 w-4 rounded"
+                          className="app-checkbox h-4 w-4 rounded disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </td>
                       <td className="px-4 py-3">

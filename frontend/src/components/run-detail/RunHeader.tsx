@@ -78,7 +78,7 @@ export function RunHeader({
                 state={modifyBuilderState}
                 className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
               >
-                Modify in Builder
+                Create Draft Variant
               </Link>
             ) : null}
 
