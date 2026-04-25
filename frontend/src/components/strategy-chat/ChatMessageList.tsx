@@ -1,6 +1,16 @@
 import { StrategyDraftCard } from './StrategyDraftCard';
 import type { ChatMessage } from './types';
 
+function isRunnableDraftMessage(message: ChatMessage): boolean {
+  return (
+    message.role === 'assistant' &&
+    Boolean(message.draft) &&
+    message.draft?.response_type !== 'ANSWER' &&
+    message.draft?.response_type !== 'VALIDATION_ERROR' &&
+    Boolean(message.draft?.config)
+  );
+}
+
 function AssistantMessageCard({
   tone,
   title,
@@ -618,6 +628,10 @@ export function ChatMessageList({
   onRunDraft: (messageId: string) => void;
   onUsePrompt: (prompt: string) => void;
 }) {
+  const latestDraftMessageId = [...messages]
+    .reverse()
+    .find(isRunnableDraftMessage)?.id;
+
   return (
     <div className="space-y-6">
       {messages.map((message) => {
@@ -631,11 +645,7 @@ export function ChatMessageList({
           );
         }
 
-        const hasDraftConfig =
-          Boolean(message.draft) &&
-          message.draft?.response_type !== 'ANSWER' &&
-          message.draft?.response_type !== 'VALIDATION_ERROR' &&
-          Boolean(message.draft?.config);
+        const hasDraftConfig = isRunnableDraftMessage(message);
 
         if (hasDraftConfig && message.draft) {
           return (
@@ -645,6 +655,7 @@ export function ChatMessageList({
                   draft={message.draft}
                   onRun={() => onRunDraft(message.id)}
                   onUsePrompt={onUsePrompt}
+                  isLatestDraft={message.id === latestDraftMessageId}
                   isRunning={message.isRunning}
                   runError={message.runError}
                 />
