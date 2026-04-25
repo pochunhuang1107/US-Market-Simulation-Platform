@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { ComparisonInsightSummary } from '../components/compare/ComparisonInsightSummary';
 import { CurveChart, pctFormatter } from '../components/compare/CurveChart';
@@ -12,6 +12,8 @@ import type { RunComparisonChartResponse, RunComparisonResponse, RunDashboardLis
 
 const MAX_COMPARE_RUNS = 4;
 
+type ComparableRunMetric = RunComparisonResponse['runs'][number];
+
 function parseRunIdsParam(value: string | null): string[] {
   if (!value) return [];
 
@@ -23,6 +25,73 @@ function parseRunIdsParam(value: string | null): string[] {
         .filter(Boolean)
     )
   ).slice(0, MAX_COMPARE_RUNS);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function pickBestRun(
+  runs: ComparableRunMetric[],
+  selector: (run: ComparableRunMetric) => number | null
+) {
+  const candidates = runs
+    .map((run) => ({ run, value: selector(run) }))
+    .filter((item): item is { run: ComparableRunMetric; value: number } => isFiniteNumber(item.value));
+
+  if (candidates.length === 0) return null;
+
+  return candidates.sort((a, b) => b.value - a.value)[0].run;
+}
+
+function NextComparisonSteps({ comparison }: { comparison: RunComparisonResponse }) {
+  const bestReturnRun = pickBestRun(comparison.runs, (run) => run.total_return_pct);
+  const bestSharpeRun = pickBestRun(comparison.runs, (run) => run.sharpe_ratio);
+
+  return (
+    <section className="app-card app-shadow-soft rounded-3xl border p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
+            Next comparison steps
+          </div>
+          <p className="app-text-muted mt-2 text-sm leading-6">
+            Review the strongest candidates, pick another group, or return to the run history.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {bestReturnRun ? (
+            <Link
+              to={`/runs/${bestReturnRun.run_id}`}
+              className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition"
+            >
+              Open best return run
+            </Link>
+          ) : null}
+          {bestSharpeRun ? (
+            <Link
+              to={`/runs/${bestSharpeRun.run_id}`}
+              className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+            >
+              Open best Sharpe run
+            </Link>
+          ) : null}
+          <Link
+            to="/runs"
+            className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+          >
+            Back to run history
+          </Link>
+          <Link
+            to="/compare"
+            className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+          >
+            Compare another set
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export function ComparePage() {
@@ -162,6 +231,7 @@ export function ComparePage() {
       ) : null}
 
       {comparison ? <ComparisonInsightSummary comparison={comparison} /> : null}
+      {comparison ? <NextComparisonSteps comparison={comparison} /> : null}
 
       {comparison ? (
         <SectionCard title="Comparison Summary" subtitle="Metric summary for the selected runs.">
