@@ -11,6 +11,31 @@ import { fetchStrategyDashboard } from '../lib/api';
 import { formatDateTime, formatPct } from '../lib/formatters';
 import type { StrategyDashboardResponse } from '../types/api';
 
+function formatStrategyType(value: string | null | undefined) {
+  if (!value) return 'Strategy';
+
+  const labels: Record<string, string> = {
+    SINGLE_ASSET: 'Single ETF',
+    SIMULATION: 'Single ETF',
+    PORTFOLIO: 'Portfolio',
+    COMPARISON: 'Comparison',
+    PARAMETER_SWEEP: 'Parameter Sweep'
+  };
+
+  if (labels[value]) return labels[value];
+
+  return value
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function hasConfig(value: Record<string, unknown> | null | undefined) {
+  return Boolean(value && Object.keys(value).length > 0);
+}
+
 export function StrategyPage() {
   const { strategyId } = useParams();
   const [data, setData] = useState<StrategyDashboardResponse | null>(null);
@@ -71,6 +96,16 @@ export function StrategyPage() {
     return data.versions.find((version) => version.is_current) ?? data.versions[0] ?? null;
   }, [data]);
 
+  const currentConfig = currentVersion?.config_json ?? null;
+  const canContinueInChat = hasConfig(currentConfig);
+  const chatState = canContinueInChat
+    ? {
+        source: 'strategy',
+        sourceDraftConfig: currentConfig,
+        prefillPrompt: `Create a draft variant of ${data?.strategy.name ?? 'this strategy'}.`
+      }
+    : undefined;
+
   if (loading) {
     return <StateCard title="Loading strategy dashboard" description="Fetching strategy metadata, versions, and associated runs." />;
   }
@@ -88,46 +123,83 @@ export function StrategyPage() {
         actions={
           <div className="flex items-center gap-3">
             <Link
-              to={`/strategies/${data.strategy.id}/versions/new`}
-              className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
-            >
-              New Version
-            </Link>
-            <Link
-              to="/strategy-builder"
-              state={{
-                builderContext: {
-                  strategyId: data.strategy.id,
-                  baseVersionId: currentVersion?.id ?? null,
-                  currentConfig: currentVersion?.config_json ?? null
-                }
-              }}
+              to="/strategies"
               className="app-button-secondary rounded-xl px-4 py-2 text-sm transition"
             >
-              Open in Builder
-            </Link>
-            <Link
-              to="/runs"
-              className="app-button-secondary rounded-xl px-4 py-2 text-sm transition"
-            >
-              Back to runs
+              Back to Strategy Library
             </Link>
           </div>
         }
       />
 
+      <section className="app-card app-shadow-soft rounded-3xl border p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
+              Next strategy steps
+            </div>
+            <p className="app-text-muted mt-2 text-sm leading-6">
+              Keep iterating from the saved version, review recent results, or return to your strategy library.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {data.latest_run_id ? (
+              <Link
+                to={`/runs/${data.latest_run_id}`}
+                className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition"
+              >
+                Open latest run
+              </Link>
+            ) : null}
+            {data.latest_run_id ? (
+              <Link
+                to={`/compare?runIds=${data.latest_run_id}`}
+                className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+              >
+                Compare latest run
+              </Link>
+            ) : null}
+            {canContinueInChat ? (
+              <Link
+                to="/chat"
+                state={chatState}
+                className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+              >
+                Continue in Chat
+              </Link>
+            ) : null}
+            <Link
+              to={`/strategies/${data.strategy.id}/versions/new`}
+              className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+            >
+              New Version
+            </Link>
+            <Link
+              to="/strategies"
+              className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+            >
+              Back to Strategy Library
+            </Link>
+          </div>
+        </div>
+      </section>
+
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <SectionCard title="Strategy Info" subtitle="Core strategy metadata from GET /strategies/{id}/dashboard.">
+        <SectionCard title="Strategy Info" subtitle="Saved strategy context and recent activity.">
           <dl className="space-y-4 text-sm">
-            <Row label="Strategy ID" value={data.strategy.id} mono />
-            <Row label="Type" value={data.strategy.strategy_type} />
-            <Row label="Status" value={data.strategy.status} />
-            <Row label="Visibility" value={data.strategy.visibility} />
-            <Row label="Current version ID" value={data.strategy.current_version_id} mono />
-            <Row label="Created at" value={formatDateTime(data.strategy.created_at)} />
-            <Row label="Updated at" value={formatDateTime(data.strategy.updated_at)} />
+            <Row label="Type" value={formatStrategyType(data.strategy.strategy_type)} />
+            <Row label="Created" value={formatDateTime(data.strategy.created_at)} />
+            <Row label="Updated" value={formatDateTime(data.strategy.updated_at)} />
             <Row label="Total runs" value={String(data.total_runs)} />
             <Row label="Latest finished at" value={formatDateTime(data.latest_finished_at)} />
+            <div className="flex flex-wrap gap-2 pt-1">
+              <span className="app-surface-soft app-text-muted rounded-full border px-3 py-1 text-xs">
+                {formatStrategyType(data.strategy.status)}
+              </span>
+              <span className="app-surface-soft app-text-muted rounded-full border px-3 py-1 text-xs">
+                {formatStrategyType(data.strategy.visibility)}
+              </span>
+            </div>
           </dl>
         </SectionCard>
 
@@ -164,7 +236,7 @@ export function StrategyPage() {
 
 function Row({ label, value, mono = false }: { label: string; value: string | null | undefined; mono?: boolean }) {
   return (
-    <div className="app-code rounded-2xl border px-4 py-3">
+    <div className="app-code flex flex-col gap-1 rounded-2xl border px-4 py-3">
       <span className="app-label text-xs font-semibold uppercase tracking-[0.18em]">{label}</span>
       <span className={`${mono ? 'font-mono text-xs break-all' : ''} app-title`}>{value || '—'}</span>
     </div>
