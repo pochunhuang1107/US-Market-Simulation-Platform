@@ -52,10 +52,28 @@ export function formatNumber(value: Nullable<number>): string {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
-export function formatRunLabel(strategyName: Nullable<string>, versionNumber: Nullable<number>): string {
-  if (!strategyName) return 'Untitled strategy run';
-  if (versionNumber === null || versionNumber === undefined) return strategyName;
-  return `${strategyName} · v${versionNumber}`;
+export function shortRunId(runId: Nullable<string> | undefined): string {
+  return runId ? runId.slice(0, 8) : '';
+}
+
+export function formatRunLabel(
+  strategyName: Nullable<string>,
+  versionNumber: Nullable<number>,
+  runId?: Nullable<string>
+): string {
+  const shortId = shortRunId(runId);
+  const name = strategyName?.trim();
+
+  if (name) {
+    if (versionNumber === null || versionNumber === undefined) return name;
+    return `${name} · v${versionNumber}`;
+  }
+
+  if (versionNumber !== null && versionNumber !== undefined) {
+    return shortId ? `Run · v${versionNumber} · ${shortId}` : `Run · v${versionNumber}`;
+  }
+
+  return shortId ? `Draft run · ${shortId}` : 'Draft run';
 }
 
 export function humanizeSeriesName(value: string): string {

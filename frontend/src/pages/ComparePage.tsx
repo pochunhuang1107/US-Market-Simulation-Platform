@@ -7,7 +7,7 @@ import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
 import { fetchRunComparison, fetchRunComparisonChart, fetchRunsDashboard } from '../lib/api';
-import { formatNumber, formatPct, formatRunLabel } from '../lib/formatters';
+import { formatNumber, formatPct, formatRunLabel, shortRunId } from '../lib/formatters';
 import type { RunComparisonChartResponse, RunComparisonResponse, RunDashboardListItem } from '../types/api';
 
 const MAX_COMPARE_RUNS = 4;
@@ -60,6 +60,44 @@ function pickBestRun(
   if (candidates.length === 0) return null;
 
   return candidates.sort((a, b) => b.value - a.value)[0].run;
+}
+
+function buildComparisonLabelMap(runs: ComparableRunMetric[]) {
+  const baseLabels = new Map<string, string>();
+  const labelCounts = new Map<string, number>();
+
+  runs.forEach((run) => {
+    const label = formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
+    baseLabels.set(run.run_id, label);
+    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+  });
+
+  return new Map(
+    runs.map((run) => {
+      const label = baseLabels.get(run.run_id) ?? shortRunId(run.run_id);
+      const uniqueLabel =
+        (labelCounts.get(label) ?? 0) > 1 ? `${label} · ${shortRunId(run.run_id)}` : label;
+      return [run.run_id, uniqueLabel];
+    })
+  );
+}
+
+function relabelComparisonChart(
+  chart: RunComparisonChartResponse,
+  labelByRunId: Map<string, string>
+): RunComparisonChartResponse {
+  const relabelCurves = (curves: RunComparisonChartResponse['strategy_curves']) =>
+    curves.map((curve) => ({
+      ...curve,
+      label: labelByRunId.get(curve.run_id) ?? curve.label
+    }));
+
+  return {
+    strategy_curves: relabelCurves(chart.strategy_curves),
+    benchmark_curves: relabelCurves(chart.benchmark_curves),
+    strategy_drawdown_curves: relabelCurves(chart.strategy_drawdown_curves),
+    benchmark_drawdown_curves: relabelCurves(chart.benchmark_drawdown_curves)
+  };
 }
 
 function NextComparisonSteps({
@@ -201,8 +239,9 @@ export function ComparePage() {
         fetchRunComparison(runIds),
         fetchRunComparisonChart(runIds)
       ]);
+      const labelByRunId = buildComparisonLabelMap(summary.runs);
       setComparison(summary);
-      setComparisonChart(chart);
+      setComparisonChart(relabelComparisonChart(chart, labelByRunId));
     } catch (error) {
       setErrorMessage(formatCompareError(error));
       setComparison(null);
@@ -299,7 +338,10 @@ export function ComparePage() {
                 {comparison.runs.map((run) => (
                   <tr key={run.run_id} className="app-row-hover">
                     <td className="px-4 py-3 font-medium app-title">
-                      {formatRunLabel(run.strategy_name, run.strategy_version_number)}
+                      <div>{formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id)}</div>
+                      <div className="mt-1 font-mono text-xs font-normal app-text-soft">
+                        {shortRunId(run.run_id)}
+                      </div>
                     </td>
                     <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
                     <td className="px-4 py-3 app-text-muted">{formatPct(run.alpha_vs_benchmark_pct)}</td>
@@ -355,16 +397,23 @@ export function ComparePage() {
           <p className="text-sm app-text-muted">No runs selected yet.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {selectedRuns.map((run) => (
-              <button
-                key={run.run_id}
-                type="button"
-                onClick={() => toggleRun(run.run_id)}
-                className="app-badge rounded-full px-3 py-1.5 text-xs font-medium"
-              >
-                {formatRunLabel(run.strategy_name, run.strategy_version_number)}
-              </button>
-            ))}
+            {selectedRuns.map((run) => {
+              const label = formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
+              const idLabel = shortRunId(run.run_id);
+              return (
+                <button
+                  key={run.run_id}
+                  type="button"
+                  onClick={() => toggleRun(run.run_id)}
+                  className="app-badge rounded-full px-3 py-1.5 text-xs font-medium"
+                >
+                  <span>{label}</span>
+                  {label.includes(idLabel) ? null : (
+                    <span className="ml-1 font-mono app-text-soft">{idLabel}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
       </SectionCard>
@@ -407,7 +456,7 @@ export function ComparePage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium app-title">
-                          {formatRunLabel(run.strategy_name, run.strategy_version_number)}
+                          {formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id)}
                         </div>
                         <div className="mt-1 font-mono text-xs app-text-soft">{run.run_id}</div>
                       </td>
