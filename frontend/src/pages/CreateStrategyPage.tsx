@@ -51,8 +51,13 @@ type CreateStrategyLocationState = {
 };
 
 function normalizeError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return 'Something went wrong.';
+  const message = error instanceof Error ? error.message : 'Something went wrong.';
+
+  if (message.includes('Saved strategy limit reached')) {
+    return 'Saved strategy limit reached. Go to Strategy Library and archive an older strategy, then try saving again.';
+  }
+
+  return message;
 }
 
 function prettifyJson(value: string): string {
@@ -230,7 +235,15 @@ export function CreateStrategyPage() {
 
           {submitError && (
             <div className="mt-6 rounded-2xl border border-rose-300/50 bg-rose-50/90 px-4 py-3 text-sm text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/20 dark:text-rose-100">
-              {submitError}
+              <p>{submitError}</p>
+              {submitError.includes('Saved strategy limit reached') ? (
+                <Link
+                  to="/strategies"
+                  className="mt-3 inline-flex rounded-xl border border-rose-300/60 px-3 py-2 text-xs font-semibold transition hover:border-rose-400 dark:border-rose-900/70 dark:hover:border-rose-700"
+                >
+                  Open Strategy Library
+                </Link>
+              ) : null}
             </div>
           )}
 

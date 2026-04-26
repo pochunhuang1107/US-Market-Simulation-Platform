@@ -5,9 +5,9 @@ import { MetricCard } from '../components/shared/MetricCard';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
-import { fetchStrategies } from '../lib/api';
+import { fetchMeEntitlements, fetchStrategies } from '../lib/api';
 import { formatDateTime } from '../lib/formatters';
-import type { StrategyListItem } from '../types/api';
+import type { MeEntitlementsResponse, StrategyListItem } from '../types/api';
 
 const strategyTypeLabels: Record<string, string> = {
   SINGLE_ASSET: 'Single ETF',
@@ -33,9 +33,23 @@ export function StrategyLibraryPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [entitlements, setEntitlements] = useState<MeEntitlementsResponse | null>(null);
 
   useEffect(() => {
     let ignore = false;
+
+    async function loadEntitlements() {
+      try {
+        const response = await fetchMeEntitlements();
+        if (!ignore) {
+          setEntitlements(response);
+        }
+      } catch {
+        if (!ignore) {
+          setEntitlements(null);
+        }
+      }
+    }
 
     async function loadStrategies() {
       setLoading(true);
@@ -58,6 +72,7 @@ export function StrategyLibraryPage() {
       }
     }
 
+    void loadEntitlements();
     void loadStrategies();
     return () => {
       ignore = true;
@@ -73,6 +88,7 @@ export function StrategyLibraryPage() {
   }, [strategies]);
 
   const mostRecentlyUpdatedStrategy = sortedStrategies[0];
+  const savedStrategyLimitReached = entitlements?.usage.saved_strategies_remaining === 0;
 
   return (
     <div className="space-y-6">
@@ -92,6 +108,34 @@ export function StrategyLibraryPage() {
 
       {errorMessage ? <StateCard title="Failed to load strategy library" description={errorMessage} tone="error" /> : null}
 
+      {entitlements ? (
+        <section className="app-card-soft rounded-3xl border p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] app-text-soft">Plan usage</p>
+              <h3 className="mt-2 app-title text-lg font-semibold">{entitlements.plan.name}</h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6 app-text-muted">
+                Archived strategies are hidden from the main library and do not count toward your active saved strategy limit.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[34rem]">
+              <MetricCard label="Active saved" value={String(entitlements.usage.saved_strategies)} />
+              <MetricCard label="Max saved" value={String(entitlements.limits.max_saved_strategies)} />
+              <MetricCard
+                label="Remaining slots"
+                value={String(entitlements.usage.saved_strategies_remaining)}
+                tone={savedStrategyLimitReached ? 'negative' : 'positive'}
+              />
+            </div>
+          </div>
+          {savedStrategyLimitReached ? (
+            <div className="app-alert-warning mt-4 rounded-2xl px-4 py-3 text-sm">
+              You have reached your saved strategy limit. Archive an older strategy or upgrade later to save more.
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {!loading && sortedStrategies.length > 0 ? (
         <section className="grid gap-4 md:grid-cols-3">
           <MetricCard label={showArchived ? 'Visible strategies' : 'Saved strategies'} value={String(sortedStrategies.length)} />
@@ -108,15 +152,20 @@ export function StrategyLibraryPage() {
         title="Strategy Library"
         subtitle="Saved strategies available from the existing strategy records."
         actions={
-          <label className="inline-flex items-center gap-2 text-sm font-medium app-text-muted">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(event) => setShowArchived(event.target.checked)}
-              className="h-4 w-4 rounded border app-surface-soft accent-cyan-500"
-            />
-            Show archived
-          </label>
+          <div className="space-y-1">
+            <label className="inline-flex items-center gap-2 text-sm font-medium app-text-muted">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(event) => setShowArchived(event.target.checked)}
+                className="h-4 w-4 rounded border app-surface-soft accent-cyan-500"
+              />
+              Show archived
+            </label>
+            <p className="max-w-xs text-xs leading-5 app-text-soft">
+              Archived strategies are kept for history and can be restored.
+            </p>
+          </div>
         }
       >
         {loading ? (

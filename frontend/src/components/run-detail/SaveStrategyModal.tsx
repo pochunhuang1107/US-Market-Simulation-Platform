@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 interface SaveStrategyModalProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ export function SaveStrategyModal({
 
   const trimmedName = name.trim();
   const canSubmit = trimmedName.length > 0 && !isSaving;
+  const isSavedStrategyLimitError = errorMessage?.includes('Saved strategy limit reached') ?? false;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
@@ -47,8 +49,16 @@ export function SaveStrategyModal({
         </div>
 
         {errorMessage ? (
-          <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-            {errorMessage}
+          <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-200">
+            <p>{errorMessage}</p>
+            {isSavedStrategyLimitError ? (
+              <Link
+                to="/strategies"
+                className="mt-3 inline-flex rounded-xl border border-rose-500/30 px-3 py-2 text-xs font-semibold transition hover:border-rose-500/60"
+              >
+                Open Strategy Library
+              </Link>
+            ) : null}
           </div>
         ) : null}
 
