@@ -8,6 +8,7 @@ import { SectionCard } from '../shared/SectionCard';
 interface CurveChartProps {
   title: string;
   subtitle: string;
+  note?: string;
   curves: RunComparisonCurve[];
   yFormatter?: (value: number) => string;
   zeroLine?: boolean;
@@ -15,7 +16,7 @@ interface CurveChartProps {
 
 const STROKES = ['#38bdf8', '#c084fc', '#22c55e', '#f59e0b', '#fb7185', '#f97316'];
 
-export function CurveChart({ title, subtitle, curves, yFormatter = defaultFormatter, zeroLine = false }: CurveChartProps) {
+export function CurveChart({ title, subtitle, note, curves, yFormatter = defaultFormatter, zeroLine = false }: CurveChartProps) {
   const data = mergeCurves(curves);
   const { resolvedTheme } = useTheme();
   const gridColor = resolvedTheme === 'dark' ? '#1e293b' : '#cbd5e1';
@@ -29,6 +30,11 @@ export function CurveChart({ title, subtitle, curves, yFormatter = defaultFormat
 
   return (
     <SectionCard title={title} subtitle={subtitle}>
+      {note ? (
+        <div className="app-badge mb-4 inline-flex rounded-full px-3 py-1.5 text-xs font-semibold">
+          {note}
+        </div>
+      ) : null}
       <div className="h-[340px] w-full">
         <ResponsiveContainer>
           <LineChart data={data} margin={{ top: 8, right: 16, left: 4, bottom: 0 }}>

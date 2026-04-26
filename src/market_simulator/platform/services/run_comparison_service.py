@@ -8,10 +8,64 @@ FULL_PERIOD_METRICS = "FULL_PERIOD_METRICS"
 FULL_PERIOD_CHART = "FULL_PERIOD"
 COMMON_OVERLAP_CHART = "COMMON_OVERLAP"
 
+BENCHMARK_SYMBOL_KEYS = ("benchmark_symbol", "benchmark_ticker", "benchmark")
+BENCHMARK_NAME_KEYS = ("benchmark_name", "benchmark_label")
+
 
 class RunComparisonService:
     def __init__(self):
         self.chart_service = RunChartService()
+
+    def _clean_benchmark_value(self, value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+
+        cleaned = value.strip()
+        return cleaned or None
+
+    def _find_benchmark_value(self, source: Any, keys: tuple[str, ...]) -> str | None:
+        if not isinstance(source, dict):
+            return None
+
+        for key in keys:
+            value = self._clean_benchmark_value(source.get(key))
+            if value is not None:
+                return value
+
+        return None
+
+    def _extract_benchmark_label(
+        self,
+        run: Any,
+        chart_data: dict[str, Any] | None = None,
+    ) -> str | None:
+        request_payload = run.request_payload or {}
+        summary_json = run.summary_json or {}
+        draft_config = request_payload.get("draft_config") if isinstance(request_payload, dict) else None
+        version_config = (
+            run.strategy_version.config_json
+            if getattr(run, "strategy_version", None) is not None
+            else None
+        )
+
+        sources = [
+            summary_json,
+            request_payload,
+            draft_config,
+            version_config,
+            chart_data,
+        ]
+
+        for source in sources:
+            symbol = self._find_benchmark_value(source, BENCHMARK_SYMBOL_KEYS)
+            if symbol is not None:
+                return symbol.upper()
+
+            name = self._find_benchmark_value(source, BENCHMARK_NAME_KEYS)
+            if name is not None:
+                return name
+
+        return None
 
     def _build_run_window(self, run: Any) -> dict[str, str | None]:
         window = {
@@ -209,6 +263,7 @@ class RunComparisonService:
                 continue
 
             label = None
+            benchmark_label = self._extract_benchmark_label(run, chart_data)
             if getattr(run, "strategy", None) is not None:
                 strategy_name = getattr(run.strategy, "name", None)
                 if strategy_name:
@@ -302,7 +357,8 @@ class RunComparisonService:
             benchmark_curves.append(
                 {
                     "run_id": str(run.id),
-                    "label": label,
+                    "label": f"{benchmark_label} · {label}" if benchmark_label else label,
+                    "benchmark_label": benchmark_label,
                     "points": benchmark_points,
                 }
             )
@@ -316,7 +372,8 @@ class RunComparisonService:
             benchmark_drawdown_curves.append(
                 {
                     "run_id": str(run.id),
-                    "label": label,
+                    "label": f"{benchmark_label} · {label}" if benchmark_label else label,
+                    "benchmark_label": benchmark_label,
                     "points": benchmark_drawdown_points,
                 }
             )

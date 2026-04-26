@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import type { MouseEvent } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useTheme } from '../../theme';
 
@@ -12,6 +13,18 @@ const navItems = [
 
 export function AppShell() {
   const { themeMode, setThemeMode } = useTheme();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, to: string) {
+    if (to !== '/compare' || location.pathname !== '/compare') return;
+
+    event.preventDefault();
+    navigate('/compare', {
+      replace: location.search === '',
+      state: { compareResetKey: Date.now() }
+    });
+  }
 
   return (
     <div className="app-shell min-h-screen">
@@ -31,6 +44,7 @@ export function AppShell() {
                   key={item.to}
                   to={item.to}
                   end={item.end}
+                  onClick={(event) => handleNavClick(event, item.to)}
                   className={({ isActive }) =>
                     `rounded-xl px-4 py-2 text-sm font-medium transition ${
                       isActive ? 'app-nav-link-active' : 'app-nav-link'

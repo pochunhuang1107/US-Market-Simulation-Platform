@@ -214,6 +214,7 @@ export interface RunComparisonCurvePoint {
 export interface RunComparisonCurve {
   run_id: string;
   label: string;
+  benchmark_label: Nullable<string>;
   points: RunComparisonCurvePoint[];
 }
 

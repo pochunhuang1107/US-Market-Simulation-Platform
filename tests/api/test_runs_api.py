@@ -549,7 +549,7 @@ def test_compare_runs_chart_returns_normalized_strategy_benchmark_and_drawdown_c
         str(version.id),
         "SIMULATION",
         "SIMULATION_EXECUTOR",
-        {"note": "compare chart 1"},
+        {"note": "compare chart 1", "benchmark_symbol": "QQQ"},
         max_attempts=3,
     )
     run_1.status = RunStatus.RUNNING
@@ -571,7 +571,7 @@ def test_compare_runs_chart_returns_normalized_strategy_benchmark_and_drawdown_c
         str(version.id),
         "SIMULATION",
         "SIMULATION_EXECUTOR",
-        {"note": "compare chart 2"},
+        {"note": "compare chart 2", "draft_config": {"benchmark_symbol": "SPY"}},
         max_attempts=3,
     )
     run_2.status = RunStatus.RUNNING
@@ -644,6 +644,11 @@ def test_compare_runs_chart_returns_normalized_strategy_benchmark_and_drawdown_c
     assert body["benchmark_curves"][0]["label"] is not None
     assert body["strategy_drawdown_curves"][0]["label"] is not None
     assert body["benchmark_drawdown_curves"][0]["label"] is not None
+    assert body["strategy_curves"][0]["benchmark_label"] is None
+    assert body["benchmark_curves"][0]["benchmark_label"] == "QQQ"
+    assert body["benchmark_curves"][1]["benchmark_label"] == "SPY"
+    assert body["benchmark_curves"][0]["label"].startswith("QQQ · ")
+    assert body["benchmark_drawdown_curves"][1]["label"].startswith("SPY · ")
 
     assert body["strategy_curves"][0]["points"][0]["value"] == 100.0
     assert body["strategy_curves"][0]["points"][1]["value"] == 110.0
