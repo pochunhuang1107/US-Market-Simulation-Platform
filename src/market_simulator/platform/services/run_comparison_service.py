@@ -21,9 +21,8 @@ class RunComparisonService:
         if not run.artifact_manifest_json:
             return window
 
-        try:
-            chart_data = self.chart_service.load_chart_data(run.artifact_manifest_json)
-        except Exception:
+        chart_data = self._load_chart_data(run.artifact_manifest_json)
+        if chart_data is None:
             return window
 
         equity_rows = chart_data.get("equity_curve") or []
@@ -40,6 +39,12 @@ class RunComparisonService:
             "start_date": str(start_date),
             "end_date": str(end_date),
         }
+
+    def _load_chart_data(self, artifact_manifest_json: dict[str, str]) -> dict[str, Any] | None:
+        try:
+            return self.chart_service.load_chart_data(artifact_manifest_json)
+        except Exception:
+            return None
 
     def _build_window_metadata(self, runs: list[Any]) -> dict[str, Any]:
         run_windows = [self._build_run_window(run) for run in runs]
@@ -134,7 +139,9 @@ class RunComparisonService:
             if not run.artifact_manifest_json:
                 continue
 
-            chart_data = self.chart_service.load_chart_data(run.artifact_manifest_json)
+            chart_data = self._load_chart_data(run.artifact_manifest_json)
+            if chart_data is None:
+                continue
 
             label = None
             if getattr(run, "strategy", None) is not None:
