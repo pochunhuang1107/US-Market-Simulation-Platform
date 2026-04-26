@@ -12,13 +12,8 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function shortRunId(runId: string) {
-  return runId.slice(0, 8);
-}
-
 function getRunLabel(run: RunComparisonSummary) {
-  const label = formatRunLabel(run.strategy_name, run.strategy_version_number);
-  return label === 'Draft Run' ? `Run ${shortRunId(run.run_id)}` : `${label} · ${shortRunId(run.run_id)}`;
+  return formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
 }
 
 function pickBestRun(
