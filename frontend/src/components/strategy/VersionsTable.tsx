@@ -11,7 +11,6 @@ export function VersionsTable({ versions }: { versions: StrategyVersionSummary[]
               <th className="px-5 py-4">Version</th>
               <th className="px-5 py-4">Created</th>
               <th className="px-5 py-4">Change note</th>
-              <th className="px-5 py-4">Config hash</th>
             </tr>
           </thead>
           <tbody className="app-table-body divide-y app-divider">
@@ -29,7 +28,6 @@ export function VersionsTable({ versions }: { versions: StrategyVersionSummary[]
                 </td>
                 <td className="app-text-muted px-5 py-4">{formatDateTime(version.created_at)}</td>
                 <td className="app-text-muted px-5 py-4">{version.change_note || '—'}</td>
-                <td className="app-text-soft px-5 py-4 font-mono text-xs">{version.config_hash}</td>
               </tr>
             ))}
           </tbody>
