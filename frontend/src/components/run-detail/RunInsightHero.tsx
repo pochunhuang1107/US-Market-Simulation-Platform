@@ -26,12 +26,58 @@ type HeroMetric = {
   tone?: MetricTone;
 };
 
+const BENCHMARK_SYMBOL_KEYS = ['benchmark_symbol', 'benchmark_ticker', 'benchmark'];
+const BENCHMARK_NAME_KEYS = ['benchmark_name', 'benchmark_label'];
+
 function toNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function getSummaryNumber(summary: Record<string, unknown>, key: string): number | null {
   return toNumber(summary[key]);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function cleanBenchmarkValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+
+  const cleaned = value.trim();
+  const normalized = cleaned.toLowerCase();
+  if (!cleaned || normalized === 'benchmark' || normalized === 'benchmark_equity') {
+    return null;
+  }
+
+  return cleaned;
+}
+
+function findBenchmarkValue(source: unknown, keys: string[]): string | null {
+  if (!isRecord(source)) return null;
+
+  for (const key of keys) {
+    const value = cleanBenchmarkValue(source[key]);
+    if (value !== null) return value;
+  }
+
+  return null;
+}
+
+function inferBenchmarkLabel(run: RunResponse, chartData: RunChartDataResponse): string | null {
+  const requestPayload = run.request_payload ?? {};
+  const draftConfig = isRecord(requestPayload) ? requestPayload.draft_config : null;
+  const sources: unknown[] = [run.summary_json, draftConfig, requestPayload, chartData];
+
+  for (const source of sources) {
+    const symbol = findBenchmarkValue(source, BENCHMARK_SYMBOL_KEYS);
+    if (symbol !== null) return symbol.toUpperCase();
+
+    const name = findBenchmarkValue(source, BENCHMARK_NAME_KEYS);
+    if (name !== null) return name;
+  }
+
+  return null;
 }
 
 function getTone(value: number | null, positiveIsGood = true): MetricTone {
@@ -165,6 +211,8 @@ export function RunInsightHero({
   const maxDrawdownPct = getSummaryNumber(summary, 'max_drawdown_pct');
   const sharpeRatio = getSummaryNumber(summary, 'sharpe_ratio');
   const tradeCount = getSummaryNumber(summary, 'trade_count');
+  const benchmarkLabel = inferBenchmarkLabel(run, chartData);
+  const benchmarkDisplayLabel = benchmarkLabel ?? 'Benchmark';
 
   const verdict = buildVerdict({
     totalReturnPct,
@@ -182,7 +230,7 @@ export function RunInsightHero({
       tone: getTone(totalReturnPct)
     },
     {
-      label: 'Benchmark',
+      label: benchmarkLabel ? `Benchmark (${benchmarkLabel})` : 'Benchmark',
       value: formatPct(benchmarkReturnPct),
       tone: getTone(benchmarkReturnPct)
     },
@@ -238,7 +286,7 @@ export function RunInsightHero({
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
-                Strategy vs benchmark
+                Strategy vs {benchmarkLabel ?? 'benchmark'}
               </div>
               <p className="app-text-muted mt-1 text-sm">
                 Equity growth over the selected backtest window.
@@ -267,7 +315,7 @@ export function RunInsightHero({
                 <Tooltip
                   formatter={(value, name) => [
                     formatCurrency(typeof value === 'number' ? value : null),
-                    name === 'strategy_equity' ? 'Strategy' : 'Benchmark'
+                    name === 'Strategy' ? 'Strategy' : benchmarkDisplayLabel
                   ]}
                   labelFormatter={(label) => formatShortDate(String(label))}
                   contentStyle={tooltipStyle}
@@ -276,7 +324,7 @@ export function RunInsightHero({
                 <Line
                   type="monotone"
                   dataKey="strategy_equity"
-                  name="strategy_equity"
+                  name="Strategy"
                   stroke="#06b6d4"
                   strokeWidth={2.5}
                   dot={false}
@@ -284,7 +332,7 @@ export function RunInsightHero({
                 <Line
                   type="monotone"
                   dataKey="benchmark_equity"
-                  name="benchmark_equity"
+                  name={benchmarkDisplayLabel}
                   stroke="#a855f7"
                   strokeWidth={2.5}
                   dot={false}
