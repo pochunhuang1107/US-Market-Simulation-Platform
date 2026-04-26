@@ -314,6 +314,7 @@ def compare_runs_api(
     comparison = comparison_service.build_comparison(runs)
     return RunComparisonResponse(
         runs=comparison["runs"],
+        metadata=comparison["metadata"],
     )
 
 
