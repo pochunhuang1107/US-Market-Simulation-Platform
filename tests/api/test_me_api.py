@@ -86,6 +86,7 @@ def test_get_me_entitlements_returns_plan_features_and_usage(
     assert data["limits"]["builder_prompt_daily_limit"] == 1000
     assert data["limits"]["builder_prompt_max_chars"] == 5000
     assert data["limits"]["max_backtest_years"] == 25
+    assert data["limits"]["max_comparison_runs"] == 4
 
     assert data["usage"]["runs_created_today"] == 1
     assert data["usage"]["daily_runs_remaining"] == 999

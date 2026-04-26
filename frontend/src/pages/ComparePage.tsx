@@ -14,21 +14,39 @@ const MAX_COMPARE_RUNS = 4;
 
 type ComparableRunMetric = RunComparisonResponse['runs'][number];
 
-function parseRunIdsParam(value: string | null): string[] {
-  if (!value) return [];
+type ParsedRunIdsParam = {
+  runIds: string[];
+  exceedsLimit: boolean;
+};
 
-  return Array.from(
+function parseRunIdsParam(value: string | null): ParsedRunIdsParam {
+  if (!value) return { runIds: [], exceedsLimit: false };
+
+  const runIds = Array.from(
     new Set(
       value
         .split(',')
         .map((item) => item.trim())
         .filter(Boolean)
     )
-  ).slice(0, MAX_COMPARE_RUNS);
+  );
+
+  return {
+    runIds: runIds.length > MAX_COMPARE_RUNS ? [] : runIds,
+    exceedsLimit: runIds.length > MAX_COMPARE_RUNS
+  };
 }
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function formatCompareError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Failed to compare runs';
+  if (message.toLowerCase().includes('comparison limit reached')) {
+    return `Comparison limit reached for your plan. Select up to ${MAX_COMPARE_RUNS} runs.`;
+  }
+  return message;
 }
 
 function pickBestRun(
@@ -44,7 +62,13 @@ function pickBestRun(
   return candidates.sort((a, b) => b.value - a.value)[0].run;
 }
 
-function NextComparisonSteps({ comparison }: { comparison: RunComparisonResponse }) {
+function NextComparisonSteps({
+  comparison,
+  onCompareAnotherSet
+}: {
+  comparison: RunComparisonResponse;
+  onCompareAnotherSet: () => void;
+}) {
   const bestReturnRun = pickBestRun(comparison.runs, (run) => run.total_return_pct);
   const bestSharpeRun = pickBestRun(comparison.runs, (run) => run.sharpe_ratio);
 
@@ -82,12 +106,13 @@ function NextComparisonSteps({ comparison }: { comparison: RunComparisonResponse
           >
             Back to run history
           </Link>
-          <Link
-            to="/compare"
+          <button
+            type="button"
+            onClick={onCompareAnotherSet}
             className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
           >
             Compare another set
-          </Link>
+          </button>
         </div>
       </div>
     </section>
@@ -95,11 +120,11 @@ function NextComparisonSteps({ comparison }: { comparison: RunComparisonResponse
 }
 
 export function ComparePage() {
-  const [searchParams] = useSearchParams();
-  const initialSelectedRunIds = useMemo(
-    () => parseRunIdsParam(searchParams.get('runIds')),
-    [searchParams]
-  );
+  const [searchParams, setSearchParams] = useSearchParams();
+  const runIdsParam = searchParams.get('runIds');
+  const parsedRunIdsParam = useMemo(() => parseRunIdsParam(runIdsParam), [runIdsParam]);
+  const initialSelectedRunIds = parsedRunIdsParam.runIds;
+  const urlRunIdLimitExceeded = parsedRunIdsParam.exceedsLimit;
   const autoCompareKeyRef = useRef<string | null>(null);
 
   const [availableRuns, setAvailableRuns] = useState<RunDashboardListItem[]>([]);
@@ -111,10 +136,20 @@ export function ComparePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (urlRunIdLimitExceeded) {
+      autoCompareKeyRef.current = null;
+      setSelectedRunIds([]);
+      setComparison(null);
+      setComparisonChart(null);
+      setErrorMessage(`Comparison limit reached for your plan. Select up to ${MAX_COMPARE_RUNS} runs.`);
+      setLoadingComparison(false);
+      return;
+    }
+
     if (initialSelectedRunIds.length >= 2) {
       setSelectedRunIds(initialSelectedRunIds);
     }
-  }, [initialSelectedRunIds]);
+  }, [initialSelectedRunIds, urlRunIdLimitExceeded]);
 
   useEffect(() => {
     let ignore = false;
@@ -169,7 +204,7 @@ export function ComparePage() {
       setComparison(summary);
       setComparisonChart(chart);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to compare runs');
+      setErrorMessage(formatCompareError(error));
       setComparison(null);
       setComparisonChart(null);
     } finally {
@@ -178,6 +213,7 @@ export function ComparePage() {
   }
 
   useEffect(() => {
+    if (urlRunIdLimitExceeded) return;
     if (initialSelectedRunIds.length < 2) return;
 
     const compareKey = initialSelectedRunIds.join(',');
@@ -185,7 +221,17 @@ export function ComparePage() {
 
     autoCompareKeyRef.current = compareKey;
     void handleCompare(initialSelectedRunIds);
-  }, [initialSelectedRunIds]);
+  }, [initialSelectedRunIds, urlRunIdLimitExceeded]);
+
+  function resetComparison() {
+    autoCompareKeyRef.current = null;
+    setSearchParams({});
+    setSelectedRunIds([]);
+    setComparison(null);
+    setComparisonChart(null);
+    setErrorMessage(null);
+    setLoadingComparison(false);
+  }
 
   function toggleRun(runId: string) {
     setSelectedRunIds((current) => {
@@ -231,7 +277,9 @@ export function ComparePage() {
       ) : null}
 
       {comparison ? <ComparisonInsightSummary comparison={comparison} /> : null}
-      {comparison ? <NextComparisonSteps comparison={comparison} /> : null}
+      {comparison ? (
+        <NextComparisonSteps comparison={comparison} onCompareAnotherSet={resetComparison} />
+      ) : null}
 
       {comparison ? (
         <SectionCard title="Comparison Summary" subtitle="Metric summary for the selected runs.">

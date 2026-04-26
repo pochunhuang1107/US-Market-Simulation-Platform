@@ -41,6 +41,7 @@ from market_simulator.repositories.strategies import (
 )
 from market_simulator.services.draft_validation import validate_draft_config
 from market_simulator.services.entitlements import (
+    enforce_comparison_run_limit,
     enforce_run_create_access,
     enforce_strategy_create_access,
 )
@@ -299,6 +300,7 @@ def compare_runs_api(
     parsed_run_ids = [run_id.strip() for run_id in run_ids.split(",") if run_id.strip()]
     if len(parsed_run_ids) < 2:
         raise HTTPException(status_code=400, detail="At least two run IDs are required")
+    enforce_comparison_run_limit(db, user["id"], len(parsed_run_ids))
 
     runs = []
     for run_id in parsed_run_ids:
@@ -325,6 +327,7 @@ def compare_runs_chart_api(
 
     if len(parsed_run_ids) < 2:
         raise HTTPException(status_code=400, detail="At least two run IDs are required")
+    enforce_comparison_run_limit(db, user["id"], len(parsed_run_ids))
 
     runs = []
     for run_id in parsed_run_ids:

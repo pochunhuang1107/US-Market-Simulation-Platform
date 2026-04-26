@@ -66,6 +66,7 @@ def get_my_entitlements(
             builder_prompt_daily_limit=entitlements.builder_prompt_daily_limit,
             builder_prompt_max_chars=entitlements.builder_prompt_max_chars,
             max_backtest_years=entitlements.max_backtest_years,
+            max_comparison_runs=entitlements.max_comparison_runs,
         ),
         usage=MeUsageResponse(
             runs_created_today=runs_created_today,

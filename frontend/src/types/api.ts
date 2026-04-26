@@ -397,6 +397,7 @@ export interface MeUsageLimitsResponse {
   builder_prompt_daily_limit: number;
   builder_prompt_max_chars: number;
   max_backtest_years: number;
+  max_comparison_runs: number;
 }
 
 export interface MeUsageResponse {
