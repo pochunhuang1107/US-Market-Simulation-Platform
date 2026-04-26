@@ -10,6 +10,34 @@ interface RunsTableProps {
   compact?: boolean;
 }
 
+const RUN_TYPE_LABELS: Record<string, string> = {
+  SIMULATION: 'Backtest',
+  PORTFOLIO: 'Portfolio run',
+  COMPARISON: 'Comparison',
+  PARAMETER_SWEEP: 'Parameter sweep'
+};
+
+const EXECUTOR_TYPE_LABELS: Record<string, string> = {
+  SIMULATION_EXECUTOR: 'Simulation engine'
+};
+
+function titleCaseRawValue(value: string) {
+  return value
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function formatRunType(value: string) {
+  return RUN_TYPE_LABELS[value] ?? titleCaseRawValue(value);
+}
+
+function formatExecutorType(value: string) {
+  return EXECUTOR_TYPE_LABELS[value] ?? titleCaseRawValue(value);
+}
+
 export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
   const columns = compact ? 7 : 9;
 
@@ -57,10 +85,10 @@ export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
                           <span className="font-semibold app-title">{formatRunLabel(run.strategy_name, run.strategy_version_number)}</span>
                         )}
                       </div>
-                      <p className="mt-1 font-mono text-xs app-text-muted">{run.run_id}</p>
                       <p className="mt-2 text-xs app-text-soft">
-                        {run.run_type} · {run.executor_type}
+                        {formatRunType(run.run_type)} · {formatExecutorType(run.executor_type)}
                       </p>
+                      <p className="mt-1 break-all font-mono text-[11px] app-text-muted">ID {run.run_id}</p>
                       <Link
                         to={`/runs/${run.run_id}`}
                         className="app-button-secondary mt-3 inline-flex rounded-xl px-3 py-1.5 text-xs font-medium"

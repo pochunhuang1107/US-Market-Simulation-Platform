@@ -139,7 +139,7 @@ export function StrategyPage() {
               Next strategy steps
             </div>
             <p className="app-text-muted mt-2 text-sm leading-6">
-              Keep iterating from the saved version, review recent results, or return to your strategy library.
+              Keep iterating from the saved version or review recent results.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -173,12 +173,6 @@ export function StrategyPage() {
               className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
             >
               New Version
-            </Link>
-            <Link
-              to="/strategies"
-              className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
-            >
-              Back to Strategy Library
             </Link>
           </div>
         </div>
