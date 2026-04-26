@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { VersionsTable } from '../components/strategy/VersionsTable';
@@ -7,7 +7,7 @@ import { MetricCard } from '../components/shared/MetricCard';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
-import { fetchStrategyDashboard } from '../lib/api';
+import { archiveStrategy, fetchStrategyDashboard, restoreStrategy } from '../lib/api';
 import { formatDateTime, formatPct } from '../lib/formatters';
 import type { StrategyDashboardResponse } from '../types/api';
 
@@ -40,40 +40,48 @@ export function StrategyPage() {
   const { strategyId } = useParams();
   const [data, setData] = useState<StrategyDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statusActionLoading, setStatusActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [statusActionError, setStatusActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let ignore = false;
-
-    async function loadStrategy() {
+  const loadStrategy = useCallback(
+    async (shouldIgnore: () => boolean = () => false) => {
       if (!strategyId) {
         setLoading(false);
         setErrorMessage('Missing strategy id');
         return;
       }
 
+      setErrorMessage(null);
+
       try {
         const response = await fetchStrategyDashboard(strategyId);
-        if (!ignore) {
+        if (!shouldIgnore()) {
           setData(response);
         }
       } catch (error) {
-        if (!ignore) {
+        if (!shouldIgnore()) {
           setErrorMessage(error instanceof Error ? error.message : 'Failed to load strategy dashboard');
           setData(null);
         }
       } finally {
-        if (!ignore) {
+        if (!shouldIgnore()) {
           setLoading(false);
         }
       }
-    }
+    },
+    [strategyId]
+  );
 
-    void loadStrategy();
+  useEffect(() => {
+    let ignore = false;
+
+    setLoading(true);
+    void loadStrategy(() => ignore);
     return () => {
       ignore = true;
     };
-  }, [strategyId]);
+  }, [loadStrategy]);
 
   const latestMetrics = useMemo(() => {
     const latest = data?.latest_performance;
@@ -97,6 +105,9 @@ export function StrategyPage() {
   }, [data]);
 
   const currentConfig = currentVersion?.config_json ?? null;
+  const strategyStatus = data?.strategy.status?.toUpperCase();
+  const isArchived = strategyStatus === 'ARCHIVED';
+  const isActive = strategyStatus === 'ACTIVE';
   const canContinueInChat = hasConfig(currentConfig);
   const chatState = canContinueInChat
     ? {
@@ -105,6 +116,31 @@ export function StrategyPage() {
         prefillPrompt: `Create a draft variant of ${data?.strategy.name ?? 'this strategy'}.`
       }
     : undefined;
+
+  async function handleStatusAction() {
+    if (!strategyId || !data) return;
+
+    if (isActive) {
+      const confirmed = window.confirm('Archive this strategy? It will leave the active library, but versions and runs stay available.');
+      if (!confirmed) return;
+    }
+
+    setStatusActionLoading(true);
+    setStatusActionError(null);
+
+    try {
+      if (isArchived) {
+        await restoreStrategy(strategyId);
+      } else {
+        await archiveStrategy(strategyId);
+      }
+      await loadStrategy();
+    } catch (error) {
+      setStatusActionError(error instanceof Error ? error.message : 'Failed to update strategy status');
+    } finally {
+      setStatusActionLoading(false);
+    }
+  }
 
   if (loading) {
     return <StateCard title="Loading strategy dashboard" description="Fetching strategy metadata, versions, and associated runs." />;
@@ -128,9 +164,21 @@ export function StrategyPage() {
             >
               Back to Strategy Library
             </Link>
+            {isActive || isArchived ? (
+              <button
+                type="button"
+                onClick={() => void handleStatusAction()}
+                disabled={statusActionLoading}
+                className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isArchived ? 'Restore strategy' : 'Archive strategy'}
+              </button>
+            ) : null}
           </div>
         }
       />
+
+      {statusActionError ? <StateCard title="Could not update strategy status" description={statusActionError} tone="error" /> : null}
 
       <section className="app-card app-shadow-soft rounded-3xl border p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

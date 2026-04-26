@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from market_simulator.db.enums import RunStatus
+from market_simulator.db.enums import RunStatus, StrategyStatus
 from market_simulator.repositories.runs import create_run, mark_run_succeeded
 from market_simulator.repositories.strategies import create_strategy_version
 
@@ -97,6 +97,101 @@ def test_get_strategy_dashboard_returns_strategy_versions_runs_and_latest_perfor
     assert body["latest_performance"]["benchmark_return_pct"] == 30.1
     assert body["latest_performance"]["alpha_vs_benchmark_pct"] == 12.4
     assert body["latest_performance"]["trade_count"] == 8
+
+
+def test_archive_strategy_sets_status_without_deleting_versions_or_runs(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "archive keeps history"},
+        max_attempts=3,
+    )
+
+    response = client.post(f"/strategies/{strategy.id}/archive")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == StrategyStatus.ARCHIVED
+
+    db_session.refresh(strategy)
+    assert strategy.status == StrategyStatus.ARCHIVED
+
+    assert len(strategy.versions) == 1
+    assert strategy.versions[0].id == version.id
+    assert len(strategy.runs) == 1
+    assert strategy.runs[0].id == run.id
+
+
+def test_restore_strategy_sets_status_to_active(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, _ = create_strategy_bundle(user_id=current_user_ctx["id"])
+    strategy.status = StrategyStatus.ARCHIVED
+    db_session.commit()
+
+    response = client.post(f"/strategies/{strategy.id}/restore")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == StrategyStatus.ACTIVE
+
+    db_session.refresh(strategy)
+    assert strategy.status == StrategyStatus.ACTIVE
+
+
+def test_list_strategies_excludes_archived_by_default_and_can_include_them(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    active_strategy, _ = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        strategy_name="Active Strategy",
+    )
+    archived_strategy, _ = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        strategy_name="Archived Strategy",
+    )
+    archived_strategy.status = StrategyStatus.ARCHIVED
+    db_session.commit()
+
+    default_response = client.get("/strategies")
+    assert default_response.status_code == 200
+    assert [item["id"] for item in default_response.json()] == [str(active_strategy.id)]
+
+    include_archived_response = client.get("/strategies?include_archived=true")
+    assert include_archived_response.status_code == 200
+    assert {item["id"] for item in include_archived_response.json()} == {
+        str(active_strategy.id),
+        str(archived_strategy.id),
+    }
 
 
 def test_get_strategy_dashboard_returns_null_latest_performance_when_no_succeeded_runs(

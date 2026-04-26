@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from market_simulator.db.enums import StrategyStatus
 from market_simulator.db.models.strategy import Strategy, StrategyVersion
 
 
@@ -57,8 +58,19 @@ def create_strategy_version(
     return version
 
 
-def list_strategies(db: Session, user_id):
-    return db.query(Strategy).filter(Strategy.user_id == user_id).all()
+def list_strategies(db: Session, user_id, include_archived: bool = False):
+    statuses = [StrategyStatus.ACTIVE]
+    if include_archived:
+        statuses.append(StrategyStatus.ARCHIVED)
+
+    return (
+        db.query(Strategy)
+        .filter(
+            Strategy.user_id == user_id,
+            Strategy.status.in_(statuses),
+        )
+        .all()
+    )
 
 
 def get_strategy(db: Session, strategy_id):
@@ -79,6 +91,18 @@ def get_strategy_for_user(db: Session, strategy_id, user_id):
         .filter(Strategy.id == strategy_id, Strategy.user_id == user_id)
         .first()
     )
+
+
+def update_strategy_status_for_user(db: Session, strategy_id, user_id, status: StrategyStatus):
+    strategy = get_strategy_for_user(db, strategy_id, user_id)
+    if strategy is None or strategy.status == StrategyStatus.DELETED:
+        return None
+
+    strategy.status = status
+    db.commit()
+    db.refresh(strategy)
+
+    return strategy
 
 
 def list_strategy_versions(db: Session, strategy_id):
