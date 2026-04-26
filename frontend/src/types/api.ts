@@ -188,6 +188,22 @@ export interface RunComparisonSummary {
 
 export interface RunComparisonResponse {
   runs: RunComparisonSummary[];
+  metadata: RunComparisonMetadata;
+}
+
+export interface RunComparisonWindow {
+  run_id: string;
+  start_date: Nullable<string>;
+  end_date: Nullable<string>;
+}
+
+export interface RunComparisonMetadata {
+  run_windows: RunComparisonWindow[];
+  overlap_start: Nullable<string>;
+  overlap_end: Nullable<string>;
+  has_common_overlap: boolean;
+  window_mode: 'FULL_PERIOD_METRICS';
+  warning_message: Nullable<string>;
 }
 
 export interface RunComparisonCurvePoint {

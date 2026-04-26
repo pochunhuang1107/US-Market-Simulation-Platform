@@ -100,6 +100,63 @@ function relabelComparisonChart(
   };
 }
 
+function formatDateOnly(value: string | null): string {
+  if (!value) return 'Unavailable';
+  return value;
+}
+
+function ComparisonDateWindowPanel({ comparison }: { comparison: RunComparisonResponse }) {
+  const { metadata } = comparison;
+  if (!metadata.warning_message) return null;
+
+  const labelByRunId = buildComparisonLabelMap(comparison.runs);
+  const hasOverlapWindow = metadata.has_common_overlap && metadata.overlap_start && metadata.overlap_end;
+  const isMissingWindowWarning = metadata.warning_message.toLowerCase().includes('could not be inferred');
+  const title = isMissingWindowWarning
+    ? 'Date ranges unavailable'
+    : metadata.has_common_overlap
+      ? 'Date ranges differ'
+      : 'These runs do not have a common comparison window.';
+  const toneClass = metadata.has_common_overlap || isMissingWindowWarning ? 'app-alert-warning' : 'app-alert-error';
+
+  return (
+    <section className={`rounded-2xl border p-5 ${toneClass}`}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-3xl">
+          <h2 className="text-base font-semibold app-title">{title}</h2>
+          <p className="mt-2 text-sm leading-6">
+            {hasOverlapWindow
+              ? `Common overlap: ${formatDateOnly(metadata.overlap_start)} to ${formatDateOnly(metadata.overlap_end)}.`
+              : metadata.warning_message}
+          </p>
+          <p className="mt-2 text-sm leading-6">
+            Current metric cards and tables still use each run&apos;s full-period metrics. Overlap-adjusted
+            performance is not calculated yet.
+          </p>
+        </div>
+        <div className="min-w-full lg:min-w-80">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] app-label">
+            Original run windows
+          </div>
+          <dl className="mt-3 grid gap-2 text-sm">
+            {metadata.run_windows.map((window) => (
+              <div
+                key={window.run_id}
+                className="flex flex-col gap-1 rounded-xl border border-current/20 bg-black/5 px-3 py-2 dark:bg-white/5 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <dt className="font-medium app-title">{labelByRunId.get(window.run_id) ?? shortRunId(window.run_id)}</dt>
+                <dd className="font-mono text-xs">
+                  {formatDateOnly(window.start_date)} to {formatDateOnly(window.end_date)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function NextComparisonSteps({
   comparison,
   onCompareAnotherSet
@@ -315,6 +372,7 @@ export function ComparePage() {
         />
       ) : null}
 
+      {comparison ? <ComparisonDateWindowPanel comparison={comparison} /> : null}
       {comparison ? <ComparisonInsightSummary comparison={comparison} /> : null}
       {comparison ? (
         <NextComparisonSteps comparison={comparison} onCompareAnotherSet={resetComparison} />

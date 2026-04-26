@@ -276,8 +276,24 @@ class RunComparisonSummary(BaseModel):
     win_rate_pct: float | None = None
 
 
+class RunComparisonWindow(BaseModel):
+    run_id: str
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class RunComparisonMetadata(BaseModel):
+    run_windows: list[RunComparisonWindow]
+    overlap_start: str | None = None
+    overlap_end: str | None = None
+    has_common_overlap: bool
+    window_mode: str
+    warning_message: str | None = None
+
+
 class RunComparisonResponse(BaseModel):
     runs: list[RunComparisonSummary]
+    metadata: RunComparisonMetadata
 
 
 class RunComparisonCurvePoint(BaseModel):

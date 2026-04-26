@@ -4,10 +4,92 @@ from typing import Any
 
 from market_simulator.platform.services.run_chart_service import RunChartService
 
+FULL_PERIOD_METRICS = "FULL_PERIOD_METRICS"
+
 
 class RunComparisonService:
     def __init__(self):
         self.chart_service = RunChartService()
+
+    def _build_run_window(self, run: Any) -> dict[str, str | None]:
+        window = {
+            "run_id": str(run.id),
+            "start_date": None,
+            "end_date": None,
+        }
+
+        if not run.artifact_manifest_json:
+            return window
+
+        try:
+            chart_data = self.chart_service.load_chart_data(run.artifact_manifest_json)
+        except Exception:
+            return window
+
+        equity_rows = chart_data.get("equity_curve") or []
+        if not equity_rows:
+            return window
+
+        start_date = equity_rows[0].get("date")
+        end_date = equity_rows[-1].get("date")
+        if not start_date or not end_date:
+            return window
+
+        return {
+            "run_id": str(run.id),
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+        }
+
+    def _build_window_metadata(self, runs: list[Any]) -> dict[str, Any]:
+        run_windows = [self._build_run_window(run) for run in runs]
+        available_windows = [
+            window
+            for window in run_windows
+            if window["start_date"] is not None and window["end_date"] is not None
+        ]
+
+        overlap_start = None
+        overlap_end = None
+        has_common_overlap = False
+
+        if available_windows:
+            overlap_start = max(str(window["start_date"]) for window in available_windows)
+            overlap_end = min(str(window["end_date"]) for window in available_windows)
+            has_common_overlap = overlap_start <= overlap_end
+
+        distinct_windows = {
+            (window["start_date"], window["end_date"])
+            for window in available_windows
+        }
+        has_missing_windows = len(available_windows) != len(run_windows)
+        windows_differ = len(distinct_windows) > 1
+
+        warning_message = None
+        if available_windows and not has_common_overlap:
+            warning_message = (
+                "Selected runs do not have a common comparison window. "
+                "Metrics are still full-period run metrics."
+            )
+        elif windows_differ:
+            warning_message = (
+                "Selected runs use different date ranges. "
+                "Metrics are still full-period run metrics."
+            )
+        elif has_missing_windows:
+            warning_message = (
+                "One or more selected run date ranges could not be inferred from chart artifacts. "
+                "Metrics are still full-period run metrics."
+            )
+
+        return {
+            "run_windows": run_windows,
+            "overlap_start": overlap_start,
+            "overlap_end": overlap_end,
+            "has_common_overlap": has_common_overlap,
+            "window_mode": FULL_PERIOD_METRICS,
+            "warning_message": warning_message,
+        }
 
     def build_comparison(self, runs: list[Any]) -> dict[str, Any]:
         run_summaries: list[dict[str, Any]] = []
@@ -39,6 +121,7 @@ class RunComparisonService:
 
         return {
             "runs": run_summaries,
+            "metadata": self._build_window_metadata(runs),
         }
 
     def build_equity_curves(self, runs: list[Any]) -> dict:

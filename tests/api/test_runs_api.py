@@ -114,6 +114,27 @@ def _create_succeeded_run(
     )
 
 
+def _mock_compare_chart_windows(monkeypatch, windows_by_summary_ref: dict[str, tuple[str, str]]):
+    def fake_load_chart_data(manifest):
+        start_date, end_date = windows_by_summary_ref[manifest["summary"]]
+        return {
+            "equity_curve": [
+                {"date": start_date, "strategy_equity": 100000.0, "benchmark_equity": 100000.0},
+                {"date": end_date, "strategy_equity": 110000.0, "benchmark_equity": 105000.0},
+            ],
+            "drawdown_curve": [],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        fake_load_chart_data,
+    )
+
+
 def test_create_run_returns_pending(
     client,
     create_user,
@@ -710,6 +731,137 @@ def test_compare_runs_returns_strategy_metadata(
     assert target_run["strategy_version_id"] == str(version.id)
     assert target_run["strategy_name"] == strategy.name
     assert target_run["strategy_version_number"] == version.version_number
+
+
+def test_compare_runs_metadata_same_date_windows_has_common_overlap(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="owner@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run_1 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="same window 1",
+    )
+    run_2 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="same window 2",
+    )
+    _mock_compare_chart_windows(
+        monkeypatch,
+        {
+            f"dummy-{run_1.id}": ("2024-01-01", "2024-12-31"),
+            f"dummy-{run_2.id}": ("2024-01-01", "2024-12-31"),
+        },
+    )
+
+    response = client.get(f"/runs/compare?run_ids={run_1.id},{run_2.id}")
+    assert response.status_code == 200
+
+    metadata = response.json()["metadata"]
+    assert metadata["run_windows"] == [
+        {"run_id": str(run_1.id), "start_date": "2024-01-01", "end_date": "2024-12-31"},
+        {"run_id": str(run_2.id), "start_date": "2024-01-01", "end_date": "2024-12-31"},
+    ]
+    assert metadata["overlap_start"] == "2024-01-01"
+    assert metadata["overlap_end"] == "2024-12-31"
+    assert metadata["has_common_overlap"] is True
+    assert metadata["window_mode"] == "FULL_PERIOD_METRICS"
+    assert metadata["warning_message"] is None
+
+
+def test_compare_runs_metadata_different_overlapping_windows_warns(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="owner@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run_1 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="overlap window 1",
+    )
+    run_2 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="overlap window 2",
+    )
+    _mock_compare_chart_windows(
+        monkeypatch,
+        {
+            f"dummy-{run_1.id}": ("2023-01-01", "2024-12-31"),
+            f"dummy-{run_2.id}": ("2024-03-01", "2025-02-28"),
+        },
+    )
+
+    response = client.get(f"/runs/compare?run_ids={run_1.id},{run_2.id}")
+    assert response.status_code == 200
+
+    metadata = response.json()["metadata"]
+    assert metadata["overlap_start"] == "2024-03-01"
+    assert metadata["overlap_end"] == "2024-12-31"
+    assert metadata["has_common_overlap"] is True
+    assert "different date ranges" in metadata["warning_message"].lower()
+
+
+def test_compare_runs_metadata_non_overlapping_windows_warns(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="owner@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run_1 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="non-overlap window 1",
+    )
+    run_2 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="non-overlap window 2",
+    )
+    _mock_compare_chart_windows(
+        monkeypatch,
+        {
+            f"dummy-{run_1.id}": ("2022-01-01", "2022-12-31"),
+            f"dummy-{run_2.id}": ("2024-01-01", "2024-12-31"),
+        },
+    )
+
+    response = client.get(f"/runs/compare?run_ids={run_1.id},{run_2.id}")
+    assert response.status_code == 200
+
+    metadata = response.json()["metadata"]
+    assert metadata["overlap_start"] == "2024-01-01"
+    assert metadata["overlap_end"] == "2022-12-31"
+    assert metadata["has_common_overlap"] is False
+    assert "common comparison window" in metadata["warning_message"].lower()
 
 
 def test_compare_runs_rejects_more_than_max_comparison_runs(

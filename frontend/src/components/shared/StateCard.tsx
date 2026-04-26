@@ -7,13 +7,14 @@ interface StateCardProps {
 export function StateCard({ title, description, tone = 'default' }: StateCardProps) {
   const toneClass =
     tone === 'error'
-      ? 'border-rose-300/50 bg-rose-50/90 text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/20 dark:text-rose-100'
+      ? 'app-alert-error'
       : 'app-card text-[var(--text)]';
+  const descriptionClass = tone === 'error' ? 'text-[var(--text)]' : 'app-text-muted';
 
   return (
     <div className={`rounded-3xl border p-8 app-shadow-soft ${toneClass}`}>
-      <h3 className="text-lg font-semibold">{title}</h3>
-      {description ? <p className="mt-2 text-sm app-text-muted">{description}</p> : null}
+      <h3 className="text-lg font-semibold app-title">{title}</h3>
+      {description ? <p className={`mt-2 text-sm ${descriptionClass}`}>{description}</p> : null}
     </div>
   );
 }
