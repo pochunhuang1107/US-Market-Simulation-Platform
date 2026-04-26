@@ -661,6 +661,66 @@ def test_compare_runs_chart_returns_normalized_strategy_benchmark_and_drawdown_c
     assert body["benchmark_drawdown_curves"][1]["points"][1]["value"] == -1.5
 
 
+def test_compare_runs_chart_skips_unreadable_run_artifacts(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run_with_chart = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="compare chart readable artifact",
+    )
+    run_missing_chart = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="compare chart missing artifact",
+    )
+
+    def fake_load_chart_data(manifest):
+        if manifest["summary"] == f"dummy-{run_missing_chart.id}":
+            raise FileNotFoundError("missing timeline.csv")
+
+        return {
+            "equity_curve": [
+                {"date": "2024-01-01", "strategy_equity": 100000.0, "benchmark_equity": 100000.0},
+                {"date": "2024-01-02", "strategy_equity": 105000.0, "benchmark_equity": 102000.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2024-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-01-02", "strategy_drawdown_pct": -1.0, "benchmark_drawdown_pct": -0.5},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        fake_load_chart_data,
+    )
+
+    response = client.get(f"/runs/compare/chart?run_ids={run_with_chart.id},{run_missing_chart.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [curve["run_id"] for curve in body["strategy_curves"]] == [str(run_with_chart.id)]
+    assert [curve["run_id"] for curve in body["benchmark_curves"]] == [str(run_with_chart.id)]
+
+
 def test_compare_runs_returns_strategy_metadata(
     client,
     db_session,

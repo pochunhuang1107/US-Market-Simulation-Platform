@@ -107,17 +107,18 @@ function formatDateOnly(value: string | null): string {
 
 function ComparisonDateWindowPanel({ comparison }: { comparison: RunComparisonResponse }) {
   const { metadata } = comparison;
-  if (!metadata.warning_message) return null;
+  const hasNoCommonOverlap = metadata.has_common_overlap === false;
+  if (!metadata.warning_message && !hasNoCommonOverlap) return null;
 
   const labelByRunId = buildComparisonLabelMap(comparison.runs);
   const hasOverlapWindow = metadata.has_common_overlap && metadata.overlap_start && metadata.overlap_end;
-  const isMissingWindowWarning = metadata.warning_message.toLowerCase().includes('could not be inferred');
-  const title = isMissingWindowWarning
+  const isMissingWindowWarning = metadata.warning_message?.toLowerCase().includes('could not be inferred') ?? false;
+  const title = hasNoCommonOverlap
+    ? 'These runs do not have a common comparison window.'
+    : isMissingWindowWarning
     ? 'Date ranges unavailable'
-    : metadata.has_common_overlap
-      ? 'Date ranges differ'
-      : 'These runs do not have a common comparison window.';
-  const toneClass = metadata.has_common_overlap || isMissingWindowWarning ? 'app-alert-warning' : 'app-alert-error';
+    : 'Date ranges differ';
+  const toneClass = hasNoCommonOverlap && !isMissingWindowWarning ? 'app-alert-error' : 'app-alert-warning';
 
   return (
     <section className={`rounded-2xl border p-5 ${toneClass}`}>
@@ -125,14 +126,18 @@ function ComparisonDateWindowPanel({ comparison }: { comparison: RunComparisonRe
         <div className="max-w-3xl">
           <h2 className="text-base font-semibold app-title">{title}</h2>
           <p className="mt-2 text-sm leading-6">
-            {hasOverlapWindow
+            {hasNoCommonOverlap
+              ? 'The selected runs were tested over non-overlapping date ranges, so the app cannot determine a fair winner.'
+              : hasOverlapWindow
               ? `Common overlap: ${formatDateOnly(metadata.overlap_start)} to ${formatDateOnly(metadata.overlap_end)}.`
               : metadata.warning_message}
           </p>
-          <p className="mt-2 text-sm leading-6">
-            Current metric cards and tables still use each run&apos;s full-period metrics. Overlap-adjusted
-            performance is not calculated yet.
-          </p>
+          {hasNoCommonOverlap ? null : (
+            <p className="mt-2 text-sm leading-6">
+              Current metric cards and tables still use each run&apos;s full-period metrics. Overlap-adjusted
+              performance is not calculated yet.
+            </p>
+          )}
         </div>
         <div className="min-w-full lg:min-w-80">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] app-label">
@@ -279,6 +284,7 @@ export function ComparePage() {
   );
 
   const selectionLimitReached = selectedRunIds.length >= MAX_COMPARE_RUNS;
+  const hasNoCommonOverlap = comparison?.metadata.has_common_overlap === false;
 
   async function handleCompare(runIdsOverride?: string[]) {
     const runIds = runIdsOverride ?? selectedRunIds;
@@ -373,13 +379,20 @@ export function ComparePage() {
       ) : null}
 
       {comparison ? <ComparisonDateWindowPanel comparison={comparison} /> : null}
-      {comparison ? <ComparisonInsightSummary comparison={comparison} /> : null}
-      {comparison ? (
+      {comparison && !hasNoCommonOverlap ? <ComparisonInsightSummary comparison={comparison} /> : null}
+      {comparison && !hasNoCommonOverlap ? (
         <NextComparisonSteps comparison={comparison} onCompareAnotherSet={resetComparison} />
       ) : null}
 
       {comparison ? (
-        <SectionCard title="Comparison Summary" subtitle="Metric summary for the selected runs.">
+        <SectionCard
+          title={hasNoCommonOverlap ? 'Full-period Reference Summary' : 'Comparison Summary'}
+          subtitle={
+            hasNoCommonOverlap
+              ? 'Full-period metrics for the selected runs. These rows are reference only and should not be read as a fair winner comparison.'
+              : 'Metric summary for the selected runs.'
+          }
+        >
           <div className="app-table overflow-auto rounded-2xl border">
             <table className="min-w-full divide-y app-divider text-sm">
               <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
