@@ -304,6 +304,7 @@ class RunComparisonCurvePoint(BaseModel):
 class RunComparisonCurve(BaseModel):
     run_id: str
     label: str | None = None
+    benchmark_label: str | None = None
     points: list[RunComparisonCurvePoint]
 
 

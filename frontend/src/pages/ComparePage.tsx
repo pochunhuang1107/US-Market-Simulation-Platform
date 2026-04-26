@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import { ComparisonInsightSummary } from '../components/compare/ComparisonInsightSummary';
 import { CurveChart, pctFormatter } from '../components/compare/CurveChart';
@@ -18,6 +18,10 @@ type ParsedRunIdsParam = {
   runIds: string[];
   exceedsLimit: boolean;
 };
+
+type CompareLocationState = {
+  compareResetKey?: number;
+} | null;
 
 function parseRunIdsParam(value: string | null): ParsedRunIdsParam {
   if (!value) return { runIds: [], exceedsLimit: false };
@@ -91,16 +95,36 @@ function relabelComparisonChart(
       ...curve,
       label: labelByRunId.get(curve.run_id) ?? curve.label
     }));
+  const relabelBenchmarkCurves = (curves: RunComparisonChartResponse['benchmark_curves']) =>
+    curves.map((curve) => {
+      const runLabel = labelByRunId.get(curve.run_id) ?? curve.label;
+      return {
+        ...curve,
+        label: curve.benchmark_label ? `${curve.benchmark_label} · ${runLabel}` : runLabel
+      };
+    });
 
   return {
     strategy_curves: relabelCurves(chart.strategy_curves),
-    benchmark_curves: relabelCurves(chart.benchmark_curves),
+    benchmark_curves: relabelBenchmarkCurves(chart.benchmark_curves),
     strategy_drawdown_curves: relabelCurves(chart.strategy_drawdown_curves),
-    benchmark_drawdown_curves: relabelCurves(chart.benchmark_drawdown_curves),
+    benchmark_drawdown_curves: relabelBenchmarkCurves(chart.benchmark_drawdown_curves),
     chart_window_mode: chart.chart_window_mode,
     chart_overlap_start: chart.chart_overlap_start,
     chart_overlap_end: chart.chart_overlap_end
   };
+}
+
+function getSharedBenchmarkNote(curves: RunComparisonChartResponse['benchmark_curves']): string | undefined {
+  if (curves.length === 0) return undefined;
+
+  const benchmarkLabels = curves.map((curve) => curve.benchmark_label).filter(Boolean);
+  if (benchmarkLabels.length !== curves.length) return undefined;
+
+  const uniqueLabels = new Set(benchmarkLabels);
+  if (uniqueLabels.size !== 1) return undefined;
+
+  return `Benchmark: ${benchmarkLabels[0]}`;
 }
 
 function formatDateOnly(value: string | null): string {
@@ -257,8 +281,10 @@ function NextComparisonSteps({
 }
 
 export function ComparePage() {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const runIdsParam = searchParams.get('runIds');
+  const compareResetKey = (location.state as CompareLocationState)?.compareResetKey;
   const parsedRunIdsParam = useMemo(() => parseRunIdsParam(runIdsParam), [runIdsParam]);
   const initialSelectedRunIds = parsedRunIdsParam.runIds;
   const urlRunIdLimitExceeded = parsedRunIdsParam.exceedsLimit;
@@ -300,6 +326,11 @@ export function ComparePage() {
       setSelectedRunIds(initialSelectedRunIds);
     }
   }, [initialSelectedRunIds, runIdsParam, urlRunIdLimitExceeded]);
+
+  useEffect(() => {
+    if (!compareResetKey) return;
+    clearComparisonWorkspace();
+  }, [compareResetKey]);
 
   useEffect(() => {
     let ignore = false;
@@ -380,15 +411,19 @@ export function ComparePage() {
     void handleCompare(initialSelectedRunIds);
   }, [initialSelectedRunIds, urlRunIdLimitExceeded]);
 
-  function resetComparison() {
+  function clearComparisonWorkspace() {
     autoCompareKeyRef.current = null;
     compareRequestIdRef.current += 1;
-    setSearchParams({});
     setSelectedRunIds([]);
     setComparison(null);
     setComparisonChart(null);
     setErrorMessage(null);
     setLoadingComparison(false);
+  }
+
+  function resetComparison() {
+    setSearchParams({});
+    clearComparisonWorkspace();
   }
 
   function toggleRun(runId: string) {
@@ -488,26 +523,27 @@ export function ComparePage() {
       {comparisonChart ? (
         <div className="grid gap-6 xl:grid-cols-2">
           <CurveChart
-            title="Strategy Curves"
+            title="Strategy Performance"
             subtitle={getComparisonChartSubtitle(
               comparisonChart,
-              'Normalized strategy equity curves for the selected runs.'
+              'How each selected strategy run grew over the comparison window.'
             )}
             curves={comparisonChart.strategy_curves}
           />
           <CurveChart
-            title="Benchmark Curves"
+            title="Benchmark / Buy-and-Hold Reference"
             subtitle={getComparisonChartSubtitle(
               comparisonChart,
-              'Normalized benchmark equity curves for the same runs.'
+              "How each run's benchmark performed over the same window."
             )}
+            note={getSharedBenchmarkNote(comparisonChart.benchmark_curves)}
             curves={comparisonChart.benchmark_curves}
           />
           <CurveChart
             title="Strategy Drawdowns"
             subtitle={getComparisonChartSubtitle(
               comparisonChart,
-              'Strategy drawdown overlays for selected runs.'
+              'How far each strategy fell from its previous high.'
             )}
             curves={comparisonChart.strategy_drawdown_curves}
             yFormatter={pctFormatter}
@@ -517,8 +553,9 @@ export function ComparePage() {
             title="Benchmark Drawdowns"
             subtitle={getComparisonChartSubtitle(
               comparisonChart,
-              'Benchmark drawdown overlays for selected runs.'
+              'How far each benchmark fell from its previous high.'
             )}
+            note={getSharedBenchmarkNote(comparisonChart.benchmark_drawdown_curves)}
             curves={comparisonChart.benchmark_drawdown_curves}
             yFormatter={pctFormatter}
             zeroLine
