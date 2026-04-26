@@ -156,7 +156,7 @@ function formatLimitError(error: unknown): string {
   }
 
   if (message.includes('Saved strategy limit reached')) {
-    return 'You have reached your saved strategy limit. Remove an older saved strategy or upgrade your plan to save and run another one.';
+    return 'Saved strategy limit reached. Go to Strategy Library and archive an older strategy, then try saving again.';
   }
 
   if (message.includes('strategy builder access')) {

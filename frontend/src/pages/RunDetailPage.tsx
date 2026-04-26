@@ -52,6 +52,16 @@ function NoticeBanner({
   );
 }
 
+function formatSaveStrategyError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Failed to save strategy';
+
+  if (message.includes('Saved strategy limit reached')) {
+    return 'Saved strategy limit reached. Go to Strategy Library and archive an older strategy, then try saving again.';
+  }
+
+  return message;
+}
+
 export function RunDetailPage() {
   const { runId } = useParams();
   const location = useLocation();
@@ -200,9 +210,7 @@ export function RunDetailPage() {
         message: 'Strategy saved successfully.'
       });
     } catch (error) {
-      setSaveStrategyError(
-        error instanceof Error ? error.message : 'Failed to save strategy'
-      );
+      setSaveStrategyError(formatSaveStrategyError(error));
     } finally {
       setIsSavingDraftStrategy(false);
     }
