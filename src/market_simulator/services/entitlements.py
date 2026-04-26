@@ -15,6 +15,9 @@ from market_simulator.repositories.plans import (
 )
 
 
+DEFAULT_MAX_COMPARISON_RUNS = 4
+
+
 @dataclass
 class UserEntitlements:
     plan_code: str
@@ -26,6 +29,7 @@ class UserEntitlements:
     builder_prompt_daily_limit: int
     builder_prompt_max_chars: int
     max_backtest_years: int
+    max_comparison_runs: int
     allow_portfolio_runs: bool
     allow_comparison_runs: bool
     allow_parameter_sweeps: bool
@@ -58,6 +62,7 @@ def _get_dev_admin_override_entitlements(user_id: str) -> UserEntitlements | Non
         builder_prompt_daily_limit=settings.dev_admin_builder_prompt_daily_limit,
         builder_prompt_max_chars=settings.dev_admin_builder_prompt_max_chars,
         max_backtest_years=settings.dev_admin_max_backtest_years,
+        max_comparison_runs=DEFAULT_MAX_COMPARISON_RUNS,
         allow_portfolio_runs=True,
         allow_comparison_runs=True,
         allow_parameter_sweeps=True,
@@ -87,6 +92,7 @@ def get_user_entitlements(db: Session, user_id: str) -> UserEntitlements:
         builder_prompt_daily_limit=plan.builder_prompt_daily_limit,
         builder_prompt_max_chars=plan.builder_prompt_max_chars,
         max_backtest_years=plan.max_backtest_years,
+        max_comparison_runs=getattr(plan, "max_comparison_runs", DEFAULT_MAX_COMPARISON_RUNS),
         allow_portfolio_runs=plan.allow_portfolio_runs,
         allow_comparison_runs=plan.allow_comparison_runs,
         allow_parameter_sweeps=plan.allow_parameter_sweeps,
@@ -101,6 +107,23 @@ def enforce_builder_access(db: Session, user_id: str) -> UserEntitlements:
         raise HTTPException(
             status_code=403,
             detail="Your current plan does not include strategy builder access",
+        )
+    return entitlements
+
+
+def enforce_comparison_run_limit(
+    db: Session,
+    user_id: str,
+    requested_run_count: int,
+) -> UserEntitlements:
+    entitlements = get_user_entitlements(db, user_id)
+    if requested_run_count > entitlements.max_comparison_runs:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Comparison limit reached for your plan "
+                f"(max {entitlements.max_comparison_runs} runs)."
+            ),
         )
     return entitlements
 

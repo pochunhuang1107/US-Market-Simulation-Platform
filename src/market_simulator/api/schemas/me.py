@@ -31,6 +31,7 @@ class MeUsageLimitsResponse(BaseModel):
     builder_prompt_daily_limit: int
     builder_prompt_max_chars: int
     max_backtest_years: int
+    max_comparison_runs: int
 
 
 class MeUsageResponse(BaseModel):

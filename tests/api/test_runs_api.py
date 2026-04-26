@@ -83,6 +83,37 @@ def _create_run_via_api(
     return response.json()
 
 
+def _create_succeeded_run(
+    db_session,
+    *,
+    user_id: str,
+    strategy_id: str,
+    strategy_version_id: str,
+    note: str,
+):
+    run = create_run(
+        db_session,
+        user_id,
+        strategy_id,
+        strategy_version_id,
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": note},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    return mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"total_return_pct": 10.0},
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"summary": f"dummy-{run.id}"},
+    )
+
+
 def test_create_run_returns_pending(
     client,
     create_user,
@@ -679,6 +710,126 @@ def test_compare_runs_returns_strategy_metadata(
     assert target_run["strategy_version_id"] == str(version.id)
     assert target_run["strategy_name"] == strategy.name
     assert target_run["strategy_version_number"] == version.version_number
+
+
+def test_compare_runs_rejects_more_than_max_comparison_runs(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    runs = [
+        _create_succeeded_run(
+            db_session,
+            user_id=current_user_ctx["id"],
+            strategy_id=str(strategy.id),
+            strategy_version_id=str(version.id),
+            note=f"compare limit {index}",
+        )
+        for index in range(5)
+    ]
+
+    run_ids = ",".join(str(run.id) for run in runs)
+    response = client.get(f"/runs/compare?run_ids={run_ids}")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Comparison limit reached for your plan (max 4 runs)."
+
+
+def test_compare_runs_chart_rejects_more_than_max_comparison_runs(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    runs = [
+        _create_succeeded_run(
+            db_session,
+            user_id=current_user_ctx["id"],
+            strategy_id=str(strategy.id),
+            strategy_version_id=str(version.id),
+            note=f"compare chart limit {index}",
+        )
+        for index in range(5)
+    ]
+
+    run_ids = ",".join(str(run.id) for run in runs)
+    response = client.get(f"/runs/compare/chart?run_ids={run_ids}")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Comparison limit reached for your plan (max 4 runs)."
+
+
+def test_compare_runs_allows_exactly_max_comparison_runs(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    runs = [
+        _create_succeeded_run(
+            db_session,
+            user_id=current_user_ctx["id"],
+            strategy_id=str(strategy.id),
+            strategy_version_id=str(version.id),
+            note=f"compare max {index}",
+        )
+        for index in range(4)
+    ]
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        lambda manifest: {
+            "equity_curve": [
+                {"date": "2024-01-01", "strategy_equity": 100000.0, "benchmark_equity": 100000.0},
+                {"date": "2024-01-02", "strategy_equity": 101000.0, "benchmark_equity": 100500.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2024-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-01-02", "strategy_drawdown_pct": -1.0, "benchmark_drawdown_pct": -0.5},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        },
+    )
+
+    run_ids = ",".join(str(run.id) for run in runs)
+
+    compare_response = client.get(f"/runs/compare?run_ids={run_ids}")
+    assert compare_response.status_code == 200
+    assert len(compare_response.json()["runs"]) == 4
+
+    chart_response = client.get(f"/runs/compare/chart?run_ids={run_ids}")
+    assert chart_response.status_code == 200
+    assert len(chart_response.json()["strategy_curves"]) == 4
+
+
+def test_compare_runs_requires_at_least_two_runs(client):
+    response = client.get("/runs/compare?run_ids=00000000-0000-0000-0000-000000000001")
+
+    assert response.status_code == 400
+    assert "at least two run ids are required" in response.json()["detail"].lower()
 
 
 def test_get_run_returns_strategy_metadata(
