@@ -5,6 +5,8 @@ from typing import Any
 from market_simulator.platform.services.run_chart_service import RunChartService
 
 FULL_PERIOD_METRICS = "FULL_PERIOD_METRICS"
+FULL_PERIOD_CHART = "FULL_PERIOD"
+COMMON_OVERLAP_CHART = "COMMON_OVERLAP"
 
 
 class RunComparisonService:
@@ -96,6 +98,57 @@ class RunComparisonService:
             "warning_message": warning_message,
         }
 
+    def _build_chart_window(
+        self,
+        chart_data_by_run_id: dict[str, dict[str, Any]],
+        expected_run_count: int,
+    ) -> dict[str, str | None]:
+        run_windows: list[dict[str, str]] = []
+
+        for run_id, chart_data in chart_data_by_run_id.items():
+            equity_rows = chart_data.get("equity_curve") or []
+            if not equity_rows:
+                continue
+
+            start_date = equity_rows[0].get("date")
+            end_date = equity_rows[-1].get("date")
+            if start_date and end_date:
+                run_windows.append(
+                    {
+                        "run_id": run_id,
+                        "start_date": str(start_date),
+                        "end_date": str(end_date),
+                    }
+                )
+
+        if len(run_windows) != expected_run_count or not run_windows:
+            return {
+                "chart_window_mode": FULL_PERIOD_CHART,
+                "chart_overlap_start": None,
+                "chart_overlap_end": None,
+            }
+
+        overlap_start = max(window["start_date"] for window in run_windows)
+        overlap_end = min(window["end_date"] for window in run_windows)
+        has_common_overlap = overlap_start <= overlap_end
+        distinct_windows = {
+            (window["start_date"], window["end_date"])
+            for window in run_windows
+        }
+
+        if len(distinct_windows) > 1 and has_common_overlap:
+            return {
+                "chart_window_mode": COMMON_OVERLAP_CHART,
+                "chart_overlap_start": overlap_start,
+                "chart_overlap_end": overlap_end,
+            }
+
+        return {
+            "chart_window_mode": FULL_PERIOD_CHART,
+            "chart_overlap_start": overlap_start if has_common_overlap else None,
+            "chart_overlap_end": overlap_end if has_common_overlap else None,
+        }
+
     def build_comparison(self, runs: list[Any]) -> dict[str, Any]:
         run_summaries: list[dict[str, Any]] = []
 
@@ -134,12 +187,24 @@ class RunComparisonService:
         benchmark_curves = []
         strategy_drawdown_curves = []
         benchmark_drawdown_curves = []
+        chart_data_by_run_id: dict[str, dict[str, Any]] = {}
 
         for run in runs:
             if not run.artifact_manifest_json:
                 continue
 
             chart_data = self._load_chart_data(run.artifact_manifest_json)
+            if chart_data is None:
+                continue
+            chart_data_by_run_id[str(run.id)] = chart_data
+
+        chart_window = self._build_chart_window(chart_data_by_run_id, len(runs))
+        use_common_overlap = chart_window["chart_window_mode"] == COMMON_OVERLAP_CHART
+        chart_overlap_start = chart_window["chart_overlap_start"]
+        chart_overlap_end = chart_window["chart_overlap_end"]
+
+        for run in runs:
+            chart_data = chart_data_by_run_id.get(str(run.id))
             if chart_data is None:
                 continue
 
@@ -157,6 +222,18 @@ class RunComparisonService:
 
             equity_rows = chart_data["equity_curve"]
             drawdown_rows = chart_data["drawdown_curve"]
+
+            if use_common_overlap:
+                equity_rows = [
+                    row
+                    for row in equity_rows
+                    if chart_overlap_start <= str(row.get("date")) <= chart_overlap_end
+                ]
+                drawdown_rows = [
+                    row
+                    for row in drawdown_rows
+                    if chart_overlap_start <= str(row.get("date")) <= chart_overlap_end
+                ]
 
             if equity_rows:
                 first_strategy_equity = equity_rows[0]["strategy_equity"] or 0.0
@@ -249,4 +326,7 @@ class RunComparisonService:
             "benchmark_curves": benchmark_curves,
             "strategy_drawdown_curves": strategy_drawdown_curves,
             "benchmark_drawdown_curves": benchmark_drawdown_curves,
+            "chart_window_mode": chart_window["chart_window_mode"],
+            "chart_overlap_start": chart_window["chart_overlap_start"],
+            "chart_overlap_end": chart_window["chart_overlap_end"],
         }

@@ -96,7 +96,10 @@ function relabelComparisonChart(
     strategy_curves: relabelCurves(chart.strategy_curves),
     benchmark_curves: relabelCurves(chart.benchmark_curves),
     strategy_drawdown_curves: relabelCurves(chart.strategy_drawdown_curves),
-    benchmark_drawdown_curves: relabelCurves(chart.benchmark_drawdown_curves)
+    benchmark_drawdown_curves: relabelCurves(chart.benchmark_drawdown_curves),
+    chart_window_mode: chart.chart_window_mode,
+    chart_overlap_start: chart.chart_overlap_start,
+    chart_overlap_end: chart.chart_overlap_end
   };
 }
 
@@ -105,7 +108,24 @@ function formatDateOnly(value: string | null): string {
   return value;
 }
 
-function ComparisonDateWindowPanel({ comparison }: { comparison: RunComparisonResponse }) {
+function getComparisonChartSubtitle(
+  chart: RunComparisonChartResponse,
+  fullPeriodSubtitle: string
+): string {
+  if (chart.chart_window_mode === 'COMMON_OVERLAP' && chart.chart_overlap_start && chart.chart_overlap_end) {
+    return `Normalized to the common overlap window: ${formatDateOnly(chart.chart_overlap_start)} to ${formatDateOnly(chart.chart_overlap_end)}.`;
+  }
+
+  return fullPeriodSubtitle;
+}
+
+function ComparisonDateWindowPanel({
+  comparison,
+  onCompareAnotherSet
+}: {
+  comparison: RunComparisonResponse;
+  onCompareAnotherSet: () => void;
+}) {
   const { metadata } = comparison;
   const hasNoCommonOverlap = metadata.has_common_overlap === false;
   if (!metadata.warning_message && !hasNoCommonOverlap) return null;
@@ -138,6 +158,23 @@ function ComparisonDateWindowPanel({ comparison }: { comparison: RunComparisonRe
               performance is not calculated yet.
             </p>
           )}
+          {hasNoCommonOverlap ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onCompareAnotherSet}
+                className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition"
+              >
+                Compare another set
+              </button>
+              <Link
+                to="/runs"
+                className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+              >
+                Back to run history
+              </Link>
+            </div>
+          ) : null}
         </div>
         <div className="min-w-full lg:min-w-80">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] app-label">
@@ -226,6 +263,7 @@ export function ComparePage() {
   const initialSelectedRunIds = parsedRunIdsParam.runIds;
   const urlRunIdLimitExceeded = parsedRunIdsParam.exceedsLimit;
   const autoCompareKeyRef = useRef<string | null>(null);
+  const compareRequestIdRef = useRef(0);
 
   const [availableRuns, setAvailableRuns] = useState<RunDashboardListItem[]>([]);
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>(initialSelectedRunIds);
@@ -236,8 +274,20 @@ export function ComparePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!runIdsParam) {
+      autoCompareKeyRef.current = null;
+      compareRequestIdRef.current += 1;
+      setSelectedRunIds([]);
+      setComparison(null);
+      setComparisonChart(null);
+      setErrorMessage(null);
+      setLoadingComparison(false);
+      return;
+    }
+
     if (urlRunIdLimitExceeded) {
       autoCompareKeyRef.current = null;
+      compareRequestIdRef.current += 1;
       setSelectedRunIds([]);
       setComparison(null);
       setComparisonChart(null);
@@ -249,7 +299,7 @@ export function ComparePage() {
     if (initialSelectedRunIds.length >= 2) {
       setSelectedRunIds(initialSelectedRunIds);
     }
-  }, [initialSelectedRunIds, urlRunIdLimitExceeded]);
+  }, [initialSelectedRunIds, runIdsParam, urlRunIdLimitExceeded]);
 
   useEffect(() => {
     let ignore = false;
@@ -294,6 +344,7 @@ export function ComparePage() {
       return;
     }
 
+    const requestId = ++compareRequestIdRef.current;
     setLoadingComparison(true);
     setErrorMessage(null);
 
@@ -302,15 +353,19 @@ export function ComparePage() {
         fetchRunComparison(runIds),
         fetchRunComparisonChart(runIds)
       ]);
+      if (requestId !== compareRequestIdRef.current) return;
       const labelByRunId = buildComparisonLabelMap(summary.runs);
       setComparison(summary);
       setComparisonChart(relabelComparisonChart(chart, labelByRunId));
     } catch (error) {
+      if (requestId !== compareRequestIdRef.current) return;
       setErrorMessage(formatCompareError(error));
       setComparison(null);
       setComparisonChart(null);
     } finally {
-      setLoadingComparison(false);
+      if (requestId === compareRequestIdRef.current) {
+        setLoadingComparison(false);
+      }
     }
   }
 
@@ -327,6 +382,7 @@ export function ComparePage() {
 
   function resetComparison() {
     autoCompareKeyRef.current = null;
+    compareRequestIdRef.current += 1;
     setSearchParams({});
     setSelectedRunIds([]);
     setComparison(null);
@@ -378,7 +434,9 @@ export function ComparePage() {
         />
       ) : null}
 
-      {comparison ? <ComparisonDateWindowPanel comparison={comparison} /> : null}
+      {comparison ? (
+        <ComparisonDateWindowPanel comparison={comparison} onCompareAnotherSet={resetComparison} />
+      ) : null}
       {comparison && !hasNoCommonOverlap ? <ComparisonInsightSummary comparison={comparison} /> : null}
       {comparison && !hasNoCommonOverlap ? (
         <NextComparisonSteps comparison={comparison} onCompareAnotherSet={resetComparison} />
@@ -431,24 +489,36 @@ export function ComparePage() {
         <div className="grid gap-6 xl:grid-cols-2">
           <CurveChart
             title="Strategy Curves"
-            subtitle="Normalized strategy equity curves for the selected runs."
+            subtitle={getComparisonChartSubtitle(
+              comparisonChart,
+              'Normalized strategy equity curves for the selected runs.'
+            )}
             curves={comparisonChart.strategy_curves}
           />
           <CurveChart
             title="Benchmark Curves"
-            subtitle="Normalized benchmark equity curves for the same runs."
+            subtitle={getComparisonChartSubtitle(
+              comparisonChart,
+              'Normalized benchmark equity curves for the same runs.'
+            )}
             curves={comparisonChart.benchmark_curves}
           />
           <CurveChart
             title="Strategy Drawdowns"
-            subtitle="Strategy drawdown overlays for selected runs."
+            subtitle={getComparisonChartSubtitle(
+              comparisonChart,
+              'Strategy drawdown overlays for selected runs.'
+            )}
             curves={comparisonChart.strategy_drawdown_curves}
             yFormatter={pctFormatter}
             zeroLine
           />
           <CurveChart
             title="Benchmark Drawdowns"
-            subtitle="Benchmark drawdown overlays for selected runs."
+            subtitle={getComparisonChartSubtitle(
+              comparisonChart,
+              'Benchmark drawdown overlays for selected runs.'
+            )}
             curves={comparisonChart.benchmark_drawdown_curves}
             yFormatter={pctFormatter}
             zeroLine
