@@ -312,6 +312,9 @@ class RunComparisonChartResponse(BaseModel):
     benchmark_curves: list[RunComparisonCurve]
     strategy_drawdown_curves: list[RunComparisonCurve]
     benchmark_drawdown_curves: list[RunComparisonCurve]
+    chart_window_mode: str = "FULL_PERIOD"
+    chart_overlap_start: str | None = None
+    chart_overlap_end: str | None = None
 
 
 class RunDashboardResponse(BaseModel):

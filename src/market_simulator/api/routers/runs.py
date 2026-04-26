@@ -346,6 +346,9 @@ def compare_runs_chart_api(
         benchmark_curves=result["benchmark_curves"],
         strategy_drawdown_curves=result["strategy_drawdown_curves"],
         benchmark_drawdown_curves=result["benchmark_drawdown_curves"],
+        chart_window_mode=result["chart_window_mode"],
+        chart_overlap_start=result["chart_overlap_start"],
+        chart_overlap_end=result["chart_overlap_end"],
     )
 
 

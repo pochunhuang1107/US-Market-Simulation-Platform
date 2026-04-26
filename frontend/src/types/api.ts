@@ -222,6 +222,9 @@ export interface RunComparisonChartResponse {
   benchmark_curves: RunComparisonCurve[];
   strategy_drawdown_curves: RunComparisonCurve[];
   benchmark_drawdown_curves: RunComparisonCurve[];
+  chart_window_mode: 'FULL_PERIOD' | 'COMMON_OVERLAP';
+  chart_overlap_start: Nullable<string>;
+  chart_overlap_end: Nullable<string>;
 }
 
 export interface StrategyVersionSummary {

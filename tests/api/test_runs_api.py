@@ -924,6 +924,208 @@ def test_compare_runs_metadata_non_overlapping_windows_warns(
     assert "common comparison window" in metadata["warning_message"].lower()
 
 
+def test_compare_runs_chart_same_date_windows_uses_full_period(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="owner@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run_1 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="same chart window 1",
+    )
+    run_2 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="same chart window 2",
+    )
+
+    def fake_load_chart_data(manifest):
+        return {
+            "equity_curve": [
+                {"date": "2024-01-01", "strategy_equity": 100.0, "benchmark_equity": 200.0},
+                {"date": "2024-06-01", "strategy_equity": 110.0, "benchmark_equity": 210.0},
+                {"date": "2024-12-31", "strategy_equity": 125.0, "benchmark_equity": 220.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2024-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-06-01", "strategy_drawdown_pct": -2.0, "benchmark_drawdown_pct": -1.0},
+                {"date": "2024-12-31", "strategy_drawdown_pct": -3.0, "benchmark_drawdown_pct": -1.5},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        fake_load_chart_data,
+    )
+
+    response = client.get(f"/runs/compare/chart?run_ids={run_1.id},{run_2.id}")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["chart_window_mode"] == "FULL_PERIOD"
+    assert body["chart_overlap_start"] == "2024-01-01"
+    assert body["chart_overlap_end"] == "2024-12-31"
+
+    curve = next(item for item in body["strategy_curves"] if item["run_id"] == str(run_1.id))
+    assert curve["points"] == [
+        {"date": "2024-01-01", "value": 100.0},
+        {"date": "2024-06-01", "value": 110.0},
+        {"date": "2024-12-31", "value": 125.0},
+    ]
+
+
+def test_compare_runs_chart_overlapping_different_windows_clips_and_normalizes(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="owner@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run_1 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="overlap chart window 1",
+    )
+    run_2 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="overlap chart window 2",
+    )
+
+    chart_data_by_summary = {
+        f"dummy-{run_1.id}": {
+            "equity_curve": [
+                {"date": "2023-01-01", "strategy_equity": 100.0, "benchmark_equity": 100.0},
+                {"date": "2024-03-01", "strategy_equity": 120.0, "benchmark_equity": 110.0},
+                {"date": "2024-12-31", "strategy_equity": 180.0, "benchmark_equity": 132.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2023-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-03-01", "strategy_drawdown_pct": -4.0, "benchmark_drawdown_pct": -2.0},
+                {"date": "2024-12-31", "strategy_drawdown_pct": -6.0, "benchmark_drawdown_pct": -3.0},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        },
+        f"dummy-{run_2.id}": {
+            "equity_curve": [
+                {"date": "2024-03-01", "strategy_equity": 200.0, "benchmark_equity": 300.0},
+                {"date": "2024-06-01", "strategy_equity": 220.0, "benchmark_equity": 315.0},
+                {"date": "2025-02-28", "strategy_equity": 260.0, "benchmark_equity": 330.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2024-03-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-06-01", "strategy_drawdown_pct": -1.0, "benchmark_drawdown_pct": -0.5},
+                {"date": "2025-02-28", "strategy_drawdown_pct": -2.0, "benchmark_drawdown_pct": -1.0},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        },
+    }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        lambda manifest: chart_data_by_summary[manifest["summary"]],
+    )
+
+    response = client.get(f"/runs/compare/chart?run_ids={run_1.id},{run_2.id}")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["chart_window_mode"] == "COMMON_OVERLAP"
+    assert body["chart_overlap_start"] == "2024-03-01"
+    assert body["chart_overlap_end"] == "2024-12-31"
+
+    run_1_strategy_curve = next(item for item in body["strategy_curves"] if item["run_id"] == str(run_1.id))
+    run_2_strategy_curve = next(item for item in body["strategy_curves"] if item["run_id"] == str(run_2.id))
+    run_1_benchmark_curve = next(item for item in body["benchmark_curves"] if item["run_id"] == str(run_1.id))
+    run_2_drawdown_curve = next(item for item in body["strategy_drawdown_curves"] if item["run_id"] == str(run_2.id))
+
+    assert run_1_strategy_curve["points"] == [
+        {"date": "2024-03-01", "value": 100.0},
+        {"date": "2024-12-31", "value": 150.0},
+    ]
+    assert run_2_strategy_curve["points"] == [
+        {"date": "2024-03-01", "value": 100.0},
+        {"date": "2024-06-01", "value": 110.0},
+    ]
+    assert run_1_benchmark_curve["points"] == [
+        {"date": "2024-03-01", "value": 100.0},
+        {"date": "2024-12-31", "value": 120.0},
+    ]
+    assert run_2_drawdown_curve["points"] == [
+        {"date": "2024-03-01", "value": 0.0},
+        {"date": "2024-06-01", "value": -1.0},
+    ]
+
+
+def test_compare_runs_chart_non_overlapping_windows_does_not_crash(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="owner@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run_1 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="non-overlap chart window 1",
+    )
+    run_2 = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="non-overlap chart window 2",
+    )
+    _mock_compare_chart_windows(
+        monkeypatch,
+        {
+            f"dummy-{run_1.id}": ("2022-01-01", "2022-12-31"),
+            f"dummy-{run_2.id}": ("2024-01-01", "2024-12-31"),
+        },
+    )
+
+    response = client.get(f"/runs/compare/chart?run_ids={run_1.id},{run_2.id}")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["chart_window_mode"] == "FULL_PERIOD"
+    assert body["chart_overlap_start"] is None
+    assert body["chart_overlap_end"] is None
+    assert len(body["strategy_curves"]) == 2
+
+
 def test_compare_runs_rejects_more_than_max_comparison_runs(
     client,
     db_session,
