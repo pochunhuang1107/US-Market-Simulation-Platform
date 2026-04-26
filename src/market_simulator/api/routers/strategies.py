@@ -1,7 +1,7 @@
 import hashlib
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from market_simulator.api.deps import get_db, get_current_user
@@ -14,6 +14,7 @@ from market_simulator.api.schemas.strategies import (
     StrategyResponse,
     StrategyVersionSummary,
 )
+from market_simulator.db.enums import StrategyStatus
 from market_simulator.repositories.runs import count_runs, list_runs
 from market_simulator.repositories.strategies import (
     create_strategy,
@@ -21,6 +22,7 @@ from market_simulator.repositories.strategies import (
     get_strategy_for_user,
     list_strategies,
     list_strategy_versions,
+    update_strategy_status_for_user,
 )
 from market_simulator.services.entitlements import (
     enforce_strategy_create_access,
@@ -92,8 +94,48 @@ def create_strategy_version_api(
 
 
 @router.get("")
-def list_strategies_api(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return list_strategies(db, user["id"])
+def list_strategies_api(
+    include_archived: bool = Query(False),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return list_strategies(db, user["id"], include_archived=include_archived)
+
+
+@router.post("/{strategy_id}/archive", response_model=StrategyResponse)
+def archive_strategy_api(
+    strategy_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    strategy = update_strategy_status_for_user(
+        db,
+        strategy_id,
+        user["id"],
+        StrategyStatus.ARCHIVED,
+    )
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    return strategy
+
+
+@router.post("/{strategy_id}/restore", response_model=StrategyResponse)
+def restore_strategy_api(
+    strategy_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    strategy = update_strategy_status_for_user(
+        db,
+        strategy_id,
+        user["id"],
+        StrategyStatus.ACTIVE,
+    )
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    return strategy
 
 
 @router.get("/{strategy_id}/dashboard", response_model=StrategyDashboardResponse)

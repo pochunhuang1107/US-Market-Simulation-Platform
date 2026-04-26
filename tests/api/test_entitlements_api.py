@@ -210,6 +210,58 @@ def test_strategy_create_blocked_when_saved_strategy_limit_reached(client, db_se
     assert "Saved strategy limit reached" in response.json()["detail"]
 
 
+def test_archived_strategies_do_not_count_toward_saved_strategy_limit(client, db_session, create_user):
+    user = create_user(
+        user_id="00000000-0000-0000-0000-000000000001",
+        with_default_plan=False,
+    )
+    plan = create_plan(
+        db_session,
+        code="FREE",
+        allow_ai_builder=False,
+        allow_strategy_history=False,
+        daily_free_runs=5,
+        max_saved_strategies=1,
+    )
+    attach_plan(db_session, user_id=str(user.id), plan_id=plan.id)
+
+    existing_strategy = Strategy(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Archived Strategy",
+        description="archived saved strategy",
+        strategy_type=StrategyType.SIMULATION,
+        visibility="PRIVATE",
+        status=StrategyStatus.ARCHIVED,
+    )
+    db_session.add(existing_strategy)
+    db_session.commit()
+
+    response = client.post(
+        "/strategies",
+        json={
+            "name": "Replacement Strategy",
+            "description": "should pass",
+            "strategy_type": "SIMULATION",
+            "config": {
+                "name": "replacement-strategy",
+                "symbol": "QQQ",
+                "benchmark": "QQQ",
+                "start_date": "2019-01-02",
+                "end_date": "2024-12-31",
+                "initial_capital": 100000,
+                "transaction_cost_bps": 5,
+                "position_sizing": {"type": "percent_of_equity", "value": 1.0},
+                "entry": {"type": "rsi_below", "lookback": 14, "threshold": 30},
+                "exit": {"type": "rsi_above", "lookback": 14, "threshold": 70},
+                "risk": {"stop_loss_pct": None, "take_profit_pct": None},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+
+
 def test_run_create_blocked_when_daily_limit_reached(
     client,
     db_session,

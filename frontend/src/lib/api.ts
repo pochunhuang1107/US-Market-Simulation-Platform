@@ -134,12 +134,26 @@ export async function fetchRunDashboard(runId: string): Promise<RunDashboardResp
   return request<RunDashboardResponse>(`/api/runs/${runId}/dashboard`);
 }
 
-export async function fetchStrategies(): Promise<StrategyListItem[]> {
-  return request<StrategyListItem[]>('/api/strategies');
+export async function fetchStrategies(options?: { includeArchived?: boolean }): Promise<StrategyListItem[]> {
+  return request<StrategyListItem[]>(
+    `/api/strategies${buildQueryString({ include_archived: options?.includeArchived ? 'true' : undefined })}`
+  );
 }
 
 export async function fetchStrategyDashboard(strategyId: string): Promise<StrategyDashboardResponse> {
   return request<StrategyDashboardResponse>(`/api/strategies/${strategyId}/dashboard`);
+}
+
+export async function archiveStrategy(strategyId: string): Promise<StrategyListItem> {
+  return request<StrategyListItem>(`/api/strategies/${strategyId}/archive`, {
+    method: 'POST'
+  });
+}
+
+export async function restoreStrategy(strategyId: string): Promise<StrategyListItem> {
+  return request<StrategyListItem>(`/api/strategies/${strategyId}/restore`, {
+    method: 'POST'
+  });
 }
 
 export async function fetchRunComparison(runIds: string[]): Promise<RunComparisonResponse> {

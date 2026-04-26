@@ -30,6 +30,7 @@ function formatStrategyType(strategyType: string): string {
 
 export function StrategyLibraryPage() {
   const [strategies, setStrategies] = useState<StrategyListItem[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -41,7 +42,7 @@ export function StrategyLibraryPage() {
       setErrorMessage(null);
 
       try {
-        const response = await fetchStrategies();
+        const response = await fetchStrategies({ includeArchived: showArchived });
         if (!ignore) {
           setStrategies(response);
         }
@@ -61,7 +62,7 @@ export function StrategyLibraryPage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [showArchived]);
 
   const sortedStrategies = useMemo(() => {
     return [...strategies].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
@@ -93,7 +94,7 @@ export function StrategyLibraryPage() {
 
       {!loading && sortedStrategies.length > 0 ? (
         <section className="grid gap-4 md:grid-cols-3">
-          <MetricCard label="Saved strategies" value={String(sortedStrategies.length)} />
+          <MetricCard label={showArchived ? 'Visible strategies' : 'Saved strategies'} value={String(sortedStrategies.length)} />
           <MetricCard label="Active strategies" value={String(activeStrategyCount)} />
           <div className="app-card-soft rounded-2xl border p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] app-text-soft">Most recently updated</p>
@@ -103,7 +104,21 @@ export function StrategyLibraryPage() {
         </section>
       ) : null}
 
-      <SectionCard title="Strategy Library" subtitle="Saved strategies available from the existing strategy records.">
+      <SectionCard
+        title="Strategy Library"
+        subtitle="Saved strategies available from the existing strategy records."
+        actions={
+          <label className="inline-flex items-center gap-2 text-sm font-medium app-text-muted">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(event) => setShowArchived(event.target.checked)}
+              className="h-4 w-4 rounded border app-surface-soft accent-cyan-500"
+            />
+            Show archived
+          </label>
+        }
+      >
         {loading ? (
           <p className="app-text-muted text-sm">Loading saved strategies...</p>
         ) : sortedStrategies.length === 0 ? (
@@ -142,28 +157,39 @@ export function StrategyLibraryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y app-divider">
-                {sortedStrategies.map((strategy) => (
-                  <tr key={strategy.id} className="app-row-hover transition">
-                    <td className="px-4 py-4">
-                      <Link to={`/strategies/${strategy.id}`} className="font-semibold app-title transition hover:text-cyan-400">
-                        {strategy.name}
-                      </Link>
-                      {strategy.description ? (
-                        <p className="mt-1 max-w-xl text-xs app-text-muted">{strategy.description}</p>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-4 app-text-muted">{formatStrategyType(strategy.strategy_type)}</td>
-                    <td className="px-4 py-4 app-text-muted">{formatDateTime(strategy.updated_at)}</td>
-                    <td className="px-4 py-4 text-right">
-                      <Link
-                        to={`/strategies/${strategy.id}`}
-                        className="text-sm font-semibold text-cyan-600 transition hover:text-cyan-500 dark:text-cyan-300 dark:hover:text-cyan-200"
-                      >
-                        Open →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {sortedStrategies.map((strategy) => {
+                  const isArchived = strategy.status?.toLowerCase() === 'archived';
+
+                  return (
+                    <tr key={strategy.id} className={`app-row-hover transition ${isArchived ? 'opacity-75' : ''}`}>
+                      <td className="px-4 py-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link to={`/strategies/${strategy.id}`} className="font-semibold app-title transition hover:text-cyan-400">
+                            {strategy.name}
+                          </Link>
+                          {isArchived ? (
+                            <span className="app-surface-soft app-text-muted rounded-full border px-2 py-0.5 text-xs font-medium">
+                              Archived
+                            </span>
+                          ) : null}
+                        </div>
+                        {strategy.description ? (
+                          <p className="mt-1 max-w-xl text-xs app-text-muted">{strategy.description}</p>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-4 app-text-muted">{formatStrategyType(strategy.strategy_type)}</td>
+                      <td className="px-4 py-4 app-text-muted">{formatDateTime(strategy.updated_at)}</td>
+                      <td className="px-4 py-4 text-right">
+                        <Link
+                          to={`/strategies/${strategy.id}`}
+                          className="text-sm font-semibold text-cyan-600 transition hover:text-cyan-500 dark:text-cyan-300 dark:hover:text-cyan-200"
+                        >
+                          Open →
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -5,6 +5,7 @@ from datetime import datetime, time, timedelta, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from market_simulator.db.enums import StrategyStatus
 from market_simulator.db.models.run import Run
 from market_simulator.db.models.strategy import Strategy
 from market_simulator.db.models.tracking import TrackedStrategy
@@ -41,7 +42,7 @@ def count_saved_strategies(db: Session, user_id: str) -> int:
         db.query(func.count(Strategy.id))
         .filter(
             Strategy.user_id == user_id,
-            Strategy.status != "DELETED",
+            Strategy.status == StrategyStatus.ACTIVE,
         )
         .scalar()
         or 0
