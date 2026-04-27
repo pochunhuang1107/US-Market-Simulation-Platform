@@ -316,6 +316,43 @@ function EntitlementSummary({
   );
 }
 
+const HOME_GUIDANCE_ITEMS = [
+  'Build ETF strategies from plain English',
+  'Run historical simulations',
+  'Compare strategy variants',
+  'Save promising drafts to Strategy Library'
+];
+
+function HomeGuidancePanel() {
+  return (
+    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(240px,0.7fr)]">
+      <div className="app-surface-soft rounded-2xl border px-4 py-4">
+        <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+          What you can do
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {HOME_GUIDANCE_ITEMS.map((item) => (
+            <div key={item} className="flex items-start gap-2 text-sm app-text-muted">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--accent)]" />
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="app-surface-soft rounded-2xl border px-4 py-4">
+        <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+          Current scope
+        </div>
+        <p className="mt-3 text-sm leading-6 app-text-muted">
+          ETF-only strategy research for now. Results are for research and
+          backtesting, not financial advice. More asset coverage can come later.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function StrategyChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -640,30 +677,39 @@ export function StrategyChatPage() {
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {!hasMessages ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center px-4 pt-16 pb-28">
-            <div className="space-y-3 text-center">
-              <p className="app-eyebrow text-xs font-semibold uppercase tracking-[0.35em]">
-                US Market Strategy Platform
-              </p>
-              <h1 className="text-3xl font-semibold tracking-tight app-title md:text-5xl">
-                Build a strategy in plain English
-              </h1>
-              <p className="mx-auto max-w-2xl text-sm app-text-muted md:text-base">
-                Describe a trading idea, review the structured strategy draft, and
-                launch a simulation in one flow.
-              </p>
-            </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-4xl flex-col items-center px-4 pt-12 pb-44 md:pt-16">
+              <div className="space-y-3 text-center">
+                <p className="app-eyebrow text-xs font-semibold uppercase tracking-[0.35em]">
+                  US Market Strategy Platform
+                </p>
+                <h1 className="text-3xl font-semibold tracking-tight app-title md:text-5xl">
+                  Research ETF strategies in plain English
+                </h1>
+                <p className="mx-auto max-w-2xl text-sm app-text-muted md:text-base">
+                  Describe an idea, review the structured Strategy V2 draft, run a
+                  backtest, then compare results and keep refining.
+                </p>
+              </div>
 
-            <div className="mt-8 w-full max-w-3xl">
-              <EntitlementSummary
-                entitlements={entitlements}
-                loading={isLoadingEntitlements}
-                error={entitlementError}
-              />
-            </div>
+              <div className="mt-8 w-full max-w-3xl">
+                <EntitlementSummary
+                  entitlements={entitlements}
+                  loading={isLoadingEntitlements}
+                  error={entitlementError}
+                />
+              </div>
 
-            <div className="mt-6 w-full max-w-3xl">
-              <ExamplePromptChips onSelect={handlePromptChipClick} />
+              <div className="mt-6 w-full max-w-3xl">
+                <HomeGuidancePanel />
+              </div>
+
+              <div className="mt-6 w-full max-w-3xl">
+                <div className="app-label mb-3 text-[11px] font-semibold uppercase tracking-[0.22em]">
+                  Example starting points
+                </div>
+                <ExamplePromptChips onSelect={handlePromptChipClick} />
+              </div>
             </div>
           </div>
 
