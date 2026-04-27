@@ -202,7 +202,7 @@ export interface RunComparisonMetadata {
   overlap_start: Nullable<string>;
   overlap_end: Nullable<string>;
   has_common_overlap: boolean;
-  window_mode: 'FULL_PERIOD_METRICS';
+  window_mode: 'FULL_PERIOD_METRICS' | 'COMMON_OVERLAP_METRICS';
   warning_message: Nullable<string>;
 }
 

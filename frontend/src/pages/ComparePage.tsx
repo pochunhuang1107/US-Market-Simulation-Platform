@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import { ComparisonInsightSummary } from '../components/compare/ComparisonInsightSummary';
@@ -178,8 +178,7 @@ function ComparisonDateWindowPanel({
           </p>
           {hasNoCommonOverlap ? null : (
             <p className="mt-2 text-sm leading-6">
-              Current metric cards and tables still use each run&apos;s full-period metrics. Overlap-adjusted
-              performance is not calculated yet.
+              {metadata.warning_message}
             </p>
           )}
           {hasNoCommonOverlap ? (
@@ -280,6 +279,128 @@ function NextComparisonSteps({
   );
 }
 
+const ComparisonResults = memo(function ComparisonResults({
+  comparison,
+  onCompareAnotherSet
+}: {
+  comparison: RunComparisonResponse;
+  onCompareAnotherSet: () => void;
+}) {
+  const hasNoCommonOverlap = comparison.metadata.has_common_overlap === false;
+  const usesOverlapMetrics =
+    comparison.metadata.window_mode === 'COMMON_OVERLAP_METRICS' &&
+    comparison.metadata.overlap_start &&
+    comparison.metadata.overlap_end;
+
+  return (
+    <>
+      <ComparisonDateWindowPanel comparison={comparison} onCompareAnotherSet={onCompareAnotherSet} />
+      {!hasNoCommonOverlap ? <ComparisonInsightSummary comparison={comparison} /> : null}
+      {!hasNoCommonOverlap ? (
+        <NextComparisonSteps comparison={comparison} onCompareAnotherSet={onCompareAnotherSet} />
+      ) : null}
+
+      <SectionCard
+        title={hasNoCommonOverlap ? 'Full-period Reference Summary' : 'Comparison Summary'}
+        subtitle={
+          hasNoCommonOverlap
+            ? 'Full-period metrics for the selected runs. These rows are reference only and should not be read as a fair winner comparison.'
+            : usesOverlapMetrics
+            ? `Metrics are calculated over the common overlap window: ${formatDateOnly(comparison.metadata.overlap_start)} to ${formatDateOnly(comparison.metadata.overlap_end)}.`
+            : 'Metric summary for the selected runs.'
+        }
+      >
+        <div className="app-table overflow-auto rounded-2xl border">
+          <table className="min-w-full divide-y app-divider text-sm">
+            <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
+              <tr>
+                <th className="px-4 py-3">Run</th>
+                <th className="px-4 py-3">Total Return</th>
+                <th className="px-4 py-3">Alpha</th>
+                <th className="px-4 py-3">CAGR</th>
+                <th className="px-4 py-3">Sharpe</th>
+                <th className="px-4 py-3">Max DD</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y app-divider">
+              {comparison.runs.map((run) => (
+                <tr key={run.run_id} className="app-row-hover">
+                  <td className="px-4 py-3 font-medium app-title">
+                    <div>{formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id)}</div>
+                    <div className="mt-1 font-mono text-xs font-normal app-text-soft">
+                      {shortRunId(run.run_id)}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
+                  <td className="px-4 py-3 app-text-muted">{formatPct(run.alpha_vs_benchmark_pct)}</td>
+                  <td className="px-4 py-3 app-text-muted">{formatPct(run.cagr_pct)}</td>
+                  <td className="px-4 py-3 app-text-muted">{formatNumber(run.sharpe_ratio)}</td>
+                  <td className="px-4 py-3 app-text-muted">{formatPct(run.max_drawdown_pct)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+    </>
+  );
+});
+
+const ComparisonCharts = memo(function ComparisonCharts({ chart }: { chart: RunComparisonChartResponse }) {
+  const strategySubtitle = useMemo(
+    () => getComparisonChartSubtitle(chart, 'How each selected strategy run grew over the comparison window.'),
+    [chart]
+  );
+  const benchmarkSubtitle = useMemo(
+    () => getComparisonChartSubtitle(chart, "How each run's benchmark performed over the same window."),
+    [chart]
+  );
+  const strategyDrawdownSubtitle = useMemo(
+    () => getComparisonChartSubtitle(chart, 'How far each strategy fell from its previous high.'),
+    [chart]
+  );
+  const benchmarkDrawdownSubtitle = useMemo(
+    () => getComparisonChartSubtitle(chart, 'How far each benchmark fell from its previous high.'),
+    [chart]
+  );
+  const sharedBenchmarkNote = useMemo(() => getSharedBenchmarkNote(chart.benchmark_curves), [chart.benchmark_curves]);
+  const sharedDrawdownBenchmarkNote = useMemo(
+    () => getSharedBenchmarkNote(chart.benchmark_drawdown_curves),
+    [chart.benchmark_drawdown_curves]
+  );
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-2">
+      <CurveChart
+        title="Strategy Performance"
+        subtitle={strategySubtitle}
+        curves={chart.strategy_curves}
+      />
+      <CurveChart
+        title="Benchmark / Buy-and-Hold Reference"
+        subtitle={benchmarkSubtitle}
+        note={sharedBenchmarkNote}
+        curves={chart.benchmark_curves}
+      />
+      <CurveChart
+        title="Strategy Drawdowns"
+        subtitle={strategyDrawdownSubtitle}
+        curves={chart.strategy_drawdown_curves}
+        yFormatter={pctFormatter}
+        zeroLine
+      />
+      <CurveChart
+        title="Benchmark Drawdowns"
+        subtitle={benchmarkDrawdownSubtitle}
+        note={sharedDrawdownBenchmarkNote}
+        curves={chart.benchmark_drawdown_curves}
+        yFormatter={pctFormatter}
+        zeroLine
+      />
+    </div>
+  );
+});
+
 export function ComparePage() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -365,7 +486,6 @@ export function ComparePage() {
   );
 
   const selectionLimitReached = selectedRunIds.length >= MAX_COMPARE_RUNS;
-  const hasNoCommonOverlap = comparison?.metadata.has_common_overlap === false;
 
   async function handleCompare(runIdsOverride?: string[]) {
     const runIds = runIdsOverride ?? selectedRunIds;
@@ -378,6 +498,8 @@ export function ComparePage() {
     const requestId = ++compareRequestIdRef.current;
     setLoadingComparison(true);
     setErrorMessage(null);
+    setComparison(null);
+    setComparisonChart(null);
 
     try {
       const [summary, chart] = await Promise.all([
@@ -421,12 +543,12 @@ export function ComparePage() {
     setLoadingComparison(false);
   }
 
-  function resetComparison() {
+  const resetComparison = useCallback(function resetComparison() {
     setSearchParams({});
     clearComparisonWorkspace();
-  }
+  }, [setSearchParams]);
 
-  function toggleRun(runId: string) {
+  const toggleRun = useCallback(function toggleRun(runId: string) {
     setSelectedRunIds((current) => {
       if (current.includes(runId)) {
         return current.filter((value) => value !== runId);
@@ -438,7 +560,7 @@ export function ComparePage() {
 
       return [...current, runId];
     });
-  }
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -469,99 +591,9 @@ export function ComparePage() {
         />
       ) : null}
 
-      {comparison ? (
-        <ComparisonDateWindowPanel comparison={comparison} onCompareAnotherSet={resetComparison} />
-      ) : null}
-      {comparison && !hasNoCommonOverlap ? <ComparisonInsightSummary comparison={comparison} /> : null}
-      {comparison && !hasNoCommonOverlap ? (
-        <NextComparisonSteps comparison={comparison} onCompareAnotherSet={resetComparison} />
-      ) : null}
+      {comparison ? <ComparisonResults comparison={comparison} onCompareAnotherSet={resetComparison} /> : null}
 
-      {comparison ? (
-        <SectionCard
-          title={hasNoCommonOverlap ? 'Full-period Reference Summary' : 'Comparison Summary'}
-          subtitle={
-            hasNoCommonOverlap
-              ? 'Full-period metrics for the selected runs. These rows are reference only and should not be read as a fair winner comparison.'
-              : 'Metric summary for the selected runs.'
-          }
-        >
-          <div className="app-table overflow-auto rounded-2xl border">
-            <table className="min-w-full divide-y app-divider text-sm">
-              <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
-                <tr>
-                  <th className="px-4 py-3">Run</th>
-                  <th className="px-4 py-3">Total Return</th>
-                  <th className="px-4 py-3">Alpha</th>
-                  <th className="px-4 py-3">CAGR</th>
-                  <th className="px-4 py-3">Sharpe</th>
-                  <th className="px-4 py-3">Max DD</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y app-divider">
-                {comparison.runs.map((run) => (
-                  <tr key={run.run_id} className="app-row-hover">
-                    <td className="px-4 py-3 font-medium app-title">
-                      <div>{formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id)}</div>
-                      <div className="mt-1 font-mono text-xs font-normal app-text-soft">
-                        {shortRunId(run.run_id)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
-                    <td className="px-4 py-3 app-text-muted">{formatPct(run.alpha_vs_benchmark_pct)}</td>
-                    <td className="px-4 py-3 app-text-muted">{formatPct(run.cagr_pct)}</td>
-                    <td className="px-4 py-3 app-text-muted">{formatNumber(run.sharpe_ratio)}</td>
-                    <td className="px-4 py-3 app-text-muted">{formatPct(run.max_drawdown_pct)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </SectionCard>
-      ) : null}
-
-      {comparisonChart ? (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <CurveChart
-            title="Strategy Performance"
-            subtitle={getComparisonChartSubtitle(
-              comparisonChart,
-              'How each selected strategy run grew over the comparison window.'
-            )}
-            curves={comparisonChart.strategy_curves}
-          />
-          <CurveChart
-            title="Benchmark / Buy-and-Hold Reference"
-            subtitle={getComparisonChartSubtitle(
-              comparisonChart,
-              "How each run's benchmark performed over the same window."
-            )}
-            note={getSharedBenchmarkNote(comparisonChart.benchmark_curves)}
-            curves={comparisonChart.benchmark_curves}
-          />
-          <CurveChart
-            title="Strategy Drawdowns"
-            subtitle={getComparisonChartSubtitle(
-              comparisonChart,
-              'How far each strategy fell from its previous high.'
-            )}
-            curves={comparisonChart.strategy_drawdown_curves}
-            yFormatter={pctFormatter}
-            zeroLine
-          />
-          <CurveChart
-            title="Benchmark Drawdowns"
-            subtitle={getComparisonChartSubtitle(
-              comparisonChart,
-              'How far each benchmark fell from its previous high.'
-            )}
-            note={getSharedBenchmarkNote(comparisonChart.benchmark_drawdown_curves)}
-            curves={comparisonChart.benchmark_drawdown_curves}
-            yFormatter={pctFormatter}
-            zeroLine
-          />
-        </div>
-      ) : null}
+      {comparisonChart ? <ComparisonCharts chart={comparisonChart} /> : null}
 
       <SectionCard
         title={`Selected Runs (${selectedRunIds.length} / ${MAX_COMPARE_RUNS})`}

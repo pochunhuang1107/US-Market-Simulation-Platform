@@ -822,6 +822,12 @@ def test_compare_runs_metadata_same_date_windows_has_common_overlap(
         strategy_version_id=str(version.id),
         note="same window 2",
     )
+    run_1.summary_json = {
+        "total_return_pct": 42.0,
+        "trade_count": 12,
+        "win_rate_pct": 55.5,
+    }
+    db_session.commit()
     _mock_compare_chart_windows(
         monkeypatch,
         {
@@ -844,8 +850,13 @@ def test_compare_runs_metadata_same_date_windows_has_common_overlap(
     assert metadata["window_mode"] == "FULL_PERIOD_METRICS"
     assert metadata["warning_message"] is None
 
+    target_run = next(item for item in response.json()["runs"] if item["run_id"] == str(run_1.id))
+    assert target_run["total_return_pct"] == 42.0
+    assert target_run["trade_count"] == 12
+    assert target_run["win_rate_pct"] == 55.5
 
-def test_compare_runs_metadata_different_overlapping_windows_warns(
+
+def test_compare_runs_metadata_different_overlapping_windows_uses_overlap_metrics(
     client,
     db_session,
     create_user,
@@ -869,22 +880,88 @@ def test_compare_runs_metadata_different_overlapping_windows_warns(
         strategy_version_id=str(version.id),
         note="overlap window 2",
     )
-    _mock_compare_chart_windows(
-        monkeypatch,
-        {
-            f"dummy-{run_1.id}": ("2023-01-01", "2024-12-31"),
-            f"dummy-{run_2.id}": ("2024-03-01", "2025-02-28"),
+    run_1.summary_json = {
+        "total_return_pct": 999.0,
+        "benchmark_return_pct": 777.0,
+        "alpha_vs_benchmark_pct": 222.0,
+        "trade_count": 10,
+        "win_rate_pct": 70.0,
+    }
+    run_2.summary_json = {
+        "total_return_pct": 888.0,
+        "benchmark_return_pct": 666.0,
+        "alpha_vs_benchmark_pct": 222.0,
+        "trade_count": 20,
+        "win_rate_pct": 80.0,
+    }
+    db_session.commit()
+
+    chart_data_by_summary = {
+        f"dummy-{run_1.id}": {
+            "equity_curve": [
+                {"date": "2023-01-01", "strategy_equity": 100.0, "benchmark_equity": 100.0},
+                {"date": "2024-03-01", "strategy_equity": 120.0, "benchmark_equity": 110.0},
+                {"date": "2024-06-01", "strategy_equity": 150.0, "benchmark_equity": 121.0},
+                {"date": "2024-12-31", "strategy_equity": 180.0, "benchmark_equity": 132.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2023-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-03-01", "strategy_drawdown_pct": -4.0, "benchmark_drawdown_pct": -2.0},
+                {"date": "2024-06-01", "strategy_drawdown_pct": -3.0, "benchmark_drawdown_pct": -1.0},
+                {"date": "2024-12-31", "strategy_drawdown_pct": -6.0, "benchmark_drawdown_pct": -3.0},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
         },
+        f"dummy-{run_2.id}": {
+            "equity_curve": [
+                {"date": "2024-03-01", "strategy_equity": 200.0, "benchmark_equity": 300.0},
+                {"date": "2024-06-01", "strategy_equity": 220.0, "benchmark_equity": 330.0},
+                {"date": "2025-02-28", "strategy_equity": 260.0, "benchmark_equity": 360.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2024-03-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-06-01", "strategy_drawdown_pct": -1.0, "benchmark_drawdown_pct": -0.5},
+                {"date": "2025-02-28", "strategy_drawdown_pct": -2.0, "benchmark_drawdown_pct": -1.0},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        },
+    }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        lambda manifest: chart_data_by_summary[manifest["summary"]],
     )
 
     response = client.get(f"/runs/compare?run_ids={run_1.id},{run_2.id}")
     assert response.status_code == 200
 
-    metadata = response.json()["metadata"]
+    body = response.json()
+    metadata = body["metadata"]
     assert metadata["overlap_start"] == "2024-03-01"
     assert metadata["overlap_end"] == "2024-12-31"
     assert metadata["has_common_overlap"] is True
-    assert "different date ranges" in metadata["warning_message"].lower()
+    assert metadata["window_mode"] == "COMMON_OVERLAP_METRICS"
+    assert metadata["warning_message"] is None
+
+    run_1_summary = next(item for item in body["runs"] if item["run_id"] == str(run_1.id))
+    assert run_1_summary["total_return_pct"] == 50.0
+    assert run_1_summary["benchmark_return_pct"] == 20.0
+    assert run_1_summary["alpha_vs_benchmark_pct"] == 30.0
+    assert run_1_summary["max_drawdown_pct"] == -6.0
+    assert run_1_summary["benchmark_max_drawdown_pct"] == -3.0
+    assert run_1_summary["trade_count"] is None
+    assert run_1_summary["win_rate_pct"] is None
+
+    run_2_summary = next(item for item in body["runs"] if item["run_id"] == str(run_2.id))
+    assert run_2_summary["total_return_pct"] == 10.0
+    assert run_2_summary["benchmark_return_pct"] == 10.0
+    assert run_2_summary["alpha_vs_benchmark_pct"] == 0.0
 
 
 def test_compare_runs_metadata_non_overlapping_windows_warns(
@@ -926,6 +1003,7 @@ def test_compare_runs_metadata_non_overlapping_windows_warns(
     assert metadata["overlap_start"] == "2024-01-01"
     assert metadata["overlap_end"] == "2022-12-31"
     assert metadata["has_common_overlap"] is False
+    assert metadata["window_mode"] == "FULL_PERIOD_METRICS"
     assert "common comparison window" in metadata["warning_message"].lower()
 
 
