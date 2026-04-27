@@ -1,8 +1,9 @@
 const EXAMPLES = [
-  'Create a QQQ RSI mean reversion strategy with 10% stop loss.',
-  'Build an SPY moving average crossover strategy using 10 day and 30 day SMA.',
-  'Create a QQQ strategy with benchmark SPY, take profit at 15%, and cooldown 5 bars.',
-  'Use SPY instead and reduce drawdown with a tighter stop loss.'
+  'Create a simple RSI strategy for QQQ.',
+  'Create a QQQ RSI strategy with a 10% stop loss and 15% take profit.',
+  'Create a QQQ core-overlay strategy with 60% core and 40% RSI overlay.',
+  'Build an SPY moving average crossover strategy and compare it with QQQ.',
+  'Create a QQQ strategy that enters when QQQ outperforms SPY over 20 days.'
 ];
 
 export function ExamplePromptChips({
