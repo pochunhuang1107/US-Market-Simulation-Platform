@@ -95,13 +95,13 @@ export function StrategyLibraryPage() {
       <PageHeader
         eyebrow="Strategy Library"
         title="Saved Strategies"
-        description="Review saved strategies, open their version history, and continue from a strategy into builder, run, or comparison workflows."
+        description="Keep promising strategies, review their history, and continue research from saved versions."
         actions={
           <Link
             to="/strategies/new"
             className="rounded-xl border px-4 py-2 text-sm font-medium app-text-muted transition hover:border-cyan-400/60 hover:text-cyan-500 dark:hover:text-cyan-300"
           >
-            Advanced manual create
+            Manual strategy create
           </Link>
         }
       />
@@ -109,23 +109,34 @@ export function StrategyLibraryPage() {
       {errorMessage ? <StateCard title="Failed to load strategy library" description={errorMessage} tone="error" /> : null}
 
       {entitlements ? (
-        <section className="app-card-soft rounded-3xl border p-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <section className="app-card-soft rounded-2xl border p-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] app-text-soft">Plan usage</p>
-              <h3 className="mt-2 app-title text-lg font-semibold">{entitlements.plan.name}</h3>
-              <p className="mt-2 max-w-3xl text-sm leading-6 app-text-muted">
+              <h3 className="mt-1 app-title text-base font-semibold">{entitlements.plan.name}</h3>
+              <p className="mt-1 max-w-2xl text-sm leading-6 app-text-muted">
                 Archived strategies are hidden from the main library and do not count toward your active saved strategy limit.
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[34rem]">
-              <MetricCard label="Active saved" value={String(entitlements.usage.saved_strategies)} />
-              <MetricCard label="Max saved" value={String(entitlements.limits.max_saved_strategies)} />
-              <MetricCard
-                label="Remaining slots"
-                value={String(entitlements.usage.saved_strategies_remaining)}
-                tone={savedStrategyLimitReached ? 'negative' : 'positive'}
-              />
+            <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[30rem]">
+              <div className="app-surface-soft rounded-xl border px-3 py-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] app-text-soft">Active saved</p>
+                <p className="mt-1 app-title text-lg font-semibold">{entitlements.usage.saved_strategies}</p>
+              </div>
+              <div className="app-surface-soft rounded-xl border px-3 py-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] app-text-soft">Max saved</p>
+                <p className="mt-1 app-title text-lg font-semibold">{entitlements.limits.max_saved_strategies}</p>
+              </div>
+              <div className="app-surface-soft rounded-xl border px-3 py-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] app-text-soft">Remaining slots</p>
+                <p
+                  className={`mt-1 text-lg font-semibold ${
+                    savedStrategyLimitReached ? 'text-rose-500 dark:text-rose-300' : 'text-emerald-500 dark:text-emerald-300'
+                  }`}
+                >
+                  {entitlements.usage.saved_strategies_remaining}
+                </p>
+              </div>
             </div>
           </div>
           {savedStrategyLimitReached ? (
@@ -138,10 +149,10 @@ export function StrategyLibraryPage() {
 
       {!loading && sortedStrategies.length > 0 ? (
         <section className="grid gap-4 md:grid-cols-3">
-          <MetricCard label={showArchived ? 'Visible strategies' : 'Saved strategies'} value={String(sortedStrategies.length)} />
-          <MetricCard label="Active strategies" value={String(activeStrategyCount)} />
+          <MetricCard label="Saved strategies" value={String(sortedStrategies.length)} />
+          <MetricCard label="Active saved" value={String(activeStrategyCount)} />
           <div className="app-card-soft rounded-2xl border p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] app-text-soft">Most recently updated</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] app-text-soft">Recently updated</p>
             <p className="mt-3 truncate text-lg font-semibold app-title">{mostRecentlyUpdatedStrategy.name}</p>
             <p className="mt-1 text-sm app-text-muted">{formatDateTime(mostRecentlyUpdatedStrategy.updated_at)}</p>
           </div>
@@ -150,7 +161,7 @@ export function StrategyLibraryPage() {
 
       <SectionCard
         title="Strategy Library"
-        subtitle="Saved strategies available from the existing strategy records."
+        subtitle="Open a saved strategy to review versions, recent runs, and next research actions."
         actions={
           <div className="space-y-1">
             <label className="inline-flex items-center gap-2 text-sm font-medium app-text-muted">
@@ -175,8 +186,7 @@ export function StrategyLibraryPage() {
             <div>
               <h4 className="app-title text-base font-semibold">No saved strategies yet</h4>
               <p className="mt-2 max-w-2xl text-sm leading-6 app-text-muted">
-                Saved strategies are created from successful draft runs. Start with the chat-first builder,
-                run a simulation, then save the result once it is worth keeping.
+                Save a successful run to keep it here as a durable strategy.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -210,10 +220,16 @@ export function StrategyLibraryPage() {
                   const isArchived = strategy.status?.toLowerCase() === 'archived';
 
                   return (
-                    <tr key={strategy.id} className={`app-row-hover transition ${isArchived ? 'opacity-75' : ''}`}>
+                    <tr
+                      key={strategy.id}
+                      className={`app-row-hover transition duration-150 hover:shadow-[inset_3px_0_0_var(--accent)] focus-within:shadow-[inset_3px_0_0_var(--accent)] ${isArchived ? 'opacity-75' : ''}`}
+                    >
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap items-center gap-2">
-                          <Link to={`/strategies/${strategy.id}`} className="font-semibold app-title transition hover:text-cyan-400">
+                          <Link
+                            to={`/strategies/${strategy.id}`}
+                            className="font-semibold app-title transition hover:text-cyan-400 focus-visible:text-cyan-400 focus-visible:outline-none"
+                          >
                             {strategy.name}
                           </Link>
                           {isArchived ? (
@@ -231,7 +247,7 @@ export function StrategyLibraryPage() {
                       <td className="px-4 py-4 text-right">
                         <Link
                           to={`/strategies/${strategy.id}`}
-                          className="text-sm font-semibold text-cyan-600 transition hover:text-cyan-500 dark:text-cyan-300 dark:hover:text-cyan-200"
+                          className="text-sm font-semibold text-cyan-600 transition hover:text-cyan-500 focus-visible:text-cyan-500 focus-visible:outline-none dark:text-cyan-300 dark:hover:text-cyan-200 dark:focus-visible:text-cyan-200"
                         >
                           Open →
                         </Link>
