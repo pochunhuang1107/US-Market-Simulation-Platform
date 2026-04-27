@@ -83,6 +83,7 @@ from market_simulator.services.strategy_builder_parsers import (
     _extract_max_position_pct_edit,
     _extract_month_values,
     _extract_not_inner_rule_edit,
+    _extract_overlay_allocation_pct,
     _extract_partial_take_profit,
     _extract_percent,
     _extract_primary_symbol,
@@ -270,8 +271,15 @@ def _extract_risk_and_position_inputs(
     )
 
     core_allocation_pct = _extract_core_allocation_pct(prompt)
+    overlay_allocation_pct = _extract_overlay_allocation_pct(prompt)
+    if core_allocation_pct is None and overlay_allocation_pct is not None:
+        core_allocation_pct = max(0.0, min(1.0, 1.0 - overlay_allocation_pct))
     core_overlay_disabled = _has_core_overlay_disable(prompt)
-    core_overlay_enabled = _has_core_overlay_enable(prompt) or core_allocation_pct is not None
+    core_overlay_enabled = (
+        _has_core_overlay_enable(prompt)
+        or core_allocation_pct is not None
+        or overlay_allocation_pct is not None
+    )
 
     return {
         "stop_loss_removed": stop_loss_removed,
@@ -291,6 +299,7 @@ def _extract_risk_and_position_inputs(
         "core_allocation_pct": core_allocation_pct,
         "core_overlay_disabled": core_overlay_disabled,
         "core_overlay_enabled": core_overlay_enabled,
+        "overlay_allocation_pct": overlay_allocation_pct,
     }
 
 
@@ -1115,6 +1124,7 @@ def _apply_update_flow_edits(
     allocation_value: float,
     allocation_edit_value: float | None,
     max_position_pct_edit: float | None,
+    overlay_allocation_pct: float | None,
     transaction_cost_bps_edit: float | None,
     stop_loss_removed: bool,
     stop_loss_pct: float | None,
@@ -1628,16 +1638,27 @@ def _apply_update_flow_edits(
     if (
         allocation_edit_value is not None
         or max_position_pct_edit is not None
+        or overlay_allocation_pct is not None
         or re.search(r"%\s+of\s+equity|allocation|allocate|max\s+position", prompt_lower)
     ):
         allocation = dict(default_config.get("allocation", {}))
         allocation["entry_mode"] = "percent_of_equity"
-        if allocation_edit_value is not None or re.search(r"%\s+of\s+equity|allocation|allocate", prompt_lower):
+        if (
+            overlay_allocation_pct is not None
+            or allocation_edit_value is not None
+            or re.search(r"%\s+of\s+equity|allocation|allocate", prompt_lower)
+        ):
             allocation["entry_value"] = (
-                allocation_edit_value if allocation_edit_value is not None else allocation_value
+                overlay_allocation_pct
+                if overlay_allocation_pct is not None
+                else allocation_edit_value
+                if allocation_edit_value is not None
+                else allocation_value
             )
         allocation.setdefault("max_position_pct", 1.0)
-        if max_position_pct_edit is not None:
+        if overlay_allocation_pct is not None:
+            allocation["max_position_pct"] = overlay_allocation_pct
+        elif max_position_pct_edit is not None:
             allocation["max_position_pct"] = max_position_pct_edit
         default_config["allocation"] = allocation
 
@@ -2029,6 +2050,7 @@ def _generate_strategy_draft(
     core_allocation_pct = risk_and_position["core_allocation_pct"]
     core_overlay_disabled = risk_and_position["core_overlay_disabled"]
     core_overlay_enabled = risk_and_position["core_overlay_enabled"]
+    overlay_allocation_pct = risk_and_position["overlay_allocation_pct"]
 
     rule_setup = _build_rule_setup(
         prompt=prompt,
@@ -2119,6 +2141,7 @@ def _generate_strategy_draft(
             transaction_cost_bps_edit=transaction_cost_bps_edit,
             allocation_value=allocation_value,
             max_position_pct_edit=max_position_pct_edit,
+            overlay_allocation_pct=overlay_allocation_pct,
             entry_rule=entry_rule,
             exit_rule=exit_rule,
             core_overlay_enabled=core_overlay_enabled,
@@ -2161,6 +2184,7 @@ def _generate_strategy_draft(
             allocation_value=allocation_value,
             allocation_edit_value=allocation_edit_value,
             max_position_pct_edit=max_position_pct_edit,
+            overlay_allocation_pct=overlay_allocation_pct,
             transaction_cost_bps_edit=transaction_cost_bps_edit,
             stop_loss_removed=stop_loss_removed,
             stop_loss_pct=stop_loss_pct,
@@ -2354,6 +2378,11 @@ def generate_strategy_builder_response(
         )
     except ValueError as exc:
         message = str(exc)
+        if "could not convert string to float" in message:
+            message = (
+                "I could not parse one of the numeric values in that prompt. "
+                "Please use explicit values like 60%, $100,000, or 5 bps."
+            )
         return _build_response(
             response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
             message=message,

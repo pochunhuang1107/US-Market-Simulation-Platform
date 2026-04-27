@@ -636,6 +636,13 @@ def _build_strategy_summary(
         summary_parts.append(
             f"Core allocation set to {config['core_overlay']['core_allocation_pct'] * 100:.1f}%."
         )
+        allocation = config.get("allocation", {})
+        if allocation.get("entry_value") == allocation.get("max_position_pct"):
+            overlay_allocation = allocation.get("entry_value")
+            if isinstance(overlay_allocation, (int, float)) and overlay_allocation < 1.0:
+                summary_parts.append(
+                    f"Overlay allocation set to {overlay_allocation * 100:.1f}%."
+                )
 
     return " ".join(summary_parts)
 

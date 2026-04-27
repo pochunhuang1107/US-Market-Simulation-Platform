@@ -336,13 +336,15 @@ def _extract_initial_capital(text: str) -> tuple[float, list[str]]:
     assumptions: list[str] = []
 
     patterns = [
-        r"(?:initial\s+capital|capital|starting\s+with|start\s+with)\s*\$?([\d,]+(?:\.\d+)?)",
-        r"\$([\d,]+(?:\.\d+)?)\s+(?:initial\s+capital|capital)",
+        r"(?:initial\s+capital|capital|starting\s+with|start\s+with)\s*\$?(\d[\d,]*(?:\.\d+)?)",
+        r"\$(\d[\d,]*(?:\.\d+)?)\s+(?:initial\s+capital|capital)",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return float(match.group(1).replace(",", "")), assumptions
+            value_text = match.group(1).replace(",", "")
+            if value_text:
+                return float(value_text), assumptions
 
     assumptions.append("Used default initial capital of 100000.")
     return 100000.0, assumptions
@@ -1611,9 +1613,24 @@ def _extract_core_allocation_pct(text: str) -> float | None:
     return _extract_percent(
         text,
         [
+            r"core\s+allocation\s+(\d+(?:\.\d+)?)%",
             r"core\s+allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
             r"enable\s+core\s+allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
             r"core\s+overlay\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+            r"(\d+(?:\.\d+)?)%\s+core\b",
+            r"(\d+(?:\.\d+)?)%\s+always[-\s]+invested\s+core\s+allocation\b",
+        ],
+    )
+
+
+def _extract_overlay_allocation_pct(text: str) -> float | None:
+    return _extract_percent(
+        text,
+        [
+            r"overlay\s+allocation\s+(\d+(?:\.\d+)?)%",
+            r"overlay\s+allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+            r"remaining\s+(\d+(?:\.\d+)?)%\s+(?:as\s+(?:a\s+)?)?(?:tactical\s+)?overlay\b",
+            r"(\d+(?:\.\d+)?)%\s+overlay\b",
         ],
     )
 
@@ -1631,7 +1648,7 @@ def _has_core_overlay_disable(text: str) -> bool:
 def _has_core_overlay_enable(text: str) -> bool:
     return bool(
         re.search(
-            r"enable\s+core\s+(?:allocation|overlay)|core\s+(?:allocation|overlay)\s+(?:at|to)\s+\d+(?:\.\d+)?%",
+            r"core[-\s]+overlay\s+(?:enabled|strategy)|enable\s+core\s+(?:allocation|overlay)|core\s+(?:allocation|overlay)\s+(?:(?:at|to)\s+)?\d+(?:\.\d+)?%|\d+(?:\.\d+)?%\s+core\b|\d+(?:\.\d+)?%\s+always[-\s]+invested\s+core\s+allocation\b|overlay\s+allocation\s+(?:(?:at|to)\s+)?\d+(?:\.\d+)?%|remaining\s+\d+(?:\.\d+)?%\s+(?:as\s+(?:a\s+)?)?(?:tactical\s+)?overlay\b|\d+(?:\.\d+)?%\s+overlay\b",
             text,
             flags=re.IGNORECASE,
         )
@@ -1664,6 +1681,7 @@ __all__ = [
     "_extract_max_position_pct_edit",
     "_extract_month_values",
     "_extract_not_inner_rule_edit",
+    "_extract_overlay_allocation_pct",
     "_extract_partial_take_profit",
     "_extract_percent",
     "_extract_primary_symbol",
