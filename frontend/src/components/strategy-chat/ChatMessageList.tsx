@@ -638,7 +638,7 @@ export function ChatMessageList({
         if (message.role === 'user') {
           return (
             <div key={message.id} className="flex justify-end">
-              <div className="app-button-primary max-w-3xl rounded-[28px] px-5 py-4 text-sm leading-6 shadow-lg shadow-cyan-950/20">
+              <div className="app-button-primary max-w-3xl whitespace-pre-wrap break-words rounded-[28px] px-5 py-4 text-sm leading-6 shadow-lg shadow-cyan-950/20">
                 {message.text}
               </div>
             </div>

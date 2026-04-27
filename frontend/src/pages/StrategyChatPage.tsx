@@ -18,6 +18,7 @@ import type {
 } from '../types/api';
 
 type StrategyChatLocationState = {
+  homeResetKey?: number;
   prefillPrompt?: string;
   source?: string;
   sourceRunId?: string;
@@ -330,6 +331,7 @@ export function StrategyChatPage() {
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const consumedPrefillRef = useRef<string | null>(null);
+  const builderRequestIdRef = useRef(0);
 
   const hasMessages = messages.length > 0;
 
@@ -418,6 +420,17 @@ export function StrategyChatPage() {
     });
   }, [location.pathname, location.state, navigate]);
 
+  useEffect(() => {
+    const homeResetKey = (location.state as StrategyChatLocationState)?.homeResetKey;
+    if (!homeResetKey) return;
+
+    clearChatWorkspace();
+    navigate('/', {
+      replace: true,
+      state: null
+    });
+  }, [location.state, navigate]);
+
   async function handleSubmit(promptText?: string) {
     const prompt = (promptText ?? input).trim();
     if (!prompt || isGenerating) return;
@@ -447,6 +460,8 @@ export function StrategyChatPage() {
     setInput('');
     setIsGenerating(true);
 
+    const requestId = ++builderRequestIdRef.current;
+
     try {
       const response = await generateStrategyDraft(
         currentConfig
@@ -468,8 +483,10 @@ export function StrategyChatPage() {
         draft: response
       };
 
+      if (requestId !== builderRequestIdRef.current) return;
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
+      if (requestId !== builderRequestIdRef.current) return;
       const structuredError = extractStructuredBuilderError(error);
 
       const assistantError: ChatMessage = {
@@ -481,6 +498,8 @@ export function StrategyChatPage() {
 
       setMessages((prev) => [...prev, assistantError]);
     } finally {
+      if (requestId !== builderRequestIdRef.current) return;
+
       setIsGenerating(false);
 
       try {
@@ -601,12 +620,17 @@ export function StrategyChatPage() {
     });
   }
 
-  function handleStartNewDraft() {
+  function clearChatWorkspace() {
+    builderRequestIdRef.current += 1;
     setMessages([]);
     setInput('');
+    setIsGenerating(false);
     setSourceRunId(null);
     setComposerFocusKey((value) => value + 1);
+  }
 
+  function handleStartNewDraft() {
+    clearChatWorkspace();
     requestAnimationFrame(() => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
