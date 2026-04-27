@@ -59,12 +59,25 @@ export function shortRunId(runId: Nullable<string> | undefined): string {
 const RUN_TYPE_LABELS: Record<string, string> = {
   SIMULATION: 'Backtest',
   PORTFOLIO: 'Portfolio run',
-  COMPARISON: 'Comparison',
+  COMPARISON: 'Comparison run',
   PARAMETER_SWEEP: 'Parameter sweep'
 };
 
 const EXECUTOR_TYPE_LABELS: Record<string, string> = {
-  SIMULATION_EXECUTOR: 'Simulation engine'
+  SIMULATION_EXECUTOR: 'Simulation engine',
+  PORTFOLIO_EXECUTOR: 'Portfolio engine',
+  COMPARISON_EXECUTOR: 'Comparison engine',
+  SWEEP_EXECUTOR: 'Sweep engine'
+};
+
+const STRATEGY_TYPE_LABELS: Record<string, string> = {
+  SINGLE_ASSET: 'Single ETF',
+  SIMULATION: 'Single ETF'
+};
+
+const STRATEGY_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: 'Active',
+  ARCHIVED: 'Archived'
 };
 
 function titleCaseRawValue(value: string): string {
@@ -82,6 +95,14 @@ export function formatRunType(value: string): string {
 
 export function formatExecutorType(value: string): string {
   return EXECUTOR_TYPE_LABELS[value] ?? titleCaseRawValue(value);
+}
+
+export function formatStrategyType(value: string): string {
+  return STRATEGY_TYPE_LABELS[value] ?? titleCaseRawValue(value);
+}
+
+export function formatStrategyStatus(value: string): string {
+  return STRATEGY_STATUS_LABELS[value] ?? titleCaseRawValue(value);
 }
 
 export function formatRunLabel(
