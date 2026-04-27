@@ -325,30 +325,24 @@ const HOME_GUIDANCE_ITEMS = [
 
 function HomeGuidancePanel() {
   return (
-    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(240px,0.7fr)]">
-      <div className="app-surface-soft rounded-2xl border px-4 py-4">
+    <div className="app-home-guidance rounded-xl border px-4 py-3">
+      <div>
         <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
           What you can do
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="mt-2.5 grid gap-x-4 gap-y-2 sm:grid-cols-2">
           {HOME_GUIDANCE_ITEMS.map((item) => (
             <div key={item} className="flex items-start gap-2 text-sm app-text-muted">
-              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--accent)]" />
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--accent)] opacity-70" />
               <span>{item}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="app-surface-soft rounded-2xl border px-4 py-4">
-        <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
-          Current scope
-        </div>
-        <p className="mt-3 text-sm leading-6 app-text-muted">
-          ETF-only strategy research for now. Results are for research and
-          backtesting, not financial advice. More asset coverage can come later.
-        </p>
-      </div>
+      <p className="mt-3 border-t app-border-soft pt-2.5 text-xs app-text-soft">
+        ETF-only research · Historical backtests · Not financial advice
+      </p>
     </div>
   );
 }

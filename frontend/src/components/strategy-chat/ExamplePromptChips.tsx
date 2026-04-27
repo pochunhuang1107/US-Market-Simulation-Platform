@@ -33,12 +33,12 @@ export function ExamplePromptChips({
           key={example.prompt}
           type="button"
           onClick={() => onSelect(example.prompt)}
-          className="app-card group rounded-2xl border px-4 py-3 text-left transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]"
+          className="app-example-prompt group rounded-xl border px-3.5 py-2.5 text-left transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)] focus-visible:border-[color:var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--accent)_18%,transparent)]"
         >
-          <span className="app-label block text-[11px] font-semibold uppercase tracking-[0.18em] group-hover:text-[color:var(--accent)]">
+          <span className="app-label block text-[11px] font-semibold uppercase tracking-[0.16em] group-hover:text-[color:var(--accent)]">
             {example.label}
           </span>
-          <span className="mt-1 block text-sm leading-5">
+          <span className="mt-1 block text-sm leading-5 app-title">
             {example.prompt}
           </span>
         </button>

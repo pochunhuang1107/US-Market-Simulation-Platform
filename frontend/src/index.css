@@ -166,6 +166,18 @@ html[data-theme='light'] .app-value-block {
 .app-divider { border-color: var(--border); }
 .app-shadow { box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18); }
 .app-shadow-soft { box-shadow: 0 14px 36px rgba(15, 23, 42, 0.10); }
+.app-home-guidance {
+  background: color-mix(in srgb, var(--surface-soft) 58%, transparent);
+  border-color: color-mix(in srgb, var(--border-soft) 76%, transparent);
+}
+.app-example-prompt {
+  background: color-mix(in srgb, var(--surface) 68%, transparent);
+  border-color: color-mix(in srgb, var(--border-soft) 82%, transparent);
+}
+.app-example-prompt:hover,
+.app-example-prompt:focus-visible {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
 .app-table-head {
   background: color-mix(in srgb, var(--surface-strong) 96%, transparent);
   color: var(--text-muted);
