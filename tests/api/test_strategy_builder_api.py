@@ -46,6 +46,10 @@ def test_generate_strategy_builder_draft_returns_valid_strategy_v2_config(client
     assert config["entry_rule"]["type"] == "rsi_below"
     assert config["exit_rule"]["type"] == "rsi_above"
     assert config["risk"]["stop_loss_pct"] == 0.1
+    assert config["core_overlay"]["enabled"] is False
+    assert config["core_overlay"]["core_allocation_pct"] == 0.0
+    assert config["allocation"]["entry_value"] == 1.0
+    assert config["allocation"]["max_position_pct"] == 1.0
 
 
 def test_generate_strategy_builder_draft_accepts_optional_context(client):
@@ -142,6 +146,100 @@ def test_generate_strategy_builder_draft_parses_partial_take_profit_position_man
     assert config["core_overlay"]["core_allocation_pct"] == 0.60
 
     assert "take_profit_pct" not in config["risk"]
+
+
+def test_generate_strategy_builder_draft_parses_core_overlay_prompt(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy from 2018-01-02 to 2026-04-24.\n"
+                "Core overlay enabled.\n"
+                "Core allocation 60%.\n"
+                "Overlay allocation 40%.\n"
+                "Core: Always hold QQQ.\n"
+                "Overlay: Buy QQQ when RSI 14 is below 30.\n"
+                "Sell QQQ when RSI 14 is above 70.\n"
+                "Benchmark QQQ.\n"
+                "Initial capital 100000.\n"
+                "Transaction cost 5 bps."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert "could not convert string to float" not in body["message"]
+    assert config["core_overlay"]["enabled"] is True
+    assert config["core_overlay"]["core_allocation_pct"] == 0.60
+    assert config["allocation"]["entry_value"] == 0.40
+    assert config["allocation"]["max_position_pct"] == 0.40
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_below",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 30.0,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_above",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 70.0,
+    }
+    assert "Core allocation set to 60.0%." in body["summary"]
+    assert "Overlay allocation set to 40.0%." in body["summary"]
+
+
+def test_generate_strategy_builder_draft_parses_core_overlay_natural_language_prompt(client):
+    prompt = (
+        "Create a QQQ core-overlay strategy from 2018-01-02 to 2026-04-24. "
+        "Use 60% always-invested core allocation in QQQ. "
+        "Use the remaining 40% as a tactical overlay:\n"
+        "- Enter the overlay when QQQ RSI(14) falls below 30\n"
+        "- Exit the overlay when QQQ RSI(14) rises above 70\n"
+        "Use QQQ as the benchmark, $100,000 initial capital, and 5 bps transaction cost."
+    )
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": prompt},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert "could not convert string to float" not in body["message"]
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["benchmark_symbol"] == "QQQ"
+    assert config["start_date"] == "2018-01-02"
+    assert config["end_date"] == "2026-04-24"
+    assert config["initial_capital"] == 100000.0
+    assert config["transaction_cost_bps"] == 5.0
+    assert config["core_overlay"]["enabled"] is True
+    assert config["core_overlay"]["core_allocation_pct"] == 0.60
+    assert config["allocation"]["entry_value"] == 0.40
+    assert config["allocation"]["max_position_pct"] == 0.40
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_below",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 30.0,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_above",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 70.0,
+    }
 
 
 def test_generate_strategy_builder_draft_parses_transaction_cost_and_max_position(client):

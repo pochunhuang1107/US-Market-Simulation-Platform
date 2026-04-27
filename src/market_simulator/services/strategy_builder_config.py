@@ -30,6 +30,7 @@ def _build_create_flow_default_config(
     transaction_cost_bps_edit: float | None,
     allocation_value: float,
     max_position_pct_edit: float | None,
+    overlay_allocation_pct: float | None,
     entry_rule: dict,
     exit_rule: dict,
     core_overlay_enabled: bool,
@@ -60,9 +61,17 @@ def _build_create_flow_default_config(
     )
     default_config["allocation"] = {
         "entry_mode": "percent_of_equity",
-        "entry_value": allocation_value,
+        "entry_value": (
+            overlay_allocation_pct
+            if overlay_allocation_pct is not None
+            else allocation_value
+        ),
         "max_position_pct": (
-            max_position_pct_edit if max_position_pct_edit is not None else 1.0
+            max_position_pct_edit
+            if max_position_pct_edit is not None
+            else overlay_allocation_pct
+            if overlay_allocation_pct is not None
+            else 1.0
         ),
     }
     default_config["entry_rule"] = entry_rule

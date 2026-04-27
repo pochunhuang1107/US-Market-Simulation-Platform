@@ -251,6 +251,16 @@ export function StrategyDraftCard({
     const cooldown = typeof risk.cooldown_bars === 'number' ? (risk.cooldown_bars === 0 ? 'None' : `${risk.cooldown_bars} bars`) : '—';
     const coreOverlayEnabled = coreOverlay.enabled === true;
     const coreAllocation = typeof coreOverlay.core_allocation_pct === 'number' ? `${(coreOverlay.core_allocation_pct * 100).toFixed(1)}% core` : '—';
+    const overlaySleeveAllocation =
+      typeof coreOverlay.core_allocation_pct === 'number'
+        ? `${((1 - coreOverlay.core_allocation_pct) * 100).toFixed(1)}% overlay`
+        : '—';
+    const overlayAllocation =
+      typeof allocation.entry_value === 'number' &&
+      typeof allocation.max_position_pct === 'number' &&
+      allocation.entry_value === allocation.max_position_pct
+        ? `${(allocation.entry_value * 100).toFixed(1)}% overlay`
+        : entryValue;
     const strategyHeadline = typeof config.name === 'string' && config.name.trim() ? config.name : 'Generated strategy';
 
     return {
@@ -268,7 +278,7 @@ export function StrategyDraftCard({
       stopLoss,
       takeProfit,
       cooldown,
-      coreOverlayLabel: coreOverlayEnabled ? `Enabled · ${coreAllocation}` : 'Disabled',
+      coreOverlayLabel: coreOverlayEnabled ? `Enabled · ${coreAllocation} · ${overlaySleeveAllocation}` : 'Disabled',
       readableExplanation: [
         `Trade ${typeof config.tradable_symbol === 'string' ? config.tradable_symbol : 'the selected asset'} from ${typeof config.start_date === 'string' ? config.start_date : 'the chosen start date'} to ${typeof config.end_date === 'string' ? config.end_date : 'the chosen end date'}.`,
         typeof config.benchmark_symbol === 'string'
@@ -293,6 +303,13 @@ export function StrategyDraftCard({
           : null,
         coreOverlayEnabled && typeof coreOverlay.core_allocation_pct === 'number'
           ? `Keep ${(coreOverlay.core_allocation_pct * 100).toFixed(1)}% in the core sleeve while overlays trade around it.`
+          : null,
+        coreOverlayEnabled &&
+        typeof allocation.entry_value === 'number' &&
+        typeof allocation.max_position_pct === 'number' &&
+        allocation.entry_value === allocation.max_position_pct &&
+        allocation.entry_value < 1
+          ? `Use ${overlayAllocation} for the tactical overlay sleeve.`
           : null
       ].filter((item): item is string => Boolean(item))
     };
