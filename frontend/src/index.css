@@ -110,6 +110,20 @@ a {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .app-form-field::placeholder { color: var(--text-soft); }
+.app-version-input {
+  background: color-mix(in srgb, var(--surface-strong) 86%, var(--surface-soft) 14%);
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  color: var(--title);
+}
+.app-version-input:hover {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+.app-version-input:focus,
+.app-version-input:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.app-version-input::placeholder { color: var(--text-soft); }
 .app-form-code {
   background: color-mix(in srgb, var(--surface-strong) 92%, var(--bg-start) 8%);
   border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
@@ -120,6 +134,19 @@ a {
   border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
+.app-json-editor {
+  background: color-mix(in srgb, var(--surface-strong) 90%, var(--bg-start) 10%);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  color: var(--title);
+}
+.app-json-editor:hover {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+.app-json-editor:focus,
+.app-json-editor:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
 .app-value-block {
   background: color-mix(in srgb, var(--surface-soft) 74%, var(--surface-strong) 26%);
   border: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
@@ -128,9 +155,17 @@ html[data-theme='light'] .app-form-field {
   background: #f3f6fb;
   border-color: rgba(148, 163, 184, 0.54);
 }
+html[data-theme='light'] .app-version-input {
+  background: #f8fafc;
+  border-color: rgba(100, 116, 139, 0.46);
+}
 html[data-theme='light'] .app-form-code {
   background: #eef2f7;
   border-color: rgba(148, 163, 184, 0.58);
+}
+html[data-theme='light'] .app-json-editor {
+  background: #f5f8fc;
+  border-color: rgba(100, 116, 139, 0.42);
 }
 html[data-theme='light'] .app-value-block {
   background: #f5f7fb;
@@ -203,6 +238,11 @@ html[data-theme='light'] .app-value-block {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
   color: var(--title);
+}
+.app-validation-error {
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+  color: var(--danger);
 }
 .app-checkbox { accent-color: var(--accent-strong); }
 .app-list { color: var(--text-muted); }
