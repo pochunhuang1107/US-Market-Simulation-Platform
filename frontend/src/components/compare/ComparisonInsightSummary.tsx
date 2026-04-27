@@ -121,6 +121,10 @@ function WinnerCard({ winner }: { winner: MetricWinner }) {
 export function ComparisonInsightSummary({ comparison }: { comparison: RunComparisonResponse }) {
   const winners = buildWinnerCards(comparison.runs);
   const takeaway = buildTakeaway(comparison.runs);
+  const usesOverlapMetrics =
+    comparison.metadata.window_mode === 'COMMON_OVERLAP_METRICS' &&
+    comparison.metadata.overlap_start &&
+    comparison.metadata.overlap_end;
 
   return (
     <section className="app-card app-shadow rounded-[32px] border p-5">
@@ -131,6 +135,12 @@ export function ComparisonInsightSummary({ comparison }: { comparison: RunCompar
         Which run looks stronger?
       </h2>
       <p className="app-text-muted mt-2 text-sm leading-6">{takeaway}</p>
+      {usesOverlapMetrics ? (
+        <p className="app-text-muted mt-2 text-sm leading-6">
+          Metrics are calculated over the common overlap window: {comparison.metadata.overlap_start} to{' '}
+          {comparison.metadata.overlap_end}.
+        </p>
+      ) : null}
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {winners.map((winner) => (

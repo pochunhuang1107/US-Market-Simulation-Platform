@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { formatPct, formatShortDate } from '../../lib/formatters';
@@ -16,17 +17,20 @@ interface CurveChartProps {
 
 const STROKES = ['#38bdf8', '#c084fc', '#22c55e', '#f59e0b', '#fb7185', '#f97316'];
 
-export function CurveChart({ title, subtitle, note, curves, yFormatter = defaultFormatter, zeroLine = false }: CurveChartProps) {
-  const data = mergeCurves(curves);
+export const CurveChart = memo(function CurveChart({ title, subtitle, note, curves, yFormatter = defaultFormatter, zeroLine = false }: CurveChartProps) {
+  const data = useMemo(() => mergeCurves(curves), [curves]);
   const { resolvedTheme } = useTheme();
   const gridColor = resolvedTheme === 'dark' ? '#1e293b' : '#cbd5e1';
   const axisColor = resolvedTheme === 'dark' ? '#94a3b8' : '#64748b';
-  const tooltipStyle = {
-    background: resolvedTheme === 'dark' ? '#020617' : '#ffffff',
-    border: `1px solid ${resolvedTheme === 'dark' ? '#334155' : '#cbd5e1'}`,
-    borderRadius: 16,
-    color: resolvedTheme === 'dark' ? '#e2e8f0' : '#0f172a'
-  };
+  const tooltipStyle = useMemo(
+    () => ({
+      background: resolvedTheme === 'dark' ? '#020617' : '#ffffff',
+      border: `1px solid ${resolvedTheme === 'dark' ? '#334155' : '#cbd5e1'}`,
+      borderRadius: 16,
+      color: resolvedTheme === 'dark' ? '#e2e8f0' : '#0f172a'
+    }),
+    [resolvedTheme]
+  );
 
   return (
     <SectionCard title={title} subtitle={subtitle}>
@@ -64,7 +68,7 @@ export function CurveChart({ title, subtitle, note, curves, yFormatter = default
       </div>
     </SectionCard>
   );
-}
+});
 
 function mergeCurves(curves: RunComparisonCurve[]) {
   const byDate = new Map<string, Record<string, number | string>>();
