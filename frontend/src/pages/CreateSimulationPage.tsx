@@ -6,14 +6,20 @@ import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
 import { createRun, enqueueRun, fetchStrategies, fetchStrategyDashboard } from '../lib/api';
-import { formatDateTime } from '../lib/formatters';
+import {
+  formatDateTime,
+  formatExecutorType,
+  formatRunType,
+  formatStrategyStatus,
+  formatStrategyType
+} from '../lib/formatters';
 import type { CreateRunRequest, RunType, StrategyDashboardResponse, StrategyListItem } from '../types/api';
 
 const RUN_TYPE_OPTIONS = [
-  { value: 'SIMULATION', label: 'SIMULATION' },
-  { value: 'PORTFOLIO', label: 'PORTFOLIO' },
-  { value: 'COMPARISON', label: 'COMPARISON' },
-  { value: 'PARAMETER_SWEEP', label: 'PARAMETER_SWEEP' }
+  { value: 'SIMULATION', label: formatRunType('SIMULATION') },
+  { value: 'PORTFOLIO', label: formatRunType('PORTFOLIO') },
+  { value: 'COMPARISON', label: formatRunType('COMPARISON') },
+  { value: 'PARAMETER_SWEEP', label: formatRunType('PARAMETER_SWEEP') }
 ] as const;
 
 function getExecutorTypeForRunType(runType: RunType): string {
@@ -205,7 +211,7 @@ export function CreateSimulationPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Advanced"
-        title="Advanced Run"
+        title="Advanced Manual Run"
         description="Manually submit a new run using existing strategy and version records. The chat-first builder remains the primary path for drafting and running ideas."
         actions={
           <>
@@ -231,7 +237,7 @@ export function CreateSimulationPage() {
       {successMessage ? <StateCard title="Run request accepted" description={successMessage} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <SectionCard title="Advanced Run Request" subtitle="Choose a strategy and version, then submit a manual run request payload.">
+        <SectionCard title="Manual Run Request" subtitle="Choose a strategy and version, then submit a manual run request payload.">
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Strategy">
@@ -313,7 +319,7 @@ export function CreateSimulationPage() {
                     onChange={(event) => setEnqueueImmediately(event.target.checked)}
                     className="app-checkbox h-4 w-4 rounded"
                   />
-                  Enqueue immediately after POST /runs succeeds
+                  Enqueue immediately after the run is created
                 </label>
               </Field>
             </div>
@@ -334,7 +340,7 @@ export function CreateSimulationPage() {
                 disabled={submitting || strategyLoading || versionsLoading}
                 className="app-button-primary rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {submitting ? 'Submitting…' : 'Create simulation run'}
+                {submitting ? 'Submitting…' : 'Create manual run'}
               </button>
               {createdRunId ? (
                 <Link
@@ -352,16 +358,16 @@ export function CreateSimulationPage() {
           <SectionCard title="Selection Preview" subtitle="Confirm the strategy and version that will back this run.">
             <dl className="space-y-4 text-sm">
               <Row label="Strategy name" value={selectedStrategy?.name} />
-              <Row label="Strategy type" value={selectedStrategy?.strategy_type} />
-              <Row label="Strategy status" value={selectedStrategy?.status} />
+              <Row label="Strategy type" value={selectedStrategy ? formatStrategyType(selectedStrategy.strategy_type) : '—'} />
+              <Row label="Strategy status" value={selectedStrategy ? formatStrategyStatus(selectedStrategy.status) : '—'} />
               <Row label="Version" value={selectedVersion ? `v${selectedVersion.version_number}` : '—'} />
-              <Row label="Executor Type" value={executorType} />
+              <Row label="Executor type" value={formatExecutorType(executorType)} />
               <Row label="Version created" value={selectedVersion ? formatDateTime(selectedVersion.created_at) : '—'} />
               <Row label="Change note" value={selectedVersion?.change_note ?? '—'} />
             </dl>
           </SectionCard>
 
-          <SectionCard title="Version Config Snapshot" subtitle="Read-only preview of the selected version config from GET /strategies/{id}/dashboard.">
+          <SectionCard title="Version Config Snapshot" subtitle="Read-only preview of the selected strategy version.">
             {selectedVersion ? (
               <pre className="app-form-code max-h-[420px] overflow-auto rounded-2xl p-4 font-mono text-xs leading-6">
                 {prettyJson(selectedVersion.config_json)}
@@ -371,12 +377,12 @@ export function CreateSimulationPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="What this page supports today" subtitle="Current backend-aligned scope.">
+          <SectionCard title="What this advanced page supports" subtitle="Manual controls for experienced workflows.">
             <ul className="app-list space-y-2 text-sm">
               <li>• Create a run from an existing strategy and version.</li>
               <li>• Optionally enqueue the run immediately after creation.</li>
               <li>• Reuse the selected strategy version config as a read-only reference.</li>
-              <li>• No backend redesign and no response-shape changes.</li>
+              <li>• Keep request payloads explicit for advanced workflows.</li>
             </ul>
           </SectionCard>
         </div>
