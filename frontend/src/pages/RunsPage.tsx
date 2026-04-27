@@ -69,14 +69,14 @@ export function RunsPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Runs"
-        title="Run Monitor"
-        description="Browse simulation runs with dashboard-aware filters, sorting, and pagination. This page stays aligned to GET /runs/dashboard without modifying backend response shapes."
+        title="Run History"
+        description="Review previous simulations, open completed results, and compare promising strategy runs."
         actions={
           <Link
             to="/runs/new"
             className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
           >
-            Advanced run
+            Advanced manual run
           </Link>
         }
       />

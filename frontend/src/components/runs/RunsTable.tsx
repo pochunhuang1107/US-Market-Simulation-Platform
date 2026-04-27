@@ -47,7 +47,7 @@ export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
             ) : runs.length === 0 ? (
               <tr>
                 <td colSpan={columns} className="px-5 py-16 text-center app-text-muted">
-                  No runs matched the current view.
+                  No runs match the current filters.
                 </td>
               </tr>
             ) : (
