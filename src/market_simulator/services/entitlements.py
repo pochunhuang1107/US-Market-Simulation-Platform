@@ -120,10 +120,7 @@ def enforce_comparison_run_limit(
     if requested_run_count > entitlements.max_comparison_runs:
         raise HTTPException(
             status_code=403,
-            detail=(
-                f"Comparison limit reached for your plan "
-                f"(max {entitlements.max_comparison_runs} runs)."
-            ),
+            detail=f"Comparison limit reached for your plan. Select up to {entitlements.max_comparison_runs} runs.",
         )
     return entitlements
 
