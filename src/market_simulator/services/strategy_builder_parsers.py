@@ -232,6 +232,7 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\ballocation\b",
         r"\bcooldown\b",
         r"\brsi\b",
+        r"\b(entry|exit)\s+threshold\b",
         r"\bmean\s+reversion\b",
         r"\bmoving\s+average\b",
         r"\bsma\b",
@@ -419,14 +420,19 @@ def _extract_rsi_rule(
 
 def _extract_rsi_entry_threshold_edit(text: str) -> float | None:
     patterns = [
+        r"(?:change|set|update)\s+(?:the\s+)?entry\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"entry\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"change\s+rsi\s+entry\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"set\s+rsi\s+entry\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"update\s+rsi\s+entry\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"rsi\s+entry\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"change\s+entry\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"set\s+entry\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"update\s+entry\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"entry\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"change\s+rsi\s+entry\s+to\s+(\d+(?:\.\d+)?)",
         r"set\s+rsi\s+entry\s+to\s+(\d+(?:\.\d+)?)",
+        r"update\s+rsi\s+entry\s+to\s+(\d+(?:\.\d+)?)",
         r"rsi\s+entry\s+to\s+(\d+(?:\.\d+)?)",
         r"entry\s+rsi\s+to\s+(\d+(?:\.\d+)?)",
     ]
@@ -439,14 +445,19 @@ def _extract_rsi_entry_threshold_edit(text: str) -> float | None:
 
 def _extract_rsi_exit_threshold_edit(text: str) -> float | None:
     patterns = [
+        r"(?:change|set|update)\s+(?:the\s+)?exit\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"exit\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"change\s+rsi\s+exit\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"set\s+rsi\s+exit\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"update\s+rsi\s+exit\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"rsi\s+exit\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"change\s+exit\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"set\s+exit\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
+        r"update\s+exit\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"exit\s+rsi\s+threshold\s+to\s+(\d+(?:\.\d+)?)",
         r"change\s+rsi\s+exit\s+to\s+(\d+(?:\.\d+)?)",
         r"set\s+rsi\s+exit\s+to\s+(\d+(?:\.\d+)?)",
+        r"update\s+rsi\s+exit\s+to\s+(\d+(?:\.\d+)?)",
         r"rsi\s+exit\s+to\s+(\d+(?:\.\d+)?)",
         r"exit\s+rsi\s+to\s+(\d+(?:\.\d+)?)",
     ]

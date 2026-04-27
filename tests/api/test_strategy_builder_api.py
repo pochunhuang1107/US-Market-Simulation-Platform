@@ -22,6 +22,52 @@ def default_builder_metadata_lookup(monkeypatch):
     monkeypatch.setattr(builder_parsers, "get_etf_history_range", lambda symbol: None)
 
 
+def _qqq_rsi_core_overlay_current_config() -> dict:
+    return {
+        "schema_version": "2.0",
+        "name": "qqq-rsi-core-overlay-test",
+        "tradable_symbol": "QQQ",
+        "benchmark_symbol": "SPY",
+        "reference_symbols": [],
+        "start_date": "2019-01-02",
+        "end_date": "2024-12-31",
+        "initial_capital": 100000,
+        "transaction_cost_bps": 5,
+        "allocation": {
+            "entry_mode": "percent_of_equity",
+            "entry_value": 0.4,
+            "max_position_pct": 0.4,
+        },
+        "entry_rule": {
+            "kind": "atomic",
+            "type": "rsi_below",
+            "symbol": "QQQ",
+            "lookback": 14,
+            "threshold": 30,
+        },
+        "exit_rule": {
+            "kind": "atomic",
+            "type": "rsi_above",
+            "symbol": "QQQ",
+            "lookback": 14,
+            "threshold": 70,
+        },
+        "risk": {
+            "stop_loss_pct": 0.08,
+            "cooldown_bars": 0,
+        },
+        "core_overlay": {
+            "enabled": True,
+            "core_allocation_pct": 0.6,
+        },
+        "position_management": {
+            "scale_in_fraction": 0.25,
+            "scale_out_fraction": 0.5,
+            "profit_reduce_threshold": 0.05,
+        },
+    }
+
+
 def test_generate_strategy_builder_draft_returns_valid_strategy_v2_config(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -706,6 +752,59 @@ def test_generate_strategy_builder_draft_applies_sequential_rsi_entry_edit_from_
     assert not any("relative strength threshold" in change for change in body["changes"])
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "change entry threshold to 25",
+        "change the entry threshold to 25",
+        "set entry threshold to 25",
+        "update entry threshold to 25",
+    ],
+)
+def test_generate_strategy_builder_draft_applies_plain_entry_threshold_edit_from_current_config(client, prompt):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": _qqq_rsi_core_overlay_current_config(),
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_below",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 25,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_above",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 70,
+    }
+    assert config["allocation"] == {
+        "entry_mode": "percent_of_equity",
+        "entry_value": 0.4,
+        "max_position_pct": 0.4,
+    }
+    assert config["core_overlay"] == {
+        "enabled": True,
+        "core_allocation_pct": 0.6,
+    }
+    assert "Updated RSI entry threshold from 30 to 25." in body["changes"]
+    assert "Unsupported edit type" not in body["message"]
+
+
 def test_generate_strategy_builder_draft_applies_sequential_rsi_exit_edit_from_current_config(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -766,6 +865,57 @@ def test_generate_strategy_builder_draft_applies_sequential_rsi_exit_edit_from_c
     assert config["entry_rule"]["threshold"] == 30
     assert config["exit_rule"]["type"] == "rsi_above"
     assert config["exit_rule"]["threshold"] == 65
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "change exit threshold to 65",
+        "set exit threshold to 65",
+    ],
+)
+def test_generate_strategy_builder_draft_applies_plain_exit_threshold_edit_from_current_config(client, prompt):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": _qqq_rsi_core_overlay_current_config(),
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_below",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 30,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_above",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 65,
+    }
+    assert config["allocation"] == {
+        "entry_mode": "percent_of_equity",
+        "entry_value": 0.4,
+        "max_position_pct": 0.4,
+    }
+    assert config["core_overlay"] == {
+        "enabled": True,
+        "core_allocation_pct": 0.6,
+    }
+    assert "Updated RSI exit threshold from 70 to 65." in body["changes"]
+    assert "Unsupported edit type" not in body["message"]
 
 
 def test_generate_strategy_builder_draft_switches_existing_strategy_to_macd(client):

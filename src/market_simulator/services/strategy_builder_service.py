@@ -140,6 +140,11 @@ def _has_current_config(req: StrategyBuilderGenerateRequest) -> bool:
     return isinstance(current_config, dict) and bool(current_config)
 
 
+def _has_numeric_threshold(rule: dict[str, Any]) -> bool:
+    threshold = rule.get("threshold")
+    return isinstance(threshold, (int, float)) and not isinstance(threshold, bool)
+
+
 def _should_attach_question_guidance(
     *,
     prompt: str,
@@ -1691,6 +1696,19 @@ def _apply_update_flow_edits(
             existing_entry_rule.setdefault("lookback", 14)
             existing_entry_rule.setdefault("kind", "atomic")
             default_config["entry_rule"] = existing_entry_rule
+        elif (
+            rsi_entry_threshold_edit is not None
+            and rsi_entry_lookback_edit is None
+            and _has_numeric_threshold(existing_entry_rule)
+        ):
+            existing_entry_rule["threshold"] = rsi_entry_threshold_edit
+            default_config["entry_rule"] = existing_entry_rule
+        elif (
+            "rsi" not in prompt_lower
+            and rsi_entry_threshold_edit is not None
+            and rsi_entry_lookback_edit is None
+        ):
+            pass
         else:
             default_config["entry_rule"] = {
                 "kind": "atomic",
@@ -1726,6 +1744,19 @@ def _apply_update_flow_edits(
             existing_exit_rule.setdefault("lookback", 14)
             existing_exit_rule.setdefault("kind", "atomic")
             default_config["exit_rule"] = existing_exit_rule
+        elif (
+            rsi_exit_threshold_edit is not None
+            and rsi_exit_lookback_edit is None
+            and _has_numeric_threshold(existing_exit_rule)
+        ):
+            existing_exit_rule["threshold"] = rsi_exit_threshold_edit
+            default_config["exit_rule"] = existing_exit_rule
+        elif (
+            "rsi" not in prompt_lower
+            and rsi_exit_threshold_edit is not None
+            and rsi_exit_lookback_edit is None
+        ):
+            pass
         else:
             default_config["exit_rule"] = {
                 "kind": "atomic",
