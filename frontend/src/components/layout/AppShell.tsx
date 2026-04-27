@@ -5,10 +5,10 @@ import { useTheme } from '../../theme';
 
 const navItems = [
   { to: '/', label: 'Home', end: true },
-  { to: '/runs', label: 'Runs', end: true },
+  { to: '/runs', label: 'Run History', end: true },
   { to: '/compare', label: 'Compare', end: true },
   { to: '/strategies', label: 'Strategy Library', end: false },
-  { to: '/runs/new', label: 'Advanced', end: true }
+  { to: '/runs/new', label: 'Advanced Run', end: true }
 ];
 
 export function AppShell() {
@@ -43,7 +43,7 @@ export function AppShell() {
             <p className="app-eyebrow text-xs font-semibold uppercase tracking-[0.26em]">
               US Market Strategy Platform
             </p>
-            <h1 className="mt-1 text-xl font-semibold app-title">Chat-First Strategy Builder</h1>
+            <h1 className="mt-1 text-xl font-semibold app-title">Strategy Research Workspace</h1>
           </div>
 
           <div className="flex items-center gap-3 self-start lg:self-auto">
