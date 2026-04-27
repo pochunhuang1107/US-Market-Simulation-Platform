@@ -17,11 +17,11 @@ import {
   formatCurrency,
   formatMonthLabel,
   formatPct,
-  formatShortDate,
-  humanizeSeriesName
+  formatShortDate
 } from '../../lib/formatters';
-import type { RunChartDataResponse } from '../../types/api';
+import type { RunChartDataResponse, RunResponse } from '../../types/api';
 import { SectionCard } from '../shared/SectionCard';
+import { inferBenchmarkLabel } from './RunInsightHero';
 
 const chartTooltipStyle = {
   background: 'var(--surface-strong)',
@@ -30,11 +30,16 @@ const chartTooltipStyle = {
   color: 'var(--title)'
 };
 
-export function RunCharts({ chartData }: { chartData: RunChartDataResponse }) {
+export function RunCharts({ chartData, run }: { chartData: RunChartDataResponse; run: RunResponse }) {
+  const benchmarkDrawdownLabel = `${inferBenchmarkLabel(run, chartData) ?? 'Benchmark'} drawdown`;
+
   return (
     <div className="space-y-6">
       <div className="grid gap-6 xl:grid-cols-2">
-        <SectionCard title="Drawdown Curve" subtitle="Strategy and benchmark drawdown series.">
+        <SectionCard
+          title="Drawdown Comparison"
+          subtitle="How far the strategy and benchmark fell from previous highs."
+        >
           <ChartFrame>
             <ResponsiveContainer>
               <LineChart data={chartData.drawdown_curve} margin={{ top: 8, right: 16, left: 4, bottom: 0 }}>
@@ -42,7 +47,7 @@ export function RunCharts({ chartData }: { chartData: RunChartDataResponse }) {
                 <XAxis dataKey="date" tickFormatter={formatShortDate} minTickGap={36} stroke="var(--text-muted)" />
                 <YAxis tickFormatter={formatPct} stroke="var(--text-muted)" width={80} />
                 <Tooltip
-                  formatter={(value, name) => [formatPct(Number(value ?? 0)), humanizeSeriesName(String(name ?? ''))]}
+                  formatter={(value, name) => [formatPct(Number(value ?? 0)), String(name ?? '')]}
                   labelFormatter={(label) => formatShortDate(label)}
                   contentStyle={chartTooltipStyle}
                 />
@@ -51,7 +56,7 @@ export function RunCharts({ chartData }: { chartData: RunChartDataResponse }) {
                 <Line
                   type="monotone"
                   dataKey="strategy_drawdown_pct"
-                  name="strategy_drawdown_pct"
+                  name="Strategy drawdown"
                   stroke="#e11d48"
                   strokeWidth={2.25}
                   dot={false}
@@ -59,7 +64,7 @@ export function RunCharts({ chartData }: { chartData: RunChartDataResponse }) {
                 <Line
                   type="monotone"
                   dataKey="benchmark_drawdown_pct"
-                  name="benchmark_drawdown_pct"
+                  name={benchmarkDrawdownLabel}
                   stroke="#f59e0b"
                   strokeWidth={2.25}
                   dot={false}
@@ -69,7 +74,7 @@ export function RunCharts({ chartData }: { chartData: RunChartDataResponse }) {
           </ChartFrame>
         </SectionCard>
 
-        <SectionCard title="Sleeve Equity" subtitle="Core and overlay sleeve equity over time.">
+        <SectionCard title="Sleeve Performance" subtitle="Core and overlay sleeve equity over time.">
           <ChartFrame>
             <ResponsiveContainer>
               <LineChart data={chartData.sleeve_equity_curve} margin={{ top: 8, right: 16, left: 4, bottom: 0 }}>
@@ -77,13 +82,13 @@ export function RunCharts({ chartData }: { chartData: RunChartDataResponse }) {
                 <XAxis dataKey="date" tickFormatter={formatShortDate} minTickGap={36} stroke="var(--text-muted)" />
                 <YAxis tickFormatter={formatCurrency} stroke="var(--text-muted)" width={96} />
                 <Tooltip
-                  formatter={(value, name) => [formatCurrency(Number(value ?? 0)), humanizeSeriesName(String(name ?? ''))]}
+                  formatter={(value, name) => [formatCurrency(Number(value ?? 0)), String(name ?? '')]}
                   labelFormatter={(label) => formatShortDate(label)}
                   contentStyle={chartTooltipStyle}
                 />
                 <Legend />
-                <Line type="monotone" dataKey="core_equity" name="core_equity" stroke="#22c55e" strokeWidth={2.25} dot={false} />
-                <Line type="monotone" dataKey="overlay_equity" name="overlay_equity" stroke="#f59e0b" strokeWidth={2.25} dot={false} />
+                <Line type="monotone" dataKey="core_equity" name="Core sleeve" stroke="#22c55e" strokeWidth={2.25} dot={false} />
+                <Line type="monotone" dataKey="overlay_equity" name="Overlay sleeve" stroke="#f59e0b" strokeWidth={2.25} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </ChartFrame>
@@ -91,7 +96,7 @@ export function RunCharts({ chartData }: { chartData: RunChartDataResponse }) {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <SectionCard title="Monthly Returns" subtitle="Month-over-month strategy returns from report artifacts.">
+        <SectionCard title="Monthly Strategy Returns" subtitle="Strategy return by month.">
           <ChartFrame>
             <ResponsiveContainer>
               <BarChart data={chartData.monthly_returns} margin={{ top: 8, right: 16, left: 4, bottom: 0 }}>
@@ -99,18 +104,18 @@ export function RunCharts({ chartData }: { chartData: RunChartDataResponse }) {
                 <XAxis dataKey="month" tickFormatter={formatMonthLabel} minTickGap={24} stroke="var(--text-muted)" />
                 <YAxis tickFormatter={formatPct} stroke="var(--text-muted)" width={80} />
                 <Tooltip
-                  formatter={(value) => [formatPct(Number(value ?? 0)), 'Return']}
+                  formatter={(value) => [formatPct(Number(value ?? 0)), 'Strategy return']}
                   labelFormatter={(label) => formatMonthLabel(label)}
                   contentStyle={chartTooltipStyle}
                 />
                 <ReferenceLine y={0} stroke="var(--border)" />
-                <Bar dataKey="return_pct" name="return_pct" fill="#06b6d4" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="return_pct" name="Strategy return" fill="#06b6d4" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </ChartFrame>
         </SectionCard>
 
-        <SectionCard title="Sleeve Weights" subtitle="Core and overlay weights through the run.">
+        <SectionCard title="Sleeve Allocation" subtitle="Core and overlay allocation through the run.">
           <ChartFrame>
             <ResponsiveContainer>
               <LineChart data={chartData.sleeve_weight_curve} margin={{ top: 8, right: 16, left: 4, bottom: 0 }}>
@@ -118,20 +123,20 @@ export function RunCharts({ chartData }: { chartData: RunChartDataResponse }) {
                 <XAxis dataKey="date" tickFormatter={formatShortDate} minTickGap={36} stroke="var(--text-muted)" />
                 <YAxis tickFormatter={formatPct} stroke="var(--text-muted)" width={80} />
                 <Tooltip
-                  formatter={(value, name) => [formatPct(Number(value ?? 0)), humanizeSeriesName(String(name ?? ''))]}
+                  formatter={(value, name) => [formatPct(Number(value ?? 0)), String(name ?? '')]}
                   labelFormatter={(label) => formatShortDate(label)}
                   contentStyle={chartTooltipStyle}
                 />
                 <Legend />
-                <Line type="monotone" dataKey="core_weight_pct" name="core_weight_pct" stroke="#4ade80" strokeWidth={2.25} dot={false} />
-                <Line type="monotone" dataKey="overlay_weight_pct" name="overlay_weight_pct" stroke="#fbbf24" strokeWidth={2.25} dot={false} />
+                <Line type="monotone" dataKey="core_weight_pct" name="Core allocation" stroke="#4ade80" strokeWidth={2.25} dot={false} />
+                <Line type="monotone" dataKey="overlay_weight_pct" name="Overlay allocation" stroke="#fbbf24" strokeWidth={2.25} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </ChartFrame>
         </SectionCard>
       </div>
 
-      <SectionCard title="Trade Markers" subtitle="Artifact-derived trade events aligned to run dates.">
+      <SectionCard title="Trade Events" subtitle="Buy and sell events generated by this run.">
         <div className="app-table-frame max-h-[420px] overflow-auto rounded-2xl">
           <table className="min-w-full divide-y text-sm app-divider">
             <thead className="app-table-head sticky top-0 text-left text-xs font-semibold uppercase tracking-[0.18em]">

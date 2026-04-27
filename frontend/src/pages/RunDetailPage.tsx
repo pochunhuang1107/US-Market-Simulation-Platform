@@ -301,7 +301,7 @@ export function RunDetailPage() {
 
         <RunInsightBreakdown run={data.run} />
 
-        <RunCharts chartData={data.chart_data} />
+        <RunCharts chartData={data.chart_data} run={data.run} />
 
         <RunMetaPanel run={data.run} />
       </div>

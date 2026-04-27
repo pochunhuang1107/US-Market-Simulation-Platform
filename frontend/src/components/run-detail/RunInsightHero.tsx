@@ -64,7 +64,7 @@ function findBenchmarkValue(source: unknown, keys: string[]): string | null {
   return null;
 }
 
-function inferBenchmarkLabel(run: RunResponse, chartData: RunChartDataResponse): string | null {
+export function inferBenchmarkLabel(run: RunResponse, chartData: RunChartDataResponse): string | null {
   const requestPayload = run.request_payload ?? {};
   const draftConfig = isRecord(requestPayload) ? requestPayload.draft_config : null;
   const sources: unknown[] = [run.summary_json, draftConfig, requestPayload, chartData];
