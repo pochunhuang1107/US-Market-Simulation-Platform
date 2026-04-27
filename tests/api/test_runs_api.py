@@ -1215,6 +1215,7 @@ def test_compare_runs_rejects_more_than_max_comparison_runs(
     create_user,
     create_strategy_bundle,
     current_user_ctx,
+    monkeypatch,
 ):
     create_user(
         user_id=current_user_ctx["id"],
@@ -1232,11 +1233,19 @@ def test_compare_runs_rejects_more_than_max_comparison_runs(
         for index in range(5)
     ]
 
+    def fail_if_compared(_runs):
+        raise AssertionError("over-limit comparison should be rejected before building comparison")
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.build_comparison",
+        fail_if_compared,
+    )
+
     run_ids = ",".join(str(run.id) for run in runs)
     response = client.get(f"/runs/compare?run_ids={run_ids}")
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Comparison limit reached for your plan (max 4 runs)."
+    assert response.json()["detail"] == "Comparison limit reached for your plan. Select up to 4 runs."
 
 
 def test_compare_runs_chart_rejects_more_than_max_comparison_runs(
@@ -1245,6 +1254,7 @@ def test_compare_runs_chart_rejects_more_than_max_comparison_runs(
     create_user,
     create_strategy_bundle,
     current_user_ctx,
+    monkeypatch,
 ):
     create_user(
         user_id=current_user_ctx["id"],
@@ -1262,11 +1272,19 @@ def test_compare_runs_chart_rejects_more_than_max_comparison_runs(
         for index in range(5)
     ]
 
+    def fail_if_compared(_runs):
+        raise AssertionError("over-limit chart comparison should be rejected before building curves")
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.build_equity_curves",
+        fail_if_compared,
+    )
+
     run_ids = ",".join(str(run.id) for run in runs)
     response = client.get(f"/runs/compare/chart?run_ids={run_ids}")
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Comparison limit reached for your plan (max 4 runs)."
+    assert response.json()["detail"] == "Comparison limit reached for your plan. Select up to 4 runs."
 
 
 def test_compare_runs_allows_exactly_max_comparison_runs(

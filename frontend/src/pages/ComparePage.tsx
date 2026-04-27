@@ -486,6 +486,9 @@ export function ComparePage() {
   );
 
   const selectionLimitReached = selectedRunIds.length >= MAX_COMPARE_RUNS;
+  const shouldShowComparisonCharts = Boolean(
+    comparisonChart && comparison?.metadata.has_common_overlap !== false
+  );
 
   async function handleCompare(runIdsOverride?: string[]) {
     const runIds = runIdsOverride ?? selectedRunIds;
@@ -593,7 +596,7 @@ export function ComparePage() {
 
       {comparison ? <ComparisonResults comparison={comparison} onCompareAnotherSet={resetComparison} /> : null}
 
-      {comparisonChart ? <ComparisonCharts chart={comparisonChart} /> : null}
+      {shouldShowComparisonCharts && comparisonChart ? <ComparisonCharts chart={comparisonChart} /> : null}
 
       <SectionCard
         title={`Selected Runs (${selectedRunIds.length} / ${MAX_COMPARE_RUNS})`}

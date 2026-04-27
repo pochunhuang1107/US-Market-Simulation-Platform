@@ -136,6 +136,7 @@ def _ensure_default_test_plan(db_session: Session) -> Plan:
         builder_prompt_daily_limit=1000,
         builder_prompt_max_chars=5000,
         max_backtest_years=25,
+        max_comparison_runs=4,
         allow_portfolio_runs=True,
         allow_comparison_runs=True,
         allow_parameter_sweeps=True,

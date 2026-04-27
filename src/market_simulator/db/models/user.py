@@ -48,6 +48,7 @@ class Plan(Base):
     builder_prompt_daily_limit: Mapped[int] = mapped_column(Integer, nullable=False)
     builder_prompt_max_chars: Mapped[int] = mapped_column(Integer, nullable=False)
     max_backtest_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_comparison_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
 
     allow_portfolio_runs: Mapped[bool] = mapped_column(Boolean, nullable=False)
     allow_comparison_runs: Mapped[bool] = mapped_column(Boolean, nullable=False)
