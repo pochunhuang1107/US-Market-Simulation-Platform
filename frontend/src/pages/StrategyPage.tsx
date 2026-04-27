@@ -184,10 +184,10 @@ export function StrategyPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
-              Next strategy steps
+              Continue Research
             </div>
             <p className="app-text-muted mt-2 text-sm leading-6">
-              Keep iterating from the saved version or review recent results.
+              Open the latest result, compare recent performance, or continue from the saved version in chat.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -198,7 +198,11 @@ export function StrategyPage() {
               >
                 Open latest run
               </Link>
-            ) : null}
+            ) : (
+              <span className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold opacity-60">
+                Open latest run
+              </span>
+            )}
             {data.latest_run_id ? (
               <Link
                 to={`/compare?runIds=${data.latest_run_id}`}
@@ -206,7 +210,11 @@ export function StrategyPage() {
               >
                 Compare latest run
               </Link>
-            ) : null}
+            ) : (
+              <span className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold opacity-60">
+                Compare latest run
+              </span>
+            )}
             {canContinueInChat ? (
               <Link
                 to="/chat"
@@ -227,7 +235,7 @@ export function StrategyPage() {
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <SectionCard title="Strategy Info" subtitle="Saved strategy context and recent activity.">
+        <SectionCard title="Saved Strategy" subtitle="Core metadata and saved-strategy status.">
           <dl className="space-y-4 text-sm">
             <Row label="Type" value={formatStrategyType(data.strategy.strategy_type)} />
             <Row label="Created" value={formatDateTime(data.strategy.created_at)} />
@@ -245,7 +253,19 @@ export function StrategyPage() {
           </dl>
         </SectionCard>
 
-        <SectionCard title="Latest Performance" subtitle="Most recent succeeded run summary for this strategy.">
+        <section className="app-card app-shadow-soft rounded-3xl border p-5 lg:p-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="app-label text-xs font-semibold uppercase tracking-[0.22em]">Key Insight</p>
+              <h3 className="app-title mt-2 text-xl font-semibold">Latest Performance</h3>
+              <p className="app-text-muted mt-1 text-sm">Most recent completed simulation for this saved strategy.</p>
+            </div>
+            {data.latest_run_id ? (
+              <Link to={`/runs/${data.latest_run_id}`} className="app-button-primary shrink-0 rounded-xl px-4 py-2 text-sm font-semibold transition">
+                Open latest run
+              </Link>
+            ) : null}
+          </div>
           {data.latest_performance ? (
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -253,23 +273,21 @@ export function StrategyPage() {
                   <MetricCard key={metric.label} label={metric.label} value={metric.value} tone={metric.tone} />
                 ))}
               </div>
-              {data.latest_run_id ? (
-                <Link to={`/runs/${data.latest_run_id}`} className="app-button-secondary inline-flex rounded-xl px-4 py-2 text-sm transition">
-                  Open latest run
-                </Link>
-              ) : null}
             </div>
           ) : (
-            <p className="app-text-muted text-sm">No succeeded run is available yet for this strategy.</p>
+            <div className="app-surface-soft rounded-2xl border px-4 py-5">
+              <p className="app-title text-sm font-semibold">No completed simulation yet</p>
+              <p className="app-text-muted mt-2 text-sm">Run this strategy to see its latest performance summary.</p>
+            </div>
           )}
-        </SectionCard>
+        </section>
       </div>
 
-      <SectionCard title="Versions" subtitle="Strategy version history with current version highlighting.">
+      <SectionCard title="Versions" subtitle="Saved versions for this strategy. The current version is used for continuation and manual runs.">
         <VersionsTable versions={data.versions} />
       </SectionCard>
 
-      <SectionCard title="Associated Runs" subtitle="Recent runs associated with this strategy.">
+      <SectionCard title="Run History" subtitle="Recent simulations created from this saved strategy.">
         <RunsTable runs={data.associated_runs} loading={false} compact />
       </SectionCard>
     </div>
@@ -278,9 +296,9 @@ export function StrategyPage() {
 
 function Row({ label, value, mono = false }: { label: string; value: string | null | undefined; mono?: boolean }) {
   return (
-    <div className="app-code flex flex-col gap-1 rounded-2xl border px-4 py-3">
-      <span className="app-label text-xs font-semibold uppercase tracking-[0.18em]">{label}</span>
-      <span className={`${mono ? 'font-mono text-xs break-all' : ''} app-title`}>{value || '—'}</span>
+    <div className="app-surface-soft flex flex-col gap-1 rounded-2xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <dt className="app-label text-xs font-semibold uppercase tracking-[0.18em]">{label}</dt>
+      <dd className={`${mono ? 'font-mono text-xs break-all' : 'text-sm font-medium'} app-title sm:text-right`}>{value || '—'}</dd>
     </div>
   );
 }
