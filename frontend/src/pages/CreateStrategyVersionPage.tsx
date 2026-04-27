@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
+import { StateCard } from '../components/shared/StateCard';
 import { createStrategyVersion, fetchStrategyDashboard } from '../lib/api';
 import type {
   CreateStrategyVersionRequest,
@@ -43,6 +44,28 @@ function prettifyJson(value: unknown): string {
   }
 }
 
+const strategyTypeLabels: Record<string, string> = {
+  SINGLE_ASSET: 'Single ETF',
+  SIMULATION: 'Single ETF',
+  PORTFOLIO: 'Portfolio',
+  COMPARISON: 'Comparison',
+  PARAMETER_SWEEP: 'Parameter Sweep'
+};
+
+function formatStrategyType(strategyType: string | null | undefined): string {
+  if (!strategyType) return 'Strategy';
+
+  return (
+    strategyTypeLabels[strategyType] ??
+    strategyType
+      .toLowerCase()
+      .split('_')
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  );
+}
+
 function Field({
   label,
   children
@@ -79,9 +102,9 @@ export function CreateStrategyVersionPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const inputClassName =
-    'app-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition focus:border-cyan-500';
+    'app-version-input w-full rounded-2xl px-4 py-3 text-sm outline-none transition';
   const textareaClassName =
-    'app-code-block min-h-[460px] w-full rounded-2xl px-4 py-3 font-mono text-sm outline-none transition focus:border-cyan-500';
+    'app-json-editor min-h-[460px] w-full rounded-2xl px-4 py-3 font-mono text-sm leading-6 outline-none transition';
 
   useEffect(() => {
     let active = true;
@@ -178,9 +201,10 @@ export function CreateStrategyVersionPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-6 py-10">
-        <div className="app-card app-shadow rounded-3xl border p-8">
-          Loading strategy version editor...
-        </div>
+        <StateCard
+          title="Loading version workspace"
+          description="Fetching the current strategy before preparing the version editor."
+        />
       </div>
     );
   }
@@ -188,9 +212,11 @@ export function CreateStrategyVersionPage() {
   if (loadError || !strategyDashboard) {
     return (
       <div className="mx-auto max-w-7xl px-6 py-10">
-        <div className="rounded-3xl border border-rose-900/60 bg-rose-950/40 p-8 text-rose-200">
-          {loadError ?? 'Unable to load strategy.'}
-        </div>
+        <StateCard
+          title="Unable to load strategy"
+          description={loadError ?? 'Strategy dashboard was not available.'}
+          tone="error"
+        />
       </div>
     );
   }
@@ -200,14 +226,13 @@ export function CreateStrategyVersionPage() {
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="app-eyebrow text-xs font-semibold uppercase tracking-[0.28em]">
-            Strategy Versioning
+            Advanced Versioning
           </div>
           <h1 className="app-title mt-2 text-3xl font-semibold tracking-tight">
             New Version · {strategyDashboard.strategy.name}
           </h1>
           <p className="app-text-muted mt-3 max-w-3xl text-sm">
-            Create a new version from the current strategy config, save a change note, and keep
-            version history under the same strategy.
+            Create a saved version when you want to preserve a meaningful strategy change.
           </p>
         </div>
 
@@ -223,7 +248,7 @@ export function CreateStrategyVersionPage() {
 
       {builderDraft && (
         <div className="app-note mb-6 rounded-2xl border px-4 py-3 text-sm">
-          Prefilled from Strategy Builder. Review the draft and create the version when ready.
+          Prefilled from Strategy Builder. Review the structured draft before saving it as a new version.
         </div>
       )}
 
@@ -233,9 +258,9 @@ export function CreateStrategyVersionPage() {
           className="app-card app-shadow rounded-3xl border p-6"
         >
           <div className="mb-6">
-            <h2 className="app-title text-xl font-semibold">Version Request</h2>
+            <h2 className="app-title text-xl font-semibold">Version Details</h2>
             <p className="app-text-muted mt-2 text-sm">
-              Start from the current version config and edit only what changed.
+              Add a short change note and review the strategy config before saving.
             </p>
           </div>
 
@@ -245,9 +270,12 @@ export function CreateStrategyVersionPage() {
                 type="text"
                 value={changeNote}
                 onChange={(event) => setChangeNote(event.target.value)}
-                placeholder="Adjusted RSI thresholds and exit rule"
+                placeholder="Example: changed RSI entry threshold from 30 to 25"
                 className={inputClassName}
               />
+              <span className="app-text-soft text-xs">
+                Optional, but useful for tracking why this version was created.
+              </span>
             </Field>
 
             <Field label="Config JSON">
@@ -261,7 +289,7 @@ export function CreateStrategyVersionPage() {
           </div>
 
           {submitError && (
-            <div className="mt-6 rounded-2xl border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
+            <div className="app-validation-error mt-6 rounded-2xl px-4 py-3 text-sm">
               {submitError}
             </div>
           )}
@@ -272,7 +300,7 @@ export function CreateStrategyVersionPage() {
               disabled={submitting}
               className="app-button-primary rounded-2xl px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? 'Creating Version...' : 'Create Version'}
+              {submitting ? 'Saving Version...' : 'Save New Version'}
             </button>
 
             <button
@@ -291,9 +319,9 @@ export function CreateStrategyVersionPage() {
 
         <div className="space-y-6">
           <section className="app-card app-shadow rounded-3xl border p-6">
-            <h2 className="app-title text-xl font-semibold">Current Version</h2>
+            <h2 className="app-title text-xl font-semibold">Version Context</h2>
             <p className="app-text-muted mt-2 text-sm">
-              The new version will be created under this strategy and become the current version.
+              This strategy will keep its history and mark the new version as current.
             </p>
 
             <div className="mt-5 space-y-3">
@@ -302,15 +330,18 @@ export function CreateStrategyVersionPage() {
                 label="Current Version"
                 value={currentVersion ? `v${currentVersion.version_number}` : '—'}
               />
-              <PreviewRow label="Strategy Type" value={strategyDashboard.strategy.strategy_type} />
+              <PreviewRow
+                label="Strategy Type"
+                value={formatStrategyType(strategyDashboard.strategy.strategy_type)}
+              />
               <PreviewRow label="Current Change Note" value={currentVersion?.change_note ?? '—'} />
             </div>
           </section>
 
           <section className="app-card app-shadow rounded-3xl border p-6">
-            <h2 className="app-title text-xl font-semibold">Current Config Snapshot</h2>
+            <h2 className="app-title text-xl font-semibold">Current Version Snapshot</h2>
             <p className="app-text-muted mt-2 text-sm">
-              Reference view of the current version config before saving the new one.
+              Read-only reference for the version you are starting from.
             </p>
 
             <pre className="app-code-block app-title mt-5 max-h-[460px] overflow-auto rounded-2xl p-4 text-xs leading-6">
@@ -331,7 +362,7 @@ function PreviewRow({
   value: React.ReactNode;
 }) {
   return (
-    <div className="app-code rounded-2xl border px-4 py-4">
+    <div className="app-surface-soft rounded-2xl border px-4 py-4">
       <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
         {label}
       </div>
