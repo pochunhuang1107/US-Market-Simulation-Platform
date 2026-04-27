@@ -17,6 +17,15 @@ export function AppShell() {
   const navigate = useNavigate();
 
   function handleNavClick(event: MouseEvent<HTMLAnchorElement>, to: string) {
+    if (to === '/' && (location.pathname === '/' || location.pathname === '/chat')) {
+      event.preventDefault();
+      navigate('/', {
+        replace: location.search === '',
+        state: { homeResetKey: Date.now() }
+      });
+      return;
+    }
+
     if (to !== '/compare' || location.pathname !== '/compare') return;
 
     event.preventDefault();
