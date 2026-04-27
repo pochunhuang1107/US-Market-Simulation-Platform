@@ -56,6 +56,34 @@ export function shortRunId(runId: Nullable<string> | undefined): string {
   return runId ? runId.slice(0, 8) : '';
 }
 
+const RUN_TYPE_LABELS: Record<string, string> = {
+  SIMULATION: 'Backtest',
+  PORTFOLIO: 'Portfolio run',
+  COMPARISON: 'Comparison',
+  PARAMETER_SWEEP: 'Parameter sweep'
+};
+
+const EXECUTOR_TYPE_LABELS: Record<string, string> = {
+  SIMULATION_EXECUTOR: 'Simulation engine'
+};
+
+function titleCaseRawValue(value: string): string {
+  return value
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+export function formatRunType(value: string): string {
+  return RUN_TYPE_LABELS[value] ?? titleCaseRawValue(value);
+}
+
+export function formatExecutorType(value: string): string {
+  return EXECUTOR_TYPE_LABELS[value] ?? titleCaseRawValue(value);
+}
+
 export function formatRunLabel(
   strategyName: Nullable<string>,
   versionNumber: Nullable<number>,

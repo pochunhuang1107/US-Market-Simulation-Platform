@@ -1,6 +1,13 @@
 import { Link } from 'react-router-dom';
 
-import { formatDateTime, formatNumber, formatPct, formatRunLabel } from '../../lib/formatters';
+import {
+  formatDateTime,
+  formatExecutorType,
+  formatNumber,
+  formatPct,
+  formatRunLabel,
+  formatRunType
+} from '../../lib/formatters';
 import type { RunDashboardListItem } from '../../types/api';
 import { RunStatusBadge } from './RunStatusBadge';
 
@@ -8,34 +15,6 @@ interface RunsTableProps {
   runs: RunDashboardListItem[];
   loading: boolean;
   compact?: boolean;
-}
-
-const RUN_TYPE_LABELS: Record<string, string> = {
-  SIMULATION: 'Backtest',
-  PORTFOLIO: 'Portfolio run',
-  COMPARISON: 'Comparison',
-  PARAMETER_SWEEP: 'Parameter sweep'
-};
-
-const EXECUTOR_TYPE_LABELS: Record<string, string> = {
-  SIMULATION_EXECUTOR: 'Simulation engine'
-};
-
-function titleCaseRawValue(value: string) {
-  return value
-    .toLowerCase()
-    .split('_')
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-function formatRunType(value: string) {
-  return RUN_TYPE_LABELS[value] ?? titleCaseRawValue(value);
-}
-
-function formatExecutorType(value: string) {
-  return EXECUTOR_TYPE_LABELS[value] ?? titleCaseRawValue(value);
 }
 
 export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {

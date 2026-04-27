@@ -31,10 +31,10 @@ function NoticeBanner({
 }) {
   const toneClass =
     notice.tone === 'success'
-      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+      ? 'app-alert-success'
       : notice.tone === 'error'
-        ? 'border-rose-500/30 bg-rose-500/10 text-rose-200'
-        : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-100';
+        ? 'app-alert-error'
+        : 'app-note';
 
   return (
     <div className={`rounded-2xl border px-4 py-3 text-sm ${toneClass}`}>
@@ -204,6 +204,7 @@ export function RunDetailPage() {
 
       const refreshedRun = await fetchRun(runId);
       setRun(refreshedRun);
+      setData((currentData) => currentData ? { ...currentData, run: refreshedRun } : currentData);
       setIsSaveStrategyModalOpen(false);
       setNotice({
         tone: 'success',

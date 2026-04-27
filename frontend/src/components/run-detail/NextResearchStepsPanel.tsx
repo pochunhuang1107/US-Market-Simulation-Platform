@@ -61,12 +61,6 @@ export function NextResearchStepsPanel({
             </button>
           ) : null}
 
-          <Link
-            to="/runs"
-            className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
-          >
-            View run history
-          </Link>
         </div>
       </div>
     </section>

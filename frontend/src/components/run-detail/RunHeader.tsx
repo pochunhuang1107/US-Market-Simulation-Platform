@@ -1,6 +1,12 @@
 import { Link } from 'react-router-dom';
 
-import { formatDateTime, formatRunLabel } from '../../lib/formatters';
+import {
+  formatDateTime,
+  formatExecutorType,
+  formatRunLabel,
+  formatRunType,
+  shortRunId
+} from '../../lib/formatters';
 import type { RunResponse } from '../../types/api';
 import { RunStatusBadge } from '../runs/RunStatusBadge';
 
@@ -30,10 +36,56 @@ export function getModifyBuilderState(run: RunResponse) {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getCleanString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+
+  const cleaned = value.trim();
+  if (!cleaned) return null;
+
+  const normalized = cleaned.toLowerCase();
+  if (normalized === 'benchmark' || normalized === 'benchmark_equity') return null;
+
+  return cleaned;
+}
+
+function getBenchmarkLabel(run: RunResponse): string | null {
+  const requestPayload = run.request_payload ?? {};
+  const sources: unknown[] = [run.summary_json, getDraftConfig(run), requestPayload];
+
+  for (const source of sources) {
+    if (!isRecord(source)) continue;
+
+    const symbol =
+      getCleanString(source.benchmark_symbol) ??
+      getCleanString(source.benchmark_ticker) ??
+      getCleanString(source.benchmark);
+    if (symbol) return symbol.toUpperCase();
+
+    const name = getCleanString(source.benchmark_name) ?? getCleanString(source.benchmark_label);
+    if (name) return name;
+  }
+
+  return null;
+}
+
 export function RunHeader({ run }: RunHeaderProps) {
   const title = run.strategy_id
     ? formatRunLabel(run.strategy_name, run.strategy_version_number)
     : 'Unsaved draft run';
+  const benchmarkLabel = getBenchmarkLabel(run);
+  const metadata = [
+    formatRunType(run.run_type),
+    formatExecutorType(run.executor_type),
+    `Created ${formatDateTime(run.created_at)}`
+  ];
+
+  if (benchmarkLabel) {
+    metadata.push(`Benchmark: ${benchmarkLabel}`);
+  }
 
   return (
     <section className="app-card app-shadow rounded-3xl border p-6">
@@ -46,15 +98,18 @@ export function RunHeader({ run }: RunHeaderProps) {
             <h1 className="mt-2 text-4xl font-semibold tracking-tight app-title">
               {title}
             </h1>
-            <p className="mt-3 font-mono text-sm app-text-muted">{run.id}</p>
+            <p className="mt-3 text-sm app-text-muted" title={run.id}>
+              Run ID: <span className="font-mono">{shortRunId(run.id)}</span>
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 text-sm app-text-muted">
-            <span>{run.run_type}</span>
-            <span>•</span>
-            <span>{run.executor_type}</span>
-            <span>•</span>
-            <span>Created {formatDateTime(run.created_at)}</span>
+            {metadata.map((item, index) => (
+              <span key={item} className="inline-flex items-center gap-3">
+                {index > 0 ? <span aria-hidden="true">•</span> : null}
+                <span>{item}</span>
+              </span>
+            ))}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
