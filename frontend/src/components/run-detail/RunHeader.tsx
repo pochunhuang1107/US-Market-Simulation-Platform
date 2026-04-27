@@ -72,11 +72,37 @@ function getBenchmarkLabel(run: RunResponse): string | null {
   return null;
 }
 
+function formatAllocationPct(value: number): string {
+  const pct = value * 100;
+  return Number.isInteger(pct) ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+}
+
+function getCoreOverlayLabel(run: RunResponse): string | null {
+  const requestPayload = run.request_payload ?? {};
+  const sources: unknown[] = [getDraftConfig(run), requestPayload, run.summary_json];
+
+  for (const source of sources) {
+    if (!isRecord(source)) continue;
+
+    const coreOverlay = source.core_overlay;
+    if (!isRecord(coreOverlay) || coreOverlay.enabled !== true) continue;
+    if (typeof coreOverlay.core_allocation_pct !== 'number' || !Number.isFinite(coreOverlay.core_allocation_pct)) continue;
+
+    const coreAllocation = coreOverlay.core_allocation_pct;
+    const overlayAllocation = 1 - coreAllocation;
+
+    return `Core / Overlay: ${formatAllocationPct(coreAllocation)} core · ${formatAllocationPct(overlayAllocation)} overlay`;
+  }
+
+  return null;
+}
+
 export function RunHeader({ run }: RunHeaderProps) {
   const title = run.strategy_id
     ? formatRunLabel(run.strategy_name, run.strategy_version_number)
     : 'Unsaved draft run';
   const benchmarkLabel = getBenchmarkLabel(run);
+  const coreOverlayLabel = getCoreOverlayLabel(run);
   const metadata = [
     formatRunType(run.run_type),
     formatExecutorType(run.executor_type),
@@ -85,6 +111,10 @@ export function RunHeader({ run }: RunHeaderProps) {
 
   if (benchmarkLabel) {
     metadata.push(`Benchmark: ${benchmarkLabel}`);
+  }
+
+  if (coreOverlayLabel) {
+    metadata.push(coreOverlayLabel);
   }
 
   return (

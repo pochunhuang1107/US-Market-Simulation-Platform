@@ -250,17 +250,14 @@ export function StrategyDraftCard({
     const takeProfit = formatPercent(risk.take_profit_pct);
     const cooldown = typeof risk.cooldown_bars === 'number' ? (risk.cooldown_bars === 0 ? 'None' : `${risk.cooldown_bars} bars`) : '—';
     const coreOverlayEnabled = coreOverlay.enabled === true;
-    const coreAllocation = typeof coreOverlay.core_allocation_pct === 'number' ? `${(coreOverlay.core_allocation_pct * 100).toFixed(1)}% core` : '—';
-    const overlaySleeveAllocation =
+    const coreAllocationValue = typeof coreOverlay.core_allocation_pct === 'number' ? `${(coreOverlay.core_allocation_pct * 100).toFixed(1)}%` : '—';
+    const overlayAllocationValue =
       typeof coreOverlay.core_allocation_pct === 'number'
-        ? `${((1 - coreOverlay.core_allocation_pct) * 100).toFixed(1)}% overlay`
+        ? `${((1 - coreOverlay.core_allocation_pct) * 100).toFixed(1)}%`
         : '—';
-    const overlayAllocation =
-      typeof allocation.entry_value === 'number' &&
-      typeof allocation.max_position_pct === 'number' &&
-      allocation.entry_value === allocation.max_position_pct
-        ? `${(allocation.entry_value * 100).toFixed(1)}% overlay`
-        : entryValue;
+    const coreAllocation = coreAllocationValue === '—' ? '—' : `${coreAllocationValue} core`;
+    const overlaySleeveAllocation =
+      overlayAllocationValue === '—' ? '—' : `${overlayAllocationValue} overlay`;
     const strategyHeadline = typeof config.name === 'string' && config.name.trim() ? config.name : 'Generated strategy';
 
     return {
@@ -273,6 +270,9 @@ export function StrategyDraftCard({
       transactionCost: formatBps(config.transaction_cost_bps),
       entryValue,
       maxPosition,
+      coreOverlayEnabled,
+      coreAllocationValue,
+      overlayAllocationValue,
       entryRuleLabel: explainRule(config.entry_rule),
       exitRuleLabel: explainRule(config.exit_rule),
       stopLoss,
@@ -286,11 +286,20 @@ export function StrategyDraftCard({
           : null,
         `Enter when ${explainRule(config.entry_rule)}.`,
         `Exit when ${explainRule(config.exit_rule)}.`,
-        typeof allocation.entry_value === 'number'
+        !coreOverlayEnabled && typeof allocation.entry_value === 'number'
           ? `Use ${(allocation.entry_value * 100).toFixed(1)}% of equity per entry.`
           : null,
-        typeof allocation.max_position_pct === 'number'
+        !coreOverlayEnabled && typeof allocation.max_position_pct === 'number'
           ? `Cap any single position at ${(allocation.max_position_pct * 100).toFixed(1)}% of equity.`
+          : null,
+        coreOverlayEnabled && typeof coreOverlay.core_allocation_pct === 'number'
+          ? `Keep ${coreAllocationValue} in the core sleeve.`
+          : null,
+        coreOverlayEnabled && typeof coreOverlay.core_allocation_pct === 'number'
+          ? `Use ${overlayAllocationValue} for the tactical overlay sleeve.`
+          : null,
+        coreOverlayEnabled && typeof allocation.max_position_pct === 'number'
+          ? `Cap overlay positions at ${(allocation.max_position_pct * 100).toFixed(1)}% of equity.`
           : null,
         typeof risk.stop_loss_pct === 'number'
           ? `Protect downside with a ${formatPercent(risk.stop_loss_pct)} stop loss.`
@@ -301,16 +310,6 @@ export function StrategyDraftCard({
         typeof risk.cooldown_bars === 'number' && risk.cooldown_bars > 0
           ? `Wait ${risk.cooldown_bars} bars before re-entering after an exit.`
           : null,
-        coreOverlayEnabled && typeof coreOverlay.core_allocation_pct === 'number'
-          ? `Keep ${(coreOverlay.core_allocation_pct * 100).toFixed(1)}% in the core sleeve while overlays trade around it.`
-          : null,
-        coreOverlayEnabled &&
-        typeof allocation.entry_value === 'number' &&
-        typeof allocation.max_position_pct === 'number' &&
-        allocation.entry_value === allocation.max_position_pct &&
-        allocation.entry_value < 1
-          ? `Use ${overlayAllocation} for the tactical overlay sleeve.`
-          : null
       ].filter((item): item is string => Boolean(item))
     };
   }, [draft]);
@@ -319,8 +318,10 @@ export function StrategyDraftCard({
     const config = draft.config ?? {};
     const risk = (config.risk as Record<string, unknown> | undefined) ?? {};
     const allocation = (config.allocation as Record<string, unknown> | undefined) ?? {};
+    const coreOverlay = (config.core_overlay as Record<string, unknown> | undefined) ?? {};
     const entryRule = (config.entry_rule as Record<string, unknown> | undefined) ?? {};
     const exitRule = (config.exit_rule as Record<string, unknown> | undefined) ?? {};
+    const coreOverlayEnabled = coreOverlay.enabled === true;
 
     const prompts: string[] = [];
 
@@ -344,10 +345,14 @@ export function StrategyDraftCard({
       prompts.push('Add 15% take profit');
     }
 
-    if (typeof allocation.max_position_pct === 'number' && allocation.max_position_pct >= 1) {
-      prompts.push('Change max position to 50%');
+    if (coreOverlayEnabled) {
+      prompts.push('Change overlay allocation to 30%');
     } else {
-      prompts.push('Change max position to 100%');
+      if (typeof allocation.max_position_pct === 'number' && allocation.max_position_pct >= 1) {
+        prompts.push('Change max position to 50%');
+      } else {
+        prompts.push('Change max position to 100%');
+      }
     }
 
     if (typeof exitRule.slow_window === 'number') {
@@ -410,8 +415,18 @@ export function StrategyDraftCard({
           <InfoPill label="End Date" value={viewModel.endDate} />
           <InfoPill label="Initial Capital" value={viewModel.initialCapital} />
           <InfoPill label="Transaction Cost" value={viewModel.transactionCost} />
-          <InfoPill label="Allocation" value={viewModel.entryValue} />
-          <InfoPill label="Max Position" value={viewModel.maxPosition} />
+          {viewModel.coreOverlayEnabled ? (
+            <>
+              <InfoPill label="Core Allocation" value={viewModel.coreAllocationValue} />
+              <InfoPill label="Overlay Allocation" value={viewModel.overlayAllocationValue} />
+              <InfoPill label="Overlay Max Position" value={viewModel.maxPosition} />
+            </>
+          ) : (
+            <>
+              <InfoPill label="Allocation" value={viewModel.entryValue} />
+              <InfoPill label="Max Position" value={viewModel.maxPosition} />
+            </>
+          )}
         </div>
 
         <div className="mt-5 grid gap-4 xl:grid-cols-2">
