@@ -48,22 +48,9 @@ DEFAULT_GUIDANCE_ACTIONS = [
 ]
 
 SUPPORTED_STRATEGY_TYPES_MESSAGE = (
-    "Right now the builder supports RSI mean reversion, nested RSI threshold/lookback edits on an existing draft, "
-    "moving-average crossover edits, nested moving-average window edits on an existing draft, "
-    "SMA-above trend-state rules, MACD, KD/stochastic, "
-    "seasonality by calendar month, direct seasonality month edits on an existing draft, "
-    "relative strength versus another ETF, nested relative strength edits on an existing draft, "
-    "tradable symbol changes on an existing draft, explicit combined entry/exit rules using AND/OR, "
-    "direct edits for group operators and group conditions, including composite replacements inside existing groups, "
-    "direct removal of group conditions, temporal window rules using any/all within N bars, "
-    "direct edits for NOT inner rules, direct removal of NOT wrappers, direct edits for window inner rules, "
-    "direct removal of window wrappers, two-step sequence rules using X then Y within N bars, "
-    "direct edits for window bars/modes and sequence bars/steps, including composite replacements inside existing sequences, "
-    "direct removal of sequence steps, add/remove confirmation filters "
-    "for MACD, KD/stochastic, and relative strength on an existing draft, "
-    "partial take profit, position management, core allocation / core overlay, transaction cost, "
-    "and max position percentage. "
-    "It also supports benchmark, stop loss, take profit, allocation, cooldown, capital, and date edits."
+    "You can currently build ETF strategies using RSI mean reversion, SMA / moving-average crossover, "
+    "SMA trend-state rules, MACD, KD / stochastic, relative strength, seasonality, stop loss, "
+    "take profit, cooldown, benchmark comparison, and core-overlay allocation."
 )
 
 UNSUPPORTED_EDIT_SUGGESTED_ACTION = (
