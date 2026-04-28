@@ -2,10 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 import hashlib
 import json
+from pathlib import Path
 
 from market_simulator.api.deps import get_current_user, get_db
 from market_simulator.api.schemas.runs import (
     CreateRunRequest,
+    PromoteSweepVariantRequest,
+    PromoteSweepVariantResponse,
     RecoverStaleRunsResponse,
     RunActionResponse,
     RunChartDataResponse,
@@ -19,7 +22,9 @@ from market_simulator.api.schemas.runs import (
     RunResponse,
     SaveDraftRunAsStrategyRequest,
     SaveDraftRunAsStrategyResponse,
+    SweepVariantDetailResponse,
 )
+from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.platform.services.artifact_store import build_artifact_store
 from market_simulator.platform.services.parameter_sweep import (
     ParameterSweepError,
@@ -47,6 +52,7 @@ from market_simulator.services.draft_validation import validate_draft_config
 from market_simulator.services.entitlements import (
     enforce_comparison_run_limit,
     enforce_run_create_access,
+    enforce_strategy_history_access,
     enforce_strategy_create_access,
 )
 
@@ -74,6 +80,119 @@ def _build_run_response(run) -> RunResponse:
 def _hash_config(config: dict) -> str:
     normalized = json.dumps(config, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(normalized.encode()).hexdigest()
+
+
+def _short_run_id(run_id: str) -> str:
+    return str(run_id).split("-")[0]
+
+
+def _strategy_name_from_config(config: dict, variant_name: str | None = None) -> str:
+    name = config.get("name") or variant_name or "Strategy"
+    return f"{str(name).strip() or 'Strategy'} - Sweep best"
+
+
+def _find_sweep_variant(run, variant_id: str) -> dict | None:
+    summary_json = run.summary_json or {}
+    results = summary_json.get("results")
+    if isinstance(results, list):
+        for result in results:
+            if isinstance(result, dict) and str(result.get("variant_id")) == str(variant_id):
+                return result
+
+    best_variant = summary_json.get("best_variant")
+    if isinstance(best_variant, dict) and str(best_variant.get("variant_id")) == str(variant_id):
+        return best_variant
+
+    return None
+
+
+def _sweep_variant_rank(run, variant_id: str) -> int | None:
+    results = (run.summary_json or {}).get("results")
+    if not isinstance(results, list):
+        return None
+
+    for index, result in enumerate(results, start=1):
+        if isinstance(result, dict) and str(result.get("variant_id")) == str(variant_id):
+            return index
+
+    return None
+
+
+def _reconstruct_sweep_variant_config(run, variant_id: str) -> dict | None:
+    fallback_base_config = None
+    if run.strategy_version is not None:
+        fallback_base_config = run.strategy_version.config_json
+
+    try:
+        request = build_sweep_request(
+            run.request_payload or {},
+            fallback_base_config=fallback_base_config,
+        )
+    except ParameterSweepError:
+        return None
+
+    for variant in request["variants"]:
+        if str(variant.get("variant_id")) == str(variant_id):
+            return variant.get("config")
+
+    return None
+
+
+def _get_sweep_variant_config(run, variant: dict, variant_id: str) -> dict:
+    config = variant.get("config")
+    if not isinstance(config, dict):
+        config = _reconstruct_sweep_variant_config(run, variant_id)
+
+    if not isinstance(config, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Selected sweep variant does not include a saveable strategy config.",
+        )
+
+    try:
+        StrategyV2.model_validate(config)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Selected sweep variant config is not a valid Strategy V2 config.",
+        ) from exc
+
+    return config
+
+
+def _variant_artifact_manifest(variant: dict) -> dict[str, str] | None:
+    artifact_dir = variant.get("artifact_dir")
+    if not isinstance(artifact_dir, str) or not artifact_dir.strip():
+        return None
+
+    variant_dir = Path(artifact_dir)
+    manifest = {
+        "summary": str(variant_dir / "summary.json"),
+        "sleeve_summary": str(variant_dir / "sleeve_summary.json"),
+        "yearly_report": str(variant_dir / "yearly_report.csv"),
+        "trade_log": str(variant_dir / "trade_log.csv"),
+        "timeline": str(variant_dir / "timeline.csv"),
+        "events": str(variant_dir / "events.csv"),
+        "monthly_returns": str(variant_dir / "monthly_returns.csv"),
+        "report_bundle": str(variant_dir / "report_bundle.json"),
+    }
+
+    required = ["timeline", "monthly_returns", "trade_log"]
+    if not all(Path(manifest[key]).exists() for key in required):
+        return None
+
+    return manifest
+
+
+def _load_variant_chart_data(variant: dict) -> dict | None:
+    manifest = _variant_artifact_manifest(variant)
+    if manifest is None:
+        return None
+
+    try:
+        return chart_service.load_chart_data(manifest)
+    except Exception:
+        return None
 
 
 def _validate_run_strategy_access(
@@ -436,6 +555,117 @@ def save_draft_run_as_strategy_api(
         run_id=str(run.id),
         strategy_id=str(strategy.id),
         version_id=str(version.id),
+    )
+
+
+@router.post(
+    "/{run_id}/sweep/variants/{variant_id}/promote",
+    response_model=PromoteSweepVariantResponse,
+)
+def promote_sweep_variant_api(
+    run_id: str,
+    variant_id: str,
+    req: PromoteSweepVariantRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    run = get_run_for_user(db, run_id, user["id"])
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.run_type != "PARAMETER_SWEEP":
+        raise HTTPException(status_code=400, detail="Only parameter sweep runs can promote variants")
+
+    if run.status != "SUCCEEDED":
+        raise HTTPException(
+            status_code=400,
+            detail="Only succeeded parameter sweep runs can promote variants",
+        )
+
+    variant = _find_sweep_variant(run, variant_id)
+    if variant is None:
+        raise HTTPException(status_code=404, detail="Sweep variant not found")
+
+    config = _get_sweep_variant_config(run, variant, variant_id)
+    rank = _sweep_variant_rank(run, variant_id)
+
+    change_note = (
+        req.change_note
+        or f"Promoted from parameter sweep run {_short_run_id(str(run.id))}, rank #{rank or 'unknown'}."
+    )
+
+    if run.strategy_id is not None:
+        enforce_strategy_history_access(db, user["id"])
+        strategy = get_strategy_for_user(db, str(run.strategy_id), user["id"])
+        if strategy is None:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+    else:
+        enforce_strategy_create_access(db, user["id"])
+        strategy = create_strategy(
+            db,
+            user["id"],
+            req.name or _strategy_name_from_config(config, variant.get("variant_name")),
+            req.description,
+            "SIMULATION",
+        )
+
+    version = create_strategy_version(
+        db,
+        strategy.id,
+        config,
+        _hash_config(config),
+        user["id"],
+        change_note=change_note,
+    )
+
+    if run.strategy_id is None:
+        link_run_to_strategy_version(
+            db,
+            run,
+            strategy_id=strategy.id,
+            strategy_version_id=version.id,
+        )
+
+    return PromoteSweepVariantResponse(
+        run_id=str(run.id),
+        variant_id=variant_id,
+        strategy_id=str(strategy.id),
+        version_id=str(version.id),
+    )
+
+
+@router.get(
+    "/{run_id}/sweep/variants/{variant_id}",
+    response_model=SweepVariantDetailResponse,
+)
+def get_sweep_variant_detail_api(
+    run_id: str,
+    variant_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    run = get_run_for_user(db, run_id, user["id"])
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.run_type != "PARAMETER_SWEEP":
+        raise HTTPException(status_code=400, detail="Only parameter sweep runs have variants")
+
+    variant = _find_sweep_variant(run, variant_id)
+    if variant is None:
+        raise HTTPException(status_code=404, detail="Sweep variant not found")
+
+    config = _get_sweep_variant_config(run, variant, variant_id)
+    variant = {**variant, "config": config}
+    rank = _sweep_variant_rank(run, variant_id)
+    ranking_metric = (run.summary_json or {}).get("ranking_metric")
+
+    return SweepVariantDetailResponse(
+        run=_build_run_response(run),
+        variant=variant,
+        rank=rank or 0,
+        ranking_metric=ranking_metric if isinstance(ranking_metric, str) else None,
+        chart_data=_load_variant_chart_data(variant),
     )
 
 

@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { StateCard } from '../components/shared/StateCard';
-import { createStrategyVersion, fetchStrategyDashboard } from '../lib/api';
+import { createStrategyVersion, fetchStrategyDashboard, fetchSweepVariantDetail } from '../lib/api';
+import { formatRankingMetricName, isRecord, toNumber } from '../lib/sweepVariants';
 import type {
   CreateStrategyVersionRequest,
   StrategyDashboardResponse,
-  StrategyVersionSummary
+  StrategyVersionSummary,
+  SweepVariantDetailResponse
 } from '../types/api';
 
 type CreateStrategyVersionLocationState = {
   builderDraft?: {
     configText?: string;
     changeNote?: string;
+    sourceLabel?: string;
   };
 };
 
@@ -42,6 +45,27 @@ function prettifyJson(value: unknown): string {
   } catch {
     return '{}';
   }
+}
+
+function shortRunId(runId: string): string {
+  return runId.split('-')[0] || runId;
+}
+
+function rankingValue(row: Record<string, unknown>, metric: string): number {
+  const value = toNumber(row[metric]);
+  if (value === null) return Number.NEGATIVE_INFINITY;
+  if (metric === 'max_drawdown_pct') {
+    return value <= 0 ? value : -value;
+  }
+  return value;
+}
+
+function rankForMetric(response: SweepVariantDetailResponse, variantId: string, metric: string): number {
+  const results = response.run.summary_json?.results;
+  const rows = Array.isArray(results) ? results.filter(isRecord) : [];
+  const ranked = rows.sort((left, right) => rankingValue(right, metric) - rankingValue(left, metric));
+  const index = ranked.findIndex((row) => row.variant_id === variantId);
+  return index === -1 ? response.rank : index + 1;
 }
 
 const strategyTypeLabels: Record<string, string> = {
@@ -87,9 +111,13 @@ export function CreateStrategyVersionPage() {
   const { strategyId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
 
   const builderDraft =
     (location.state as CreateStrategyVersionLocationState | null)?.builderDraft ?? null;
+  const sweepRunId = searchParams.get('sweepRunId');
+  const sweepVariantId = searchParams.get('variantId');
+  const sweepRankingMetric = searchParams.get('rankingMetric');
 
   const [strategyDashboard, setStrategyDashboard] = useState<StrategyDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,9 +156,33 @@ export function CreateStrategyVersionPage() {
         const currentVersion =
           response.versions.find((version) => version.is_current) ?? response.versions[0] ?? null;
 
-        setConfigText(
-          builderDraft?.configText ?? prettifyJson(currentVersion?.config_json ?? {})
-        );
+        if (builderDraft?.configText) {
+          setConfigText(builderDraft.configText);
+          if (builderDraft.changeNote) {
+            setChangeNote(builderDraft.changeNote);
+          }
+          return;
+        }
+
+        if (sweepRunId && sweepVariantId) {
+          const variantResponse = await fetchSweepVariantDetail(sweepRunId, sweepVariantId);
+          if (!active) return;
+
+          if (strategyId && variantResponse.run.strategy_id !== strategyId) {
+            setLoadError('Sweep variant does not belong to this strategy.');
+            return;
+          }
+
+          setConfigText(prettifyJson(variantResponse.variant.config ?? {}));
+          const rankingMetric = sweepRankingMetric || variantResponse.ranking_metric || 'sharpe_ratio';
+          const rank = rankForMetric(variantResponse, sweepVariantId, rankingMetric);
+          setChangeNote(
+            `Promoted from parameter sweep run ${shortRunId(sweepRunId)}, rank #${rank} by ${formatRankingMetricName(rankingMetric)}.`
+          );
+          return;
+        }
+
+        setConfigText(prettifyJson(currentVersion?.config_json ?? {}));
       } catch (error) {
         if (!active) return;
         setLoadError(normalizeError(error));
@@ -146,7 +198,7 @@ export function CreateStrategyVersionPage() {
     return () => {
       active = false;
     };
-  }, [builderDraft?.configText, strategyId]);
+  }, [builderDraft?.changeNote, builderDraft?.configText, strategyId, sweepRankingMetric, sweepRunId, sweepVariantId]);
 
   const currentVersion = useMemo<StrategyVersionSummary | null>(() => {
     if (!strategyDashboard) return null;
@@ -248,9 +300,15 @@ export function CreateStrategyVersionPage() {
 
       {builderDraft && (
         <div className="app-note mb-6 rounded-2xl border px-4 py-3 text-sm">
-          Prefilled from Strategy Builder. Review the structured draft before saving it as a new version.
+          Prefilled from {builderDraft.sourceLabel ?? 'Strategy Builder'}. Review the structured draft before saving it as a new version.
         </div>
       )}
+
+      {!builderDraft && sweepRunId && sweepVariantId ? (
+        <div className="app-note mb-6 rounded-2xl border px-4 py-3 text-sm">
+          Prefilled from parameter sweep variant. Review and edit before saving it as a new version.
+        </div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
         <form

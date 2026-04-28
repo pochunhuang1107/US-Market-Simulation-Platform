@@ -245,6 +245,288 @@ def test_create_parameter_sweep_rejects_over_limit_grid(
     assert response.json()["detail"] == "Parameter sweep is limited to 3 variants for your plan."
 
 
+def test_promote_sweep_variant_for_saved_strategy_creates_current_version(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="sweep-promote-version@example.com",
+    )
+    base_config = _strategy_v2_config()
+    strategy, version = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=base_config,
+    )
+    variant_config = {**base_config, "name": "qqq-rsi-sweep-001-threshold-25"}
+    variant_config["entry_rule"] = {**base_config["entry_rule"], "threshold": 25}
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"grid": {"entry_rule.threshold": [25]}},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={
+            "run_type": "PARAMETER_SWEEP",
+            "ranking_metric": "sharpe_ratio",
+            "variant_count": 1,
+            "best_variant": {
+                "variant_id": "variant-best",
+                "variant_name": variant_config["name"],
+                "parameters": {"entry_rule.threshold": 25},
+                "status": "SUCCEEDED",
+                "config": variant_config,
+            },
+            "results": [
+                {
+                    "variant_id": "variant-best",
+                    "variant_name": variant_config["name"],
+                    "parameters": {"entry_rule.threshold": 25},
+                    "status": "SUCCEEDED",
+                    "config": variant_config,
+                }
+            ],
+        },
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"sweep_summary": "sweep_summary.json"},
+    )
+
+    response = client.post(f"/runs/{run.id}/sweep/variants/variant-best/promote", json={})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_id"] == str(strategy.id)
+    assert body["version_id"] != str(version.id)
+
+    dashboard_response = client.get(f"/strategies/{strategy.id}/dashboard")
+    assert dashboard_response.status_code == 200
+    dashboard = dashboard_response.json()
+    assert dashboard["strategy"]["current_version_id"] == body["version_id"]
+    assert dashboard["versions"][0]["config_json"]["entry_rule"]["threshold"] == 25
+    assert dashboard["versions"][0]["change_note"].startswith(
+        f"Promoted from parameter sweep run {str(run.id).split('-')[0]}, rank #1."
+    )
+
+
+def test_promote_sweep_variant_without_saved_strategy_creates_strategy(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="sweep-promote-strategy@example.com",
+    )
+    base_config = _strategy_v2_config()
+    variant_config = {**base_config, "name": "qqq-rsi-sweep-001-threshold-20"}
+    variant_config["entry_rule"] = {**base_config["entry_rule"], "threshold": 20}
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"base_config": base_config, "grid": {"entry_rule.threshold": [20]}},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={
+            "run_type": "PARAMETER_SWEEP",
+            "ranking_metric": "sharpe_ratio",
+            "variant_count": 1,
+            "best_variant": {
+                "variant_id": "variant-new",
+                "variant_name": variant_config["name"],
+                "parameters": {"entry_rule.threshold": 20},
+                "status": "SUCCEEDED",
+                "config": variant_config,
+            },
+            "results": [
+                {
+                    "variant_id": "variant-new",
+                    "variant_name": variant_config["name"],
+                    "parameters": {"entry_rule.threshold": 20},
+                    "status": "SUCCEEDED",
+                    "config": variant_config,
+                }
+            ],
+        },
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"sweep_summary": "sweep_summary.json"},
+    )
+
+    response = client.post(f"/runs/{run.id}/sweep/variants/variant-new/promote", json={})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_id"]
+    assert body["version_id"]
+
+    dashboard_response = client.get(f"/strategies/{body['strategy_id']}/dashboard")
+    assert dashboard_response.status_code == 200
+    dashboard = dashboard_response.json()
+    assert dashboard["strategy"]["name"] == "qqq-rsi-sweep-001-threshold-20 - Sweep best"
+    assert dashboard["versions"][0]["config_json"]["entry_rule"]["threshold"] == 20
+
+    run_response = client.get(f"/runs/{run.id}")
+    assert run_response.status_code == 200
+    assert run_response.json()["strategy_id"] == body["strategy_id"]
+
+
+def test_get_sweep_variant_detail_returns_metrics_config_and_rank(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="sweep-variant-detail@example.com",
+    )
+    base_config = _strategy_v2_config()
+    variant_config = {**base_config, "name": "qqq-rsi-sweep-001-threshold-20"}
+    variant_config["entry_rule"] = {**base_config["entry_rule"], "threshold": 20}
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"base_config": base_config, "grid": {"entry_rule.threshold": [20]}},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={
+            "run_type": "PARAMETER_SWEEP",
+            "ranking_metric": "sharpe_ratio",
+            "variant_count": 1,
+            "best_variant": {
+                "variant_id": "variant-detail",
+                "variant_name": variant_config["name"],
+                "parameters": {"entry_rule.threshold": 20},
+                "status": "SUCCEEDED",
+                "total_return_pct": 12.3,
+                "config": variant_config,
+            },
+            "results": [
+                {
+                    "variant_id": "variant-detail",
+                    "variant_name": variant_config["name"],
+                    "parameters": {"entry_rule.threshold": 20},
+                    "status": "SUCCEEDED",
+                    "total_return_pct": 12.3,
+                    "config": variant_config,
+                }
+            ],
+        },
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"sweep_summary": "sweep_summary.json"},
+    )
+
+    response = client.get(f"/runs/{run.id}/sweep/variants/variant-detail")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["rank"] == 1
+    assert body["ranking_metric"] == "sharpe_ratio"
+    assert body["chart_data"] is None
+    assert body["variant"]["total_return_pct"] == 12.3
+    assert body["variant"]["config"]["entry_rule"]["threshold"] == 20
+
+
+def test_promote_sweep_variant_missing_variant_returns_friendly_error(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="sweep-promote-missing@example.com",
+    )
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"base_config": _strategy_v2_config(), "grid": {"entry_rule.threshold": [20]}},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"run_type": "PARAMETER_SWEEP", "results": []},
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"sweep_summary": "sweep_summary.json"},
+    )
+
+    response = client.post(f"/runs/{run.id}/sweep/variants/does-not-exist/promote", json={})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Sweep variant not found"
+
+
+def test_promote_sweep_variant_non_succeeded_run_returns_friendly_error(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="sweep-promote-pending@example.com",
+    )
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"base_config": _strategy_v2_config(), "grid": {"entry_rule.threshold": [20]}},
+        max_attempts=3,
+    )
+
+    response = client.post(f"/runs/{run.id}/sweep/variants/variant-new/promote", json={})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Only succeeded parameter sweep runs can promote variants"
+
+
 def test_list_runs_returns_paginated_wrapper(
     client,
     create_user,

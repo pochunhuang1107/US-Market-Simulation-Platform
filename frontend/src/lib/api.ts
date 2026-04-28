@@ -5,6 +5,8 @@ import type {
   CreateStrategyVersionRequest,
   CreateStrategyVersionResponse,
   MeEntitlementsResponse,
+  PromoteSweepVariantRequest,
+  PromoteSweepVariantResponse,
   RunActionResponse,
   RunComparisonChartResponse,
   RunComparisonResponse,
@@ -14,6 +16,7 @@ import type {
   RunsDashboardQuery,
   SaveDraftRunAsStrategyRequest,
   SaveDraftRunAsStrategyResponse,
+  SweepVariantDetailResponse,
   StrategyBuilderGenerateRequest,
   StrategyBuilderGenerateResponse,
   StrategyDashboardResponse,
@@ -142,6 +145,13 @@ export async function fetchRunDashboard(runId: string): Promise<RunDashboardResp
   return request<RunDashboardResponse>(`/api/runs/${runId}/dashboard`);
 }
 
+export async function fetchSweepVariantDetail(
+  runId: string,
+  variantId: string
+): Promise<SweepVariantDetailResponse> {
+  return request<SweepVariantDetailResponse>(`/api/runs/${runId}/sweep/variants/${variantId}`);
+}
+
 export async function fetchStrategies(options?: { includeArchived?: boolean }): Promise<StrategyListItem[]> {
   return request<StrategyListItem[]>(
     `/api/strategies${buildQueryString({ include_archived: options?.includeArchived ? 'true' : undefined })}`
@@ -188,6 +198,17 @@ export async function saveDraftRunAsStrategy(
   payload: SaveDraftRunAsStrategyRequest
 ): Promise<SaveDraftRunAsStrategyResponse> {
   return request<SaveDraftRunAsStrategyResponse>(`/api/runs/${runId}/save-strategy`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function promoteSweepVariant(
+  runId: string,
+  variantId: string,
+  payload: PromoteSweepVariantRequest
+): Promise<PromoteSweepVariantResponse> {
+  return request<PromoteSweepVariantResponse>(`/api/runs/${runId}/sweep/variants/${variantId}/promote`, {
     method: 'POST',
     body: JSON.stringify(payload)
   });
