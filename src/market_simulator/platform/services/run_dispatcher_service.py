@@ -19,13 +19,21 @@ class RunDispatcherService:
         if run.status not in {RunStatus.PENDING, RunStatus.FAILED}:
             raise ValueError(f"Run cannot be enqueued from status: {run.status}")
 
+        request_payload = run.request_payload or {}
         has_saved_strategy_version = run.strategy_version_id is not None
-        has_draft_config = isinstance((run.request_payload or {}).get("draft_config"), dict)
+        has_draft_config = isinstance(request_payload.get("draft_config"), dict)
+        has_sweep_base_config = (
+            run.run_type == "PARAMETER_SWEEP"
+            and isinstance(request_payload.get("base_config"), dict)
+        )
 
-        if not has_saved_strategy_version and not has_draft_config:
-            raise ValueError("Run does not have a saved strategy version or draft_config")
+        if not has_saved_strategy_version and not has_draft_config and not has_sweep_base_config:
+            raise ValueError("Run does not have a saved strategy version, draft_config, or base_config")
 
-        if run.executor_type != "SIMULATION_EXECUTOR":
+        allowed_executor = (
+            "SWEEP_EXECUTOR" if run.run_type == "PARAMETER_SWEEP" else "SIMULATION_EXECUTOR"
+        )
+        if run.executor_type != allowed_executor:
             raise ValueError(f"Unsupported executor_type for now: {run.executor_type}")
 
         enqueue_run(db, run)

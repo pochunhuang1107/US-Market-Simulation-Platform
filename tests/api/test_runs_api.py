@@ -135,6 +135,48 @@ def _mock_compare_chart_windows(monkeypatch, windows_by_summary_ref: dict[str, t
     )
 
 
+def _strategy_v2_config() -> dict:
+    return {
+        "schema_version": "2.0",
+        "name": "qqq-rsi",
+        "tradable_symbol": "QQQ",
+        "benchmark_symbol": "QQQ",
+        "reference_symbols": [],
+        "start_date": "2021-01-01",
+        "end_date": "2021-12-31",
+        "initial_capital": 100000,
+        "transaction_cost_bps": 0,
+        "allocation": {
+            "entry_mode": "percent_of_equity",
+            "entry_value": 1.0,
+            "max_position_pct": 1.0,
+        },
+        "entry_rule": {
+            "kind": "atomic",
+            "type": "rsi_below",
+            "symbol": "QQQ",
+            "lookback": 14,
+            "threshold": 30,
+        },
+        "exit_rule": {
+            "kind": "atomic",
+            "type": "rsi_above",
+            "symbol": "QQQ",
+            "lookback": 14,
+            "threshold": 70,
+        },
+        "risk": {
+            "stop_loss_pct": None,
+            "take_profit_pct": None,
+            "cooldown_bars": 0,
+        },
+        "core_overlay": {
+            "enabled": False,
+            "core_allocation_pct": 0.0,
+        },
+    }
+
+
 def test_create_run_returns_pending(
     client,
     create_user,
@@ -170,6 +212,37 @@ def test_create_run_returns_pending(
     assert body["attempt_count"] == 0
     assert body["max_attempts"] == 3
     assert body["progress_message"] == "Run created"
+
+
+def test_create_parameter_sweep_rejects_over_limit_grid(
+    client,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="sweep-limit@example.com",
+    )
+
+    response = client.post(
+        "/runs",
+        json={
+            "run_type": "PARAMETER_SWEEP",
+            "executor_type": "SWEEP_EXECUTOR",
+            "request_payload": {
+                "base_config": _strategy_v2_config(),
+                "grid": {
+                    "entry_rule.threshold": [20, 25],
+                    "exit_rule.threshold": [60, 65],
+                },
+                "max_variants": 3,
+            },
+            "max_attempts": 3,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Parameter sweep is limited to 3 variants for your plan."
 
 
 def test_list_runs_returns_paginated_wrapper(

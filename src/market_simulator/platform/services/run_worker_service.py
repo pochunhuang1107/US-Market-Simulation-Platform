@@ -23,6 +23,7 @@ from market_simulator.platform.services.artifact_store import (
     ArtifactStore,
     build_artifact_store,
 )
+from market_simulator.platform.services.parameter_sweep import ParameterSweepService
 from market_simulator.platform.services.run_failure_policy import classify_run_exception
 
 
@@ -50,6 +51,13 @@ class RunWorkerService:
         if not isinstance(draft_config, dict):
             raise ValueError("Run does not contain draft_config")
         return draft_config, "Loaded unsaved draft config"
+
+    def _resolve_sweep_base_config(self, db: Session, run) -> tuple[dict | None, str]:
+        request_payload = run.request_payload or {}
+        if isinstance(request_payload.get("base_config"), dict):
+            return None, "Loaded sweep base_config"
+        config_json, load_message = self._resolve_run_config(db, run)
+        return config_json, load_message
 
     def _handle_execution_failure(
         self,
@@ -132,6 +140,114 @@ class RunWorkerService:
         )
 
         try:
+            if run.run_type == "PARAMETER_SWEEP" and run.executor_type != "SWEEP_EXECUTOR":
+                raise ValueError(f"Unsupported executor_type for parameter sweep: {run.executor_type}")
+
+            if run.executor_type == "SWEEP_EXECUTOR":
+                if run.run_type != "PARAMETER_SWEEP":
+                    raise ValueError(f"Unsupported run_type for sweep executor: {run.run_type}")
+
+                request_payload = dict(run.request_payload or {})
+                fallback_base_config, load_message = self._resolve_sweep_base_config(db, run)
+
+                run_artifact_dir = self.artifact_store.prepare_run_directory(run.id)
+
+                update_run_progress(
+                    db,
+                    run,
+                    progress_pct=5,
+                    progress_message="Worker started execution",
+                )
+                touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
+                self._log_info(
+                    "run progress checkpoint",
+                    run_id=str(run.id),
+                    worker_id=run.worker_id,
+                    progress_pct=5,
+                    progress_message="Worker started execution",
+                )
+
+                update_run_progress(
+                    db,
+                    run,
+                    progress_pct=15,
+                    progress_message=load_message,
+                )
+                touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
+                self._log_info(
+                    "run progress checkpoint",
+                    run_id=str(run.id),
+                    worker_id=run.worker_id,
+                    progress_pct=15,
+                    progress_message=load_message,
+                )
+
+                update_run_progress(
+                    db,
+                    run,
+                    progress_pct=35,
+                    progress_message="Running parameter sweep",
+                )
+                touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
+                self._log_info(
+                    "run progress checkpoint",
+                    run_id=str(run.id),
+                    worker_id=run.worker_id,
+                    progress_pct=35,
+                    progress_message="Running parameter sweep",
+                )
+
+                sweep_service = ParameterSweepService()
+                result = sweep_service.run_sweep(
+                    request_payload,
+                    output_dir=run_artifact_dir,
+                    fallback_base_config=fallback_base_config,
+                )
+
+                update_run_progress(
+                    db,
+                    run,
+                    progress_pct=85,
+                    progress_message="Finalizing sweep artifacts",
+                )
+                touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
+                self._log_info(
+                    "run progress checkpoint",
+                    run_id=str(run.id),
+                    worker_id=run.worker_id,
+                    progress_pct=85,
+                    progress_message="Finalizing sweep artifacts",
+                )
+
+                artifact_result = self.artifact_store.finalize_sweep_artifacts(run.id)
+
+                mark_run_succeeded(
+                    db=db,
+                    run=run,
+                    summary_json=result["summary"],
+                    artifact_dir=artifact_result.artifact_dir,
+                    artifact_manifest_json=artifact_result.manifest_json,
+                    artifact_storage_type=artifact_result.storage_type,
+                    artifact_root_uri=artifact_result.artifact_root_uri,
+                )
+
+                self._log_info(
+                    "run succeeded",
+                    run_id=str(run.id),
+                    worker_id=run.worker_id,
+                    attempt_count=run.attempt_count,
+                    max_attempts=run.max_attempts,
+                    artifact_dir=artifact_result.artifact_dir,
+                )
+
+                return {
+                    "run_id": str(run.id),
+                    "status": "SUCCEEDED",
+                    "summary": result["summary"],
+                    "artifact_dir": artifact_result.artifact_dir,
+                    "artifact_manifest": artifact_result.manifest_json,
+                }
+
             if run.executor_type != "SIMULATION_EXECUTOR":
                 raise ValueError(f"Unsupported executor_type for now: {run.executor_type}")
 

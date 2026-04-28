@@ -21,10 +21,14 @@ class CreateRunRequest(BaseModel):
     def validate_run_source(self):
         has_saved_strategy = self.strategy_id is not None
         has_draft_config = self.draft_config is not None
+        has_sweep_base_config = (
+            self.run_type == "PARAMETER_SWEEP"
+            and isinstance((self.request_payload or {}).get("base_config"), dict)
+        )
 
-        if has_saved_strategy == has_draft_config:
+        if sum([has_saved_strategy, has_draft_config, has_sweep_base_config]) != 1:
             raise ValueError(
-                "Exactly one run source is required: either strategy_id or draft_config"
+                "Exactly one run source is required: strategy_id, draft_config, or parameter sweep base_config"
             )
 
         if self.strategy_version_id is not None and self.strategy_id is None:
