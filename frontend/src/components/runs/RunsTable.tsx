@@ -12,6 +12,8 @@ import {
 import type { RunDashboardListItem } from '../../types/api';
 import { RunStatusBadge } from './RunStatusBadge';
 
+const ACTIVE_PROGRESS_STATUSES = new Set(['PENDING', 'QUEUED', 'LEASED', 'RUNNING']);
+
 interface RunsTableProps {
   runs: RunDashboardListItem[];
   loading: boolean;
@@ -84,15 +86,18 @@ export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
                         <p className="mt-1 font-mono text-[11px] app-text-muted" title={run.run_id}>
                           ID {shortRunId(run.run_id)}
                         </p>
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <div className="mt-3 flex items-center gap-2">
                           <Link
                             to={`/runs/${run.run_id}`}
-                            className="app-button-secondary inline-flex rounded-xl px-3 py-1.5 text-xs font-medium"
+                            className="app-button-secondary inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold whitespace-nowrap"
                           >
                             {run.status === 'SUCCEEDED' ? 'Open result' : 'Open run'}
                           </Link>
                           {!compact && run.status === 'SUCCEEDED' ? (
-                            <Link to={`/compare?runIds=${run.run_id}`} className="app-text-soft text-xs font-medium transition hover:text-cyan-400">
+                            <Link
+                              to={`/compare?runIds=${run.run_id}`}
+                              className="inline-flex items-center rounded-xl border app-border-soft px-3 py-1.5 text-xs font-semibold app-text-soft transition hover:border-cyan-400/50 hover:text-cyan-500 dark:hover:text-cyan-300 whitespace-nowrap"
+                            >
                               Compare
                             </Link>
                           ) : null}
@@ -108,18 +113,26 @@ export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
                     <td className="px-5 py-4 app-text-muted">{formatPct(run.cagr_pct)}</td>
                     {!compact ? <td className="px-5 py-4 app-text-muted">{formatPct(run.max_drawdown_pct)}</td> : null}
                     {!compact ? <td className="px-5 py-4 app-text-muted">{formatNumber(run.trade_count)}</td> : null}
-                    <td className="px-5 py-4">
-                      <div className="min-w-[160px]">
+                    <td className="px-5 py-4 pr-6">
+                      <div className="w-full min-w-[150px] max-w-[220px]">
                         <div className={`flex items-center justify-between gap-3 text-xs ${progress.textClass}`}>
-                          <span className="truncate">{progress.label}</span>
-                          {progress.showPercent ? <span>{run.progress_pct}%</span> : null}
+                          {progress.badgeClass ? (
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${progress.badgeClass}`}>
+                              {progress.label}
+                            </span>
+                          ) : (
+                            <span className="truncate">{progress.label}</span>
+                          )}
+                          {progress.showPercent ? <span className="shrink-0">{progress.percentLabel}</span> : null}
                         </div>
-                        <div className="mt-2 h-2 rounded-full app-surface-soft">
-                          <div
-                            className={`h-2 rounded-full transition-all ${progress.barClass}`}
-                            style={{ width: `${progress.barPct}%` }}
-                          />
-                        </div>
+                        {progress.showBar ? (
+                          <div className="mt-2 h-2 w-full overflow-hidden rounded-full app-surface-soft">
+                            <div
+                              className={`h-2 rounded-full transition-all ${progress.barClass}`}
+                              style={{ width: `${progress.barPct}%` }}
+                            />
+                          </div>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -145,27 +158,49 @@ function getProgressDisplay(run: RunDashboardListItem) {
     return {
       label: 'Completed',
       showPercent: false,
-      barPct: 100,
+      showBar: false,
+      percentLabel: null,
+      barPct: 0,
       textClass: 'app-text-soft',
-      barClass: 'bg-emerald-400'
+      barClass: '',
+      badgeClass: 'app-chip-success'
     };
   }
 
-  if (status === 'FAILED' || status === 'CANCELED') {
+  if (status === 'FAILED' || status === 'CANCELED' || status === 'CANCELLED') {
     return {
       label: status === 'FAILED' ? 'Stopped before completion' : 'Canceled',
       showPercent: false,
+      showBar: false,
+      percentLabel: null,
       barPct: pct,
       textClass: 'app-text-muted',
-      barClass: status === 'FAILED' ? 'bg-rose-400' : 'bg-slate-400'
+      barClass: '',
+      badgeClass: null
+    };
+  }
+
+  if (!ACTIVE_PROGRESS_STATUSES.has(status)) {
+    return {
+      label: run.progress_message ?? status,
+      showPercent: false,
+      showBar: false,
+      percentLabel: null,
+      barPct: pct,
+      textClass: 'app-text-muted',
+      barClass: '',
+      badgeClass: null
     };
   }
 
   return {
     label: run.progress_message ?? 'Waiting to start',
     showPercent: true,
+    showBar: true,
+    percentLabel: `${pct}%`,
     barPct: pct,
     textClass: 'app-text-muted',
-    barClass: 'bg-cyan-400'
+    barClass: 'bg-cyan-400',
+    badgeClass: null
   };
 }

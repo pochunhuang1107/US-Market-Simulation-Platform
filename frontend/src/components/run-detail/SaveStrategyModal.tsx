@@ -74,6 +74,9 @@ export function SaveStrategyModal({
               className="app-input w-full rounded-2xl border px-4 py-3 text-sm outline-none"
               autoFocus
             />
+            <p className="mt-2 app-text-muted text-xs">
+              Use a memorable name so you can find this strategy later.
+            </p>
           </label>
 
           <label className="block">
