@@ -10,6 +10,7 @@ import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
 import { StateCard } from '../components/shared/StateCard';
 import { fetchRun, fetchRunDashboard, saveDraftRunAsStrategy } from '../lib/api';
+import { suggestStrategyNameFromConfig } from '../lib/suggestStrategyName';
 import type { RunDashboardResponse, RunResponse } from '../types/api';
 
 const ACTIVE_RUN_STATUSES = new Set(['PENDING', 'QUEUED', 'RUNNING']);
@@ -181,12 +182,7 @@ export function RunDetailPage() {
     };
   }, [runId]);
 
-  const suggestedStrategyName =
-    typeof run?.request_payload?.draft_config === 'object' &&
-    run?.request_payload?.draft_config &&
-    typeof (run.request_payload.draft_config as Record<string, unknown>).name === 'string'
-      ? ((run.request_payload.draft_config as Record<string, unknown>).name as string)
-      : 'My strategy';
+  const suggestedStrategyName = suggestStrategyNameFromConfig(run?.request_payload?.draft_config);
 
   async function handleSaveDraftStrategy(payload: { name: string; description: string }) {
     if (!runId || !run) return;
