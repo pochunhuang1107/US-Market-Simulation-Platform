@@ -26,40 +26,71 @@ export function RunFilters({
   onSortOrderChange
 }: RunFiltersProps) {
   return (
-    <div className="app-card app-shadow grid gap-4 rounded-3xl border p-5 lg:grid-cols-4 lg:p-6">
-      <FilterSelect label="Status" value={status} onChange={(event) => onStatusChange(event.target.value)}>
-        <option value="">All statuses</option>
-        <option value="PENDING">Pending</option>
-        <option value="QUEUED">Queued</option>
-        <option value="RUNNING">Running</option>
-        <option value="LEASED">Leased</option>
-        <option value="SUCCEEDED">Succeeded</option>
-        <option value="FAILED">Failed</option>
-        <option value="CANCELED">Canceled</option>
-      </FilterSelect>
+    <div className="app-card rounded-3xl border p-5 lg:p-6">
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="app-title text-sm font-semibold">Refine results</p>
+          <p className="app-text-muted mt-1 text-sm">Filter runs by status or saved strategy.</p>
+        </div>
+      </div>
 
-      <FilterSelect label="Strategy" value={strategyId} onChange={(event) => onStrategyChange(event.target.value)}>
-        <option value="">All strategies</option>
-        {strategies.map((strategy) => (
-          <option key={strategy.id} value={strategy.id}>
-            {strategy.name}
-          </option>
-        ))}
-      </FilterSelect>
+      <div className="mb-5">
+        <p className="app-text-soft mb-2 block text-xs font-semibold uppercase tracking-[0.18em]">Status</p>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Status filter">
+          {STATUS_FILTERS.map((filter) => {
+            const active = status === filter.value;
+            return (
+              <button
+                key={filter.value || 'ALL'}
+                type="button"
+                aria-pressed={active}
+                onClick={() => onStatusChange(filter.value)}
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                  active
+                    ? 'border-cyan-400 bg-cyan-400/15 app-title'
+                    : 'app-surface-soft app-text-muted hover:border-cyan-400/70 hover:text-cyan-400'
+                }`}
+              >
+                {filter.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="app-text-muted mt-2 text-xs">Active includes pending, queued, claimed, and running runs.</p>
+      </div>
 
-      <FilterSelect label="Sort by" value={sortBy} onChange={(event) => onSortByChange(event.target.value as RunSortBy)}>
-        <option value="created_at">Created at</option>
-        <option value="finished_at">Finished at</option>
-        <option value="status">Status</option>
-      </FilterSelect>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <FilterSelect label="Strategy" value={strategyId} onChange={(event) => onStrategyChange(event.target.value)}>
+          <option value="">All strategies</option>
+          {strategies.map((strategy) => (
+            <option key={strategy.id} value={strategy.id}>
+              {strategy.name}
+            </option>
+          ))}
+        </FilterSelect>
 
-      <FilterSelect label="Sort order" value={sortOrder} onChange={(event) => onSortOrderChange(event.target.value as RunSortOrder)}>
-        <option value="desc">Descending</option>
-        <option value="asc">Ascending</option>
-      </FilterSelect>
+        <FilterSelect label="Sort by" value={sortBy} onChange={(event) => onSortByChange(event.target.value as RunSortBy)}>
+          <option value="created_at">Created at</option>
+          <option value="finished_at">Finished at</option>
+          <option value="status">Status</option>
+        </FilterSelect>
+
+        <FilterSelect label="Sort order" value={sortOrder} onChange={(event) => onSortOrderChange(event.target.value as RunSortOrder)}>
+          <option value="desc">Descending</option>
+          <option value="asc">Ascending</option>
+        </FilterSelect>
+      </div>
     </div>
   );
 }
+
+const STATUS_FILTERS = [
+  { label: 'All', value: '' },
+  { label: 'Active', value: 'ACTIVE' },
+  { label: 'Succeeded', value: 'SUCCEEDED' },
+  { label: 'Failed', value: 'FAILED' },
+  { label: 'Canceled', value: 'CANCELED' }
+];
 
 function FilterSelect({
   label,

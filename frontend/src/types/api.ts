@@ -50,7 +50,7 @@ export type RunSortBy = 'created_at' | 'finished_at' | 'status';
 export type RunSortOrder = 'asc' | 'desc';
 
 export interface RunsDashboardQuery {
-  status?: string;
+  status?: string | string[];
   executor_type?: string;
   run_type?: string;
   strategy_id?: string;

@@ -1643,6 +1643,68 @@ def test_runs_dashboard_supports_filter_and_sort(
     assert item["status"] == "SUCCEEDED"
 
 
+def test_runs_dashboard_supports_multi_status_filter(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+
+    pending_run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "pending"},
+        max_attempts=3,
+    )
+
+    running_run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "running"},
+        max_attempts=3,
+    )
+    running_run.status = RunStatus.RUNNING
+
+    succeeded_run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "succeeded"},
+        max_attempts=3,
+    )
+    succeeded_run.status = RunStatus.SUCCEEDED
+
+    db_session.commit()
+
+    response = client.get("/runs/dashboard?status=PENDING&status=RUNNING&sort_by=created_at")
+    assert response.status_code == 200
+
+    body = response.json()
+    run_ids = {item["run_id"] for item in body["items"]}
+
+    assert body["total"] == 2
+    assert run_ids == {str(pending_run.id), str(running_run.id)}
+    assert str(succeeded_run.id) not in run_ids
+
+
 def test_runs_dashboard_invalid_pagination_returns_422(client):
     response = client.get("/runs/dashboard?page=0&page_size=101")
     assert response.status_code == 422

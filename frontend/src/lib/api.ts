@@ -104,11 +104,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.text()) as T;
 }
 
-function buildQueryString(query: Record<string, string | number | undefined | null>): string {
+function buildQueryString(query: Record<string, string | number | string[] | undefined | null>): string {
   const params = new URLSearchParams();
 
   Object.entries(query).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (item !== '') {
+          params.append(key, item);
+        }
+      });
+      return;
+    }
     params.set(key, String(value));
   });
 
@@ -122,7 +130,7 @@ export async function fetchMeEntitlements(): Promise<MeEntitlementsResponse> {
 
 export async function fetchRunsDashboard(query: RunsDashboardQuery): Promise<RunDashboardListResponse> {
   return request<RunDashboardListResponse>(
-    `/api/runs/dashboard${buildQueryString(query as Record<string, string | number | null | undefined>)}`
+    `/api/runs/dashboard${buildQueryString(query as Record<string, string | number | string[] | null | undefined>)}`
   );
 }
 

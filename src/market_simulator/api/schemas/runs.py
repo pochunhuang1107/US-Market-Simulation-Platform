@@ -55,7 +55,7 @@ class RunListQueryParams(BaseModel):
 
 
 class RunDashboardQueryParams(BaseModel):
-    status: str | None = None
+    status: list[str] = Field(default_factory=list)
     executor_type: str | None = None
     run_type: str | None = None
     strategy_id: str | None = None
