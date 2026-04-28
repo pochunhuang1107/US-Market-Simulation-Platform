@@ -1,5 +1,50 @@
+import { useState } from 'react';
 import { StrategyDraftCard } from './StrategyDraftCard';
 import type { ChatMessage } from './types';
+
+type PromptTemplate = {
+  id: string;
+  label: string;
+  buildPrompt: (symbol: string) => string;
+};
+
+const DEFAULT_PROMPT_TEMPLATE: PromptTemplate = {
+  id: 'rsi',
+  label: 'Create a QQQ RSI mean reversion strategy',
+  buildPrompt: (symbol) => `Create a ${symbol} RSI mean reversion strategy`
+};
+
+const SYMBOL_PROMPT_TEMPLATES: PromptTemplate[] = [
+  DEFAULT_PROMPT_TEMPLATE,
+  {
+    id: 'moving-average',
+    label: 'Create an SPY moving average crossover strategy using 10 day and 30 day SMA',
+    buildPrompt: (symbol) =>
+      `Create a ${symbol} moving average crossover strategy using 10 day and 30 day SMA`
+  },
+  {
+    id: 'seasonality',
+    label: 'Create a GLD seasonality strategy',
+    buildPrompt: (symbol) => `Create a ${symbol} seasonality strategy`
+  }
+];
+
+const CAPABILITY_PROMPT_TEMPLATES: PromptTemplate[] = [
+  DEFAULT_PROMPT_TEMPLATE,
+  SYMBOL_PROMPT_TEMPLATES[1],
+  {
+    id: 'core-overlay',
+    label: 'Create a QQQ core-overlay strategy with 60% core and 40% RSI overlay',
+    buildPrompt: (symbol) =>
+      `Create a ${symbol} core-overlay strategy with 60% core and 40% RSI overlay`
+  },
+  {
+    id: 'relative-strength',
+    label: 'Create a QQQ strategy that enters when QQQ outperforms SPY over 20 days',
+    buildPrompt: (symbol) =>
+      `Create a ${symbol} strategy that enters when ${symbol} outperforms SPY over 20 days`
+  }
+];
 
 function isRunnableDraftMessage(message: ChatMessage): boolean {
   return (
@@ -74,15 +119,17 @@ function InfoPill({
 
 function SymbolChipButton({
   symbol,
+  template,
   onClick
 }: {
   symbol: string;
+  template: PromptTemplate;
   onClick: (prompt: string) => void;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onClick(`Create a ${symbol} RSI mean reversion strategy`)}
+      onClick={() => onClick(template.buildPrompt(symbol))}
       className="app-chip-info rounded-full px-3 py-1 text-xs font-semibold tracking-[0.14em] transition hover:opacity-90 cursor-pointer shadow-sm"
     >
       {symbol}
@@ -161,24 +208,36 @@ function StrategyAnswerCard({
   } | null;
   onUsePrompt?: (prompt: string) => void;
 }) {
+  const [selectedSymbolTemplate, setSelectedSymbolTemplate] = useState<PromptTemplate>(
+    DEFAULT_PROMPT_TEMPLATE
+  );
+
   if (answerData?.answer_type === 'SUPPORTED_SYMBOLS' && answerData.supported_symbols?.length) {
+    const unsupportedTitle = text.match(/^([A-Z][A-Z0-9, ]*) (?:is|are) not currently available\./);
+    const unsupportedSymbolTitle = unsupportedTitle
+      ? `${unsupportedTitle[1]} ${unsupportedTitle[1].includes(',') ? 'are' : 'is'} not supported yet`
+      : 'Supported ETF symbols';
+
     return (
       <div className="app-note w-full max-w-5xl rounded-[32px] p-5">
         <div className="app-label mb-3 text-xs font-semibold uppercase tracking-[0.22em]">
           Strategy Assistant
         </div>
-        <h3 className="app-title text-lg font-semibold">Supported ETF symbols</h3>
+        <h3 className="app-title text-lg font-semibold">
+          {unsupportedSymbolTitle}
+        </h3>
         <p className="app-text-muted mt-2 text-sm leading-6">{text}</p>
 
         <div className="mt-5">
           <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
-            Click a symbol to start a draft
+            Click a symbol to use the selected template
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {answerData.supported_symbols.map((symbol) => (
               <SymbolChipButton
                 key={symbol}
                 symbol={symbol}
+                template={selectedSymbolTemplate}
                 onClick={(prompt) => onUsePrompt?.(prompt)}
               />
             ))}
@@ -190,18 +249,16 @@ function StrategyAnswerCard({
             Or try one of these templates
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <ActionChip
-              text="Create a QQQ RSI mean reversion strategy"
-              onClick={(prompt) => onUsePrompt?.(prompt)}
-            />
-            <ActionChip
-              text="Create an SPY moving average crossover strategy using 10 day and 30 day SMA"
-              onClick={(prompt) => onUsePrompt?.(prompt)}
-            />
-            <ActionChip
-              text="Create a GLD seasonality strategy"
-              onClick={(prompt) => onUsePrompt?.(prompt)}
-            />
+            {SYMBOL_PROMPT_TEMPLATES.map((template) => (
+              <ActionChip
+                key={template.id}
+                text={template.label}
+                onClick={() => {
+                  setSelectedSymbolTemplate(template);
+                  onUsePrompt?.(template.label);
+                }}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -243,54 +300,25 @@ function StrategyAnswerCard({
 
         <div className="mt-5 grid gap-3 md:grid-cols-2">
           <AnswerSection
-            title="Core indicators"
+            title="Indicators and strategy styles"
             items={[
               'RSI mean reversion',
-              'SMA crossover',
-              'SMA above state',
+              'SMA / moving-average crossover',
+              'SMA trend-state rules',
               'MACD',
               'KD / stochastic',
-              'Seasonality by month',
-              'Relative strength'
+              'Relative strength',
+              'Seasonality'
             ]}
           />
           <AnswerSection
-            title="Risk and portfolio controls"
+            title="Risk, comparison, and allocation"
             items={[
               'Stop loss',
               'Take profit',
-              'Partial take profit',
               'Cooldown',
-              'Allocation',
-              'Max position',
-              'Core / overlay',
-              'Position management'
-            ]}
-          />
-          <AnswerSection
-            title="Composite rule editing"
-            items={[
-              'AND / OR groups',
-              'Window rules',
-              'Sequence rules',
-              'NOT wrapper edits',
-              'Group condition edits',
-              'Window inner-rule edits',
-              'Sequence step edits',
-              'Confirmation filters'
-            ]}
-          />
-          <AnswerSection
-            title="Other supported edits"
-            items={[
-              'Tradable symbol',
-              'Benchmark symbol',
-              'Reference symbols',
-              'Transaction cost',
-              'Capital',
-              'Date range',
-              'Seasonality month edits',
-              'Relative strength nested edits'
+              'Benchmark comparison',
+              'Core-overlay allocation'
             ]}
           />
         </div>
@@ -300,26 +328,13 @@ function StrategyAnswerCard({
             Try one of these next
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <ActionChip
-              text="Create a QQQ RSI mean reversion strategy"
-              onClick={(prompt) => onUsePrompt?.(prompt)}
-            />
-            <ActionChip
-              text="Create an SPY moving average crossover strategy using 10 day and 30 day SMA"
-              onClick={(prompt) => onUsePrompt?.(prompt)}
-            />
-            <ActionChip
-              text="Change this strategy to MACD"
-              onClick={(prompt) => onUsePrompt?.(prompt)}
-            />
-            <ActionChip
-              text="Add 10% stop loss"
-              onClick={(prompt) => onUsePrompt?.(prompt)}
-            />
-            <ActionChip
-              text="Add KD confirmation"
-              onClick={(prompt) => onUsePrompt?.(prompt)}
-            />
+            {CAPABILITY_PROMPT_TEMPLATES.map((template) => (
+              <ActionChip
+                key={template.id}
+                text={template.label}
+                onClick={(prompt) => onUsePrompt?.(prompt)}
+              />
+            ))}
           </div>
         </div>
       </div>

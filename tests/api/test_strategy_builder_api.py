@@ -5,6 +5,7 @@ from datetime import date
 import pytest
 import market_simulator.services.strategy_builder_service as builder_service
 import market_simulator.services.strategy_builder_parsers as builder_parsers
+import market_simulator.services.strategy_builder_response as builder_response
 from market_simulator.settings import get_settings
 from market_simulator.db.models import Plan
 
@@ -4046,18 +4047,73 @@ def test_generate_strategy_builder_returns_validation_error_for_unsupported_edit
 def test_generate_strategy_builder_returns_structured_supported_symbols_answer(client):
     response = client.post(
         "/strategy-builder/generate",
-        json={"prompt": "What ETF symbols are currently supported?"},
+        json={"prompt": "What ETFs are available?"},
     )
 
     assert response.status_code == 200
     body = response.json()
 
     assert body["response_type"] == "ANSWER"
+    assert body["config"] is None
     assert body["answer_data"]["answer_type"] == "SUPPORTED_SYMBOLS"
     assert "QQQ" in body["answer_data"]["supported_symbols"]
+    assert "SPY" in body["message"]
 
 
-def test_generate_strategy_builder_returns_structured_data_coverage_answer(client):
+def test_generate_strategy_builder_returns_symbol_data_coverage_answer(client, monkeypatch):
+    class StubHistory:
+        def __init__(self, symbol, first_date, last_date):
+            self.symbol = symbol
+            self.first_available_date = first_date
+            self.last_available_date = last_date
+
+    monkeypatch.setattr(
+        builder_response,
+        "get_etf_history_range",
+        lambda symbol: StubHistory(symbol, date(2010, 1, 4), date(2026, 4, 24)),
+    )
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "What date range is available for QQQ?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "ANSWER"
+    assert body["config"] is None
+    assert body["answer_data"]["answer_type"] == "DATA_COVERAGE"
+    assert body["answer_data"]["supported_symbols"] == ["QQQ"]
+    assert body["answer_data"]["supported_data_start"] == "2010-01-04"
+    assert body["answer_data"]["supported_data_end"] == "2026-04-24"
+    assert body["answer_data"]["max_backtest_years"] is not None
+    assert "QQQ coverage is available" in body["message"]
+
+
+def test_generate_strategy_builder_returns_data_coverage_fallback_when_metadata_missing(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setattr(builder_response, "get_etf_history_range", lambda symbol: None)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "What date range is available for QQQ?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "ANSWER"
+    assert body["config"] is None
+    assert body["answer_data"]["answer_type"] == "DATA_COVERAGE"
+    assert body["answer_data"]["supported_symbols"] == ["QQQ"]
+    assert body["answer_data"]["supported_data_start"] is None
+    assert "could not find coverage metadata for QQQ" in body["message"]
+
+
+def test_generate_strategy_builder_returns_general_data_coverage_answer(client):
     response = client.post(
         "/strategy-builder/generate",
         json={"prompt": "What date range is supported?"},
@@ -4067,10 +4123,45 @@ def test_generate_strategy_builder_returns_structured_data_coverage_answer(clien
     body = response.json()
 
     assert body["response_type"] == "ANSWER"
+    assert body["config"] is None
     assert body["answer_data"]["answer_type"] == "DATA_COVERAGE"
     assert body["answer_data"]["supported_data_start"] is not None
     assert body["answer_data"]["supported_data_end"] is not None
     assert body["answer_data"]["max_backtest_years"] is not None
+
+
+def test_generate_strategy_builder_returns_unsupported_stock_guidance(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Can I test NVDA?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "ANSWER"
+    assert body["config"] is None
+    assert body["answer_data"]["answer_type"] == "SUPPORTED_SYMBOLS"
+    assert "NVDA is not currently available" in body["message"]
+    assert "ETF strategy research" in body["message"]
+    assert "QQQ" in body["message"]
+    assert "SPY" in body["message"]
+
+
+def test_generate_strategy_builder_returns_benchmark_symbol_guidance(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Can I use SPY as benchmark?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "ANSWER"
+    assert body["config"] is None
+    assert body["answer_data"]["answer_type"] == "SUPPORTED_SYMBOLS"
+    assert "SPY" in body["message"]
+    assert "benchmark" in body["message"]
 
 
 def test_generate_strategy_builder_returns_structured_plan_limits_answer(client):
@@ -4087,42 +4178,57 @@ def test_generate_strategy_builder_returns_structured_plan_limits_answer(client)
     assert body["answer_data"]["max_backtest_years"] is not None
 
 
-def test_generate_strategy_builder_returns_structured_supported_strategy_types_answer(client):
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "What strategies can I build?",
+        "What indicators are supported?",
+        "What can I ask you to do?",
+    ],
+)
+def test_generate_strategy_builder_returns_structured_supported_strategy_types_answer(client, prompt):
     response = client.post(
         "/strategy-builder/generate",
-        json={"prompt": "What strategy types or indicators are supported?"},
+        json={"prompt": prompt},
     )
 
     assert response.status_code == 200
     body = response.json()
 
     assert body["response_type"] == "ANSWER"
+    assert body["config"] is None
     assert body["answer_data"]["answer_type"] == "SUPPORTED_STRATEGY_TYPES"
+    assert body["message"] == (
+        "You can currently build ETF strategies using RSI mean reversion, SMA / moving-average crossover, "
+        "SMA trend-state rules, MACD, KD / stochastic, relative strength, seasonality, stop loss, "
+        "take profit, cooldown, benchmark comparison, and core-overlay allocation."
+    )
+    assert "RSI mean reversion" in body["message"]
+    assert "SMA / moving-average crossover" in body["message"]
+    assert "SMA trend-state rules" in body["message"]
     assert "MACD" in body["message"]
-    assert "SMA-above" in body["message"]
-    assert "nested moving-average window edits" in body["message"]
     assert "KD" in body["message"]
-    assert "seasonality" in body["message"]
-    assert "seasonality month edits" in body["message"]
     assert "relative strength" in body["message"]
-    assert "tradable symbol changes" in body["message"]
-    assert "nested relative strength edits" in body["message"]
-    assert "transaction cost" in body["message"]
-    assert "max position percentage" in body["message"]
-    assert "AND/OR" in body["message"]
-    assert "within N bars" in body["message"]
-    assert "NOT inner rules" in body["message"]
-    assert "NOT wrappers" in body["message"]
-    assert "then Y within N bars" in body["message"]
-    assert "confirmation filters" in body["message"]
-    assert "window bars/modes and sequence bars/steps" in body["message"]
-    assert "group operators and group conditions" in body["message"]
-    assert "partial take profit" in body["message"]
-    assert "position management" in body["message"]
-    assert "core allocation / core overlay" in body["message"]
-    assert "removal of group conditions" in body["message"]
-    assert "removal of window wrappers" in body["message"]
-    assert "removal of sequence steps" in body["message"]
+    assert "seasonality" in body["message"]
+    assert "stop loss" in body["message"]
+    assert "take profit" in body["message"]
+    assert "cooldown" in body["message"]
+    assert "benchmark comparison" in body["message"]
+    assert "core-overlay allocation" in body["message"]
+
+    internal_terms = [
+        "nested",
+        "direct removal",
+        "NOT wrapper",
+        "sequence",
+        "composite replacement",
+        "parser",
+        "window inner",
+        "group operator",
+        "confirmation filter",
+    ]
+    for term in internal_terms:
+        assert term.lower() not in body["message"].lower()
 
 
 def test_generate_strategy_builder_returns_structured_validation_data_for_unsupported_symbol(client):
