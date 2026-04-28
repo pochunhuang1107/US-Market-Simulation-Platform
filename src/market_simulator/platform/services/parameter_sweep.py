@@ -292,6 +292,7 @@ def _result_row(
         "variant_id": variant["variant_id"],
         "variant_name": variant["variant_name"],
         "parameters": variant["parameters"],
+        "config": variant["config"],
         "status": status,
         "error": error,
         "artifact_dir": artifact_dir,

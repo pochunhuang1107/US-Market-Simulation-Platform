@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 
 import { VersionsTable } from '../components/strategy/VersionsTable';
 import { RunsTable } from '../components/runs/RunsTable';
@@ -36,13 +36,22 @@ function hasConfig(value: Record<string, unknown> | null | undefined) {
   return Boolean(value && Object.keys(value).length > 0);
 }
 
+type PageNotice = {
+  tone: 'success' | 'info' | 'error';
+  message: string;
+};
+
 export function StrategyPage() {
   const { strategyId } = useParams();
+  const location = useLocation();
   const [data, setData] = useState<StrategyDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusActionLoading, setStatusActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusActionError, setStatusActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<PageNotice | null>(
+    (location.state as { notice?: PageNotice } | null)?.notice ?? null
+  );
 
   const loadStrategy = useCallback(
     async (shouldIgnore: () => boolean = () => false) => {
@@ -116,6 +125,12 @@ export function StrategyPage() {
         prefillPrompt: `Create a draft variant of ${data?.strategy.name ?? 'this strategy'}.`
       }
     : undefined;
+  const noticeClass =
+    notice?.tone === 'error'
+      ? 'app-alert-error'
+      : notice?.tone === 'info'
+        ? 'app-note'
+        : 'app-alert-success';
 
   async function handleStatusAction() {
     if (!strategyId || !data) return;
@@ -152,6 +167,21 @@ export function StrategyPage() {
 
   return (
     <div className="space-y-6">
+      {notice ? (
+        <div className={`${noticeClass} rounded-2xl border px-4 py-3 text-sm`}>
+          <div className="flex items-start justify-between gap-4">
+            <p>{notice.message}</p>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              className="text-xs font-semibold uppercase tracking-[0.2em] opacity-80 transition hover:opacity-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <PageHeader
         eyebrow="Strategy Library"
         title={data.strategy.name}

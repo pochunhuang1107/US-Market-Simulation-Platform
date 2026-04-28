@@ -163,6 +163,8 @@ def test_successful_small_rsi_sweep_writes_ranked_summary(tmp_path) -> None:
 
     persisted = json.loads((tmp_path / "sweep_summary.json").read_text(encoding="utf-8"))
     assert persisted["results"][0]["sharpe_ratio"] >= persisted["results"][1]["sharpe_ratio"]
+    assert persisted["results"][0]["config"]["entry_rule"]["threshold"] == 25
+    assert persisted["best_variant"]["config"]["exit_rule"]["threshold"] == 65
 
 
 def test_sweep_summary_sorted_by_ranking_metric_descending(tmp_path) -> None:

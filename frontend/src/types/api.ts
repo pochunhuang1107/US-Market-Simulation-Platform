@@ -168,6 +168,14 @@ export interface RunDashboardResponse {
   chart_data: RunChartDataResponse;
 }
 
+export interface SweepVariantDetailResponse {
+  run: RunResponse;
+  variant: Record<string, unknown>;
+  rank: number;
+  ranking_metric: Nullable<string>;
+  chart_data: Nullable<RunChartDataResponse>;
+}
+
 export interface RunComparisonSummary {
   run_id: string;
   strategy_id: Nullable<string>;
@@ -313,6 +321,19 @@ export interface SaveDraftRunAsStrategyRequest {
 
 export interface SaveDraftRunAsStrategyResponse {
   run_id: string;
+  strategy_id: string;
+  version_id: string;
+}
+
+export interface PromoteSweepVariantRequest {
+  name?: string | null;
+  description?: string | null;
+  change_note?: string | null;
+}
+
+export interface PromoteSweepVariantResponse {
+  run_id: string;
+  variant_id: string;
   strategy_id: string;
   version_id: string;
 }

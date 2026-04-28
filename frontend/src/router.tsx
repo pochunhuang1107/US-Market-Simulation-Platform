@@ -11,6 +11,7 @@ import { StrategyBuilderPage } from './pages/StrategyBuilderPage';
 import { StrategyChatPage } from './pages/StrategyChatPage';
 import { StrategyLibraryPage } from './pages/StrategyLibraryPage';
 import { StrategyPage } from './pages/StrategyPage';
+import { SweepVariantDetailPage } from './pages/SweepVariantDetailPage';
 
 export const router = createBrowserRouter([
   {
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
       { path: '/runs', element: <RunsPage /> },
       { path: '/runs/new', element: <CreateSimulationPage /> },
       { path: '/runs/:runId', element: <RunDetailPage /> },
+      { path: '/runs/:runId/variants/:variantId', element: <SweepVariantDetailPage /> },
       { path: '/compare', element: <ComparePage /> },
       { path: '/strategy-builder', element: <StrategyBuilderPage /> },
       { path: '/strategies', element: <StrategyLibraryPage /> },

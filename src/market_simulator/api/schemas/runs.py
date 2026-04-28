@@ -49,6 +49,27 @@ class SaveDraftRunAsStrategyResponse(BaseModel):
     version_id: str
 
 
+class PromoteSweepVariantRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    change_note: str | None = None
+
+
+class PromoteSweepVariantResponse(BaseModel):
+    run_id: str
+    variant_id: str
+    strategy_id: str
+    version_id: str
+
+
+class SweepVariantDetailResponse(BaseModel):
+    run: "RunResponse"
+    variant: dict[str, Any]
+    rank: int
+    ranking_metric: str | None = None
+    chart_data: dict[str, Any] | None = None
+
+
 class RunListQueryParams(BaseModel):
     status: str | None = None
     executor_type: str | None = None
