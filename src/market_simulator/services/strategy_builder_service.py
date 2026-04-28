@@ -10,6 +10,13 @@ from market_simulator.api.schemas.strategy_builder import (
     StrategyBuilderResponseType,
 )
 from market_simulator.models.strategy_v2 import StrategyV2
+from market_simulator.platform.services.parameter_sweep import (
+    DEFAULT_MAX_VARIANTS,
+    ParameterSweepError,
+    build_sweep_request,
+    normalize_ranking_metric,
+    variant_count,
+)
 from market_simulator.services.strategy_builder_capabilities import (
     NO_CHANGE_MESSAGE,
     UNSUPPORTED_EDIT_MESSAGE,
@@ -2348,6 +2355,294 @@ def generate_strategy_builder_draft(
     )
 
 
+_NUMBER_TOKEN = r"\d+(?:\.\d+)?%?"
+
+
+def _format_grid_value(value: Any) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _format_grid_values(values: list[Any]) -> str:
+    return ", ".join(_format_grid_value(value) for value in values)
+
+
+def _normalize_sweep_number(token: str, *, percent: bool) -> int | float:
+    cleaned = token.strip().rstrip("%")
+    value = float(cleaned)
+    if percent:
+        value = value / 100.0 if token.strip().endswith("%") or value > 1 else value
+    if value.is_integer() and not percent:
+        return int(value)
+    return value
+
+
+def _range_values(start: int | float, end: int | float, step: int | float | None) -> list[int | float]:
+    if step is None:
+        distance = abs(float(end) - float(start))
+        step = 5 if distance >= 10 else max(1, distance / 2)
+    if step <= 0:
+        return [start, end]
+
+    values: list[int | float] = []
+    current = float(start)
+    end_value = float(end)
+    direction = 1 if end_value >= current else -1
+    step_value = abs(float(step)) * direction
+
+    while (direction == 1 and current <= end_value) or (direction == -1 and current >= end_value):
+        values.append(int(current) if current.is_integer() else round(current, 6))
+        current += step_value
+
+    if values[-1] != end:
+        values.append(end)
+    return values
+
+
+def _extract_sweep_values(
+    text: str,
+    label_patterns: list[str],
+    *,
+    percent: bool = False,
+) -> list[Any] | None:
+    for label in label_patterns:
+        range_pattern = (
+            rf"{label}\s+from\s+({_NUMBER_TOKEN})\s+to\s+({_NUMBER_TOKEN})"
+            rf"(?:\s+by\s+({_NUMBER_TOKEN}))?"
+        )
+        range_match = re.search(range_pattern, text, flags=re.IGNORECASE)
+        if range_match:
+            start = _normalize_sweep_number(range_match.group(1), percent=False)
+            end = _normalize_sweep_number(range_match.group(2), percent=False)
+            step = (
+                _normalize_sweep_number(range_match.group(3), percent=False)
+                if range_match.group(3)
+                else None
+            )
+            values = _range_values(start, end, step)
+            return [
+                _normalize_sweep_number(f"{value}%", percent=True) if percent else value
+                for value in values
+            ]
+
+        list_pattern = (
+            rf"{label}(?:\s+(?:of|at|to|=|:))?\s+"
+            rf"(?P<values>{_NUMBER_TOKEN}(?:\s*(?:,|/|\band\b)\s*{_NUMBER_TOKEN})+)"
+        )
+        list_match = re.search(list_pattern, text, flags=re.IGNORECASE)
+        if list_match:
+            tokens = re.findall(_NUMBER_TOKEN, list_match.group("values"))
+            return [_normalize_sweep_number(token, percent=percent) for token in tokens]
+
+    return None
+
+
+def _extract_parameter_sweep_grid(prompt: str) -> dict[str, list[Any]]:
+    grid: dict[str, list[Any]] = {}
+
+    path_specs = [
+        (
+            "entry_rule.threshold",
+            [
+                r"(?:entry\s+rsi|rsi\s+entry)\s+thresholds?",
+                r"entry\s+thresholds?",
+                r"entry\s+rsi",
+                r"rsi\s+entry",
+                r"rsi\s+thresholds?",
+            ],
+            False,
+        ),
+        (
+            "exit_rule.threshold",
+            [
+                r"(?:exit\s+rsi|rsi\s+exit)\s+thresholds?",
+                r"exit\s+thresholds?",
+                r"exit\s+rsi",
+                r"rsi\s+exit",
+            ],
+            False,
+        ),
+        (
+            "entry_rule.fast_window",
+            [
+                r"entry\s+(?:rule\s+)?fast\s+windows?",
+                r"(?:sma\s+)?fast\s+windows?",
+                r"sma\s+windows?",
+            ],
+            False,
+        ),
+        (
+            "entry_rule.slow_window",
+            [
+                r"entry\s+(?:rule\s+)?slow\s+windows?",
+                r"(?:sma\s+)?slow\s+windows?",
+            ],
+            False,
+        ),
+        (
+            "exit_rule.fast_window",
+            [r"exit\s+(?:rule\s+)?fast\s+windows?"],
+            False,
+        ),
+        (
+            "exit_rule.slow_window",
+            [r"exit\s+(?:rule\s+)?slow\s+windows?"],
+            False,
+        ),
+        (
+            "risk.stop_loss_pct",
+            [r"stop\s+loss(?:\s+pct|\s+percent|\s+percentages?)?"],
+            True,
+        ),
+        (
+            "risk.take_profit_pct",
+            [r"take\s+profit(?:\s+pct|\s+percent|\s+percentages?)?"],
+            True,
+        ),
+        (
+            "risk.cooldown_bars",
+            [r"cooldown(?:\s+bars?)?"],
+            False,
+        ),
+    ]
+
+    for path, labels, percent in path_specs:
+        values = _extract_sweep_values(prompt, labels, percent=percent)
+        if values is not None:
+            grid[path] = values
+
+    return grid
+
+
+def _looks_like_parameter_sweep_prompt(prompt: str) -> bool:
+    text = prompt.lower()
+    grid = _extract_parameter_sweep_grid(prompt)
+    if not grid:
+        return False
+
+    return bool(
+        re.search(r"\b(test|try|sweep|compare|rank|optimi[sz]e)\b", text)
+        or re.search(r"\b(thresholds|windows|values|levels)\b", text)
+    )
+
+
+def _extract_sweep_ranking_metric(prompt: str) -> str:
+    match = re.search(
+        r"rank(?:ed|ing)?\s+by\s+([a-z_ ]+?)(?:[.!,;]|$)",
+        prompt,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return normalize_ranking_metric(None)
+
+    metric = match.group(1).strip().lower().replace(" ", "_")
+    return normalize_ranking_metric(metric)
+
+
+def _build_parameter_sweep_title(base_config: dict[str, Any], grid: dict[str, list[Any]]) -> str:
+    symbol = str(base_config.get("tradable_symbol") or "ETF")
+    if "entry_rule.threshold" in grid or "exit_rule.threshold" in grid:
+        return f"{symbol} RSI Threshold Sweep"
+    if "entry_rule.fast_window" in grid or "entry_rule.slow_window" in grid:
+        return f"{symbol} SMA Window Sweep"
+    return f"{symbol} Parameter Sweep"
+
+
+def _build_parameter_sweep_summary(
+    *,
+    base_config: dict[str, Any],
+    grid: dict[str, list[Any]],
+    ranking_metric: str,
+    count: int,
+) -> str:
+    symbol = str(base_config.get("tradable_symbol") or "ETF")
+    start_date = str(base_config.get("start_date") or "the start date")
+    end_date = str(base_config.get("end_date") or "the end date")
+    grid_summary = "; ".join(
+        f"{path}: {_format_grid_values(values)}" for path, values in grid.items()
+    )
+    return (
+        f"Parameter sweep draft for {symbol} from {start_date} to {end_date}. "
+        f"It will test {count} variants, rank by {ranking_metric}, and vary {grid_summary}."
+    )
+
+
+def _generate_parameter_sweep_draft(
+    req: StrategyBuilderGenerateRequest,
+    *,
+    max_backtest_years: int,
+) -> dict[str, Any]:
+    grid = _extract_parameter_sweep_grid(req.prompt)
+    ranking_metric = _extract_sweep_ranking_metric(req.prompt)
+    count = variant_count(grid)
+    max_variants = DEFAULT_MAX_VARIANTS
+
+    if count > max_variants:
+        message = (
+            f"This sweep would create {count} variants, but your plan allows up to "
+            f"{max_variants}."
+        )
+        return _build_response(
+            response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+            message=message,
+            validation_data=build_validation_data(
+                message=message,
+                max_backtest_years=max_backtest_years,
+            ),
+        )
+
+    base_config, _, warnings, assumptions, _ = generate_strategy_builder_draft(
+        req,
+        max_backtest_years=max_backtest_years,
+    )
+
+    try:
+        sweep_request = build_sweep_request(
+            {
+                "base_config": base_config,
+                "grid": grid,
+                "ranking_metric": ranking_metric,
+                "max_variants": max_variants,
+            }
+        )
+    except ParameterSweepError as exc:
+        message = str(exc)
+        return _build_response(
+            response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+            message=message,
+            validation_data=build_validation_data(
+                message=message,
+                max_backtest_years=max_backtest_years,
+            ),
+        )
+
+    title = _build_parameter_sweep_title(base_config, sweep_request["grid"])
+    summary = _build_parameter_sweep_summary(
+        base_config=base_config,
+        grid=sweep_request["grid"],
+        ranking_metric=sweep_request["ranking_metric"],
+        count=sweep_request["variant_count"],
+    )
+
+    return _build_response(
+        response_type=StrategyBuilderResponseType.PARAMETER_SWEEP_DRAFT,
+        message=summary,
+        summary=summary,
+        warnings=warnings,
+        assumptions=assumptions,
+        sweep_draft={
+            "title": title,
+            "base_config": base_config,
+            "grid": sweep_request["grid"],
+            "ranking_metric": sweep_request["ranking_metric"],
+            "variant_count": sweep_request["variant_count"],
+            "max_variants": sweep_request["max_variants"],
+            "summary": summary,
+        },
+    )
+
+
 def generate_strategy_builder_response(
     req: StrategyBuilderGenerateRequest,
     *,
@@ -2355,6 +2650,12 @@ def generate_strategy_builder_response(
 ) -> dict[str, Any]:
     prompt = req.prompt.strip()
     has_current_config = _has_current_config(req)
+
+    if _looks_like_parameter_sweep_prompt(prompt):
+        return _generate_parameter_sweep_draft(
+            req,
+            max_backtest_years=max_backtest_years,
+        )
 
     if _looks_like_question(prompt):
         answer_message, answer_data = _build_answer_message(

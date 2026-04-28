@@ -142,9 +142,53 @@ def generate_strategy_draft_api(
                             max_backtest_years=entitlements.max_backtest_years,
                         ),
                         "guidance_data": None,
+                        "sweep_draft": None,
                     }
                 ),
             )
+
+    if result["response_type"] == StrategyBuilderResponseType.PARAMETER_SWEEP_DRAFT:
+        sweep_draft = result.get("sweep_draft") or {}
+        base_config = sweep_draft.get("base_config") if isinstance(sweep_draft, dict) else None
+        if isinstance(base_config, dict):
+            try:
+                validate_strategy_builder_request(
+                    prompt=req.prompt,
+                    config=base_config,
+                    max_backtest_years=entitlements.max_backtest_years,
+                )
+            except ValueError as exc:
+                message = str(exc)
+
+                _record_rejected_prompt(
+                    db,
+                    user_id=user["id"],
+                    prompt_chars=prompt_chars,
+                    reason=message,
+                )
+
+                return JSONResponse(
+                    status_code=400,
+                    content=jsonable_encoder(
+                        {
+                            "detail": message,
+                            "response_type": StrategyBuilderResponseType.VALIDATION_ERROR,
+                            "message": message,
+                            "config": None,
+                            "summary": None,
+                            "warnings": [],
+                            "assumptions": [],
+                            "changes": [],
+                            "answer_data": None,
+                            "validation_data": build_validation_data(
+                                message=message,
+                                max_backtest_years=entitlements.max_backtest_years,
+                            ),
+                            "guidance_data": None,
+                            "sweep_draft": None,
+                        }
+                    ),
+                )
 
     create_builder_prompt_event(
         db,

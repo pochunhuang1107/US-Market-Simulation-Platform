@@ -377,6 +377,7 @@ def _build_response(
     answer_data: dict[str, Any] | None = None,
     validation_data: dict[str, Any] | None = None,
     guidance_data: dict[str, Any] | None = None,
+    sweep_draft: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "response_type": response_type,
@@ -389,6 +390,7 @@ def _build_response(
         "answer_data": answer_data,
         "validation_data": validation_data,
         "guidance_data": guidance_data,
+        "sweep_draft": sweep_draft,
     }
 
 

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ParameterSweepDraftCard } from './ParameterSweepDraftCard';
 import { StrategyDraftCard } from './StrategyDraftCard';
 import type { ChatMessage } from './types';
 
@@ -52,7 +53,7 @@ function isRunnableDraftMessage(message: ChatMessage): boolean {
     Boolean(message.draft) &&
     message.draft?.response_type !== 'ANSWER' &&
     message.draft?.response_type !== 'VALIDATION_ERROR' &&
-    Boolean(message.draft?.config)
+    (Boolean(message.draft?.config) || Boolean(message.draft?.sweep_draft))
   );
 }
 
@@ -661,6 +662,22 @@ export function ChatMessageList({
         }
 
         const hasDraftConfig = isRunnableDraftMessage(message);
+
+        if (message.draft?.response_type === 'PARAMETER_SWEEP_DRAFT' && message.draft.sweep_draft) {
+          return (
+            <div key={message.id} className="flex justify-start">
+              <div className="w-full max-w-5xl">
+                <ParameterSweepDraftCard
+                  draft={message.draft}
+                  onRun={() => onRunDraft(message.id)}
+                  isLatestDraft={message.id === latestDraftMessageId}
+                  isRunning={message.isRunning}
+                  runError={message.runError}
+                />
+              </div>
+            </div>
+          );
+        }
 
         if (hasDraftConfig && message.draft) {
           return (

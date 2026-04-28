@@ -354,6 +354,7 @@ export type StrategyBuilderResponseType =
   | 'ANSWER'
   | 'CREATE_DRAFT'
   | 'UPDATE_DRAFT'
+  | 'PARAMETER_SWEEP_DRAFT'
   | 'VALIDATION_ERROR';
 
 export type StrategyBuilderAnswerType =
@@ -397,6 +398,16 @@ export interface StrategyBuilderGuidanceData {
   suggested_actions: string[];
 }
 
+export interface StrategyBuilderParameterSweepDraftData {
+  title: string;
+  base_config: Record<string, unknown>;
+  grid: Record<string, unknown[]>;
+  ranking_metric: string;
+  variant_count: number;
+  max_variants: number;
+  summary: string;
+}
+
 export interface StrategyBuilderGenerateResponse {
   response_type: StrategyBuilderResponseType;
   message: string;
@@ -408,6 +419,7 @@ export interface StrategyBuilderGenerateResponse {
   answer_data?: StrategyBuilderAnswerData | null;
   validation_data?: StrategyBuilderValidationData | null;
   guidance_data?: StrategyBuilderGuidanceData | null;
+  sweep_draft?: StrategyBuilderParameterSweepDraftData | null;
 }
 
 export interface MeUserResponse {

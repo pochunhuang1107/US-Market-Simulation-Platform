@@ -25,6 +25,7 @@ class StrategyBuilderResponseType(str, Enum):
     ANSWER = "ANSWER"
     CREATE_DRAFT = "CREATE_DRAFT"
     UPDATE_DRAFT = "UPDATE_DRAFT"
+    PARAMETER_SWEEP_DRAFT = "PARAMETER_SWEEP_DRAFT"
     VALIDATION_ERROR = "VALIDATION_ERROR"
 
 
@@ -73,6 +74,16 @@ class StrategyBuilderGuidanceData(BaseModel):
     suggested_actions: list[str] = Field(default_factory=list)
 
 
+class StrategyBuilderParameterSweepDraftData(BaseModel):
+    title: str
+    base_config: dict[str, Any]
+    grid: dict[str, list[Any]]
+    ranking_metric: str
+    variant_count: int
+    max_variants: int
+    summary: str
+
+
 class StrategyBuilderGenerateResponse(BaseModel):
     response_type: StrategyBuilderResponseType
     message: str
@@ -84,3 +95,4 @@ class StrategyBuilderGenerateResponse(BaseModel):
     answer_data: StrategyBuilderAnswerData | None = None
     validation_data: StrategyBuilderValidationData | None = None
     guidance_data: StrategyBuilderGuidanceData | None = None
+    sweep_draft: StrategyBuilderParameterSweepDraftData | None = None

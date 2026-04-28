@@ -97,7 +97,7 @@ function explainAtomicRule(rule: RuleNode): string {
   }
 }
 
-function explainRule(rule: unknown): string {
+export function explainRule(rule: unknown): string {
   if (!rule || typeof rule !== 'object') return 'No rule defined';
 
   const node = rule as RuleNode;

@@ -48,6 +48,20 @@ function extractDraftConfig(draft: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function extractSweepDraft(draft: unknown): StrategyBuilderGenerateResponse['sweep_draft'] | null {
+  if (!draft || typeof draft !== 'object') return null;
+
+  const record = draft as {
+    response_type?: unknown;
+    sweep_draft?: unknown;
+  };
+
+  if (record.response_type !== 'PARAMETER_SWEEP_DRAFT') return null;
+  if (!isRecord(record.sweep_draft)) return null;
+
+  return record.sweep_draft as unknown as StrategyBuilderGenerateResponse['sweep_draft'];
+}
+
 function getLatestDraftConfig(messages: ChatMessage[]): Record<string, unknown> | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
@@ -114,7 +128,8 @@ function buildSeededDraftMessage({
       changes: [],
       answer_data: null,
       validation_data: null,
-      guidance_data: null
+      guidance_data: null,
+      sweep_draft: null
     }
   };
 }
@@ -218,7 +233,7 @@ function extractDuplicateRunId(error: unknown): string | null {
 function formatDuplicateRunMessage(error: unknown): string {
   const existingRunId = extractDuplicateRunId(error);
   if (existingRunId) {
-    return 'This simulation is already running. Redirecting you to the existing run.';
+    return 'This run is already active. Redirecting you to the existing run.';
   }
   return formatLimitError(error);
 }
@@ -261,7 +276,8 @@ function extractStructuredBuilderError(
     validation_data:
       (record.validation_data as StrategyBuilderGenerateResponse['validation_data']) ?? null,
     guidance_data:
-      (record.guidance_data as StrategyBuilderGenerateResponse['guidance_data']) ?? null
+      (record.guidance_data as StrategyBuilderGenerateResponse['guidance_data']) ?? null,
+    sweep_draft: (record.sweep_draft as StrategyBuilderGenerateResponse['sweep_draft']) ?? null
   };
 }
 
@@ -553,6 +569,34 @@ export function StrategyChatPage() {
     );
 
     try {
+      const sweepDraft = extractSweepDraft(msg.draft);
+
+      if (sweepDraft) {
+        const run = await createRun({
+          run_type: 'PARAMETER_SWEEP',
+          executor_type: 'SWEEP_EXECUTOR',
+          request_payload: {
+            base_config: sweepDraft.base_config,
+            grid: sweepDraft.grid,
+            ranking_metric: sweepDraft.ranking_metric,
+            max_variants: sweepDraft.max_variants
+          },
+          max_attempts: 1
+        });
+
+        await enqueueRun(run.id);
+
+        try {
+          const refreshedEntitlements = await fetchMeEntitlements();
+          setEntitlements(refreshedEntitlements);
+        } catch {
+          // Do not block navigation if entitlement refresh fails.
+        }
+
+        navigate(`/runs/${run.id}`);
+        return;
+      }
+
       const config = extractDraftConfig(msg.draft);
 
       if (!config) {
@@ -586,7 +630,7 @@ export function StrategyChatPage() {
     } catch (error) {
       const duplicateRunId = extractDuplicateRunId(error);
 
-      console.error('Run simulation failed:', error);
+      console.error('Run failed:', error);
 
       if (duplicateRunId) {
         const message = formatDuplicateRunMessage(error);
@@ -614,7 +658,7 @@ export function StrategyChatPage() {
           state: {
             notice: {
               tone: 'info',
-              message: 'This simulation was already running, so we opened the existing run for you.'
+              message: 'This run was already active, so we opened the existing run for you.'
             }
           }
         });
