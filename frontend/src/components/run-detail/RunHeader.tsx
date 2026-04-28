@@ -101,6 +101,7 @@ export function RunHeader({ run }: RunHeaderProps) {
   const title = run.strategy_id
     ? formatRunLabel(run.strategy_name, run.strategy_version_number)
     : 'Unsaved draft run';
+  const resultLabel = run.run_type === 'PARAMETER_SWEEP' ? 'Sweep Result' : 'Simulation Result';
   const benchmarkLabel = getBenchmarkLabel(run);
   const coreOverlayLabel = getCoreOverlayLabel(run);
   const metadata = [
@@ -123,7 +124,7 @@ export function RunHeader({ run }: RunHeaderProps) {
         <div className="space-y-4">
           <div>
             <p className="app-eyebrow text-xs font-semibold uppercase tracking-[0.26em]">
-              Simulation Result
+              {resultLabel}
             </p>
             <h1 className="mt-2 text-4xl font-semibold tracking-tight app-title">
               {title}

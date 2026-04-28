@@ -23,6 +23,7 @@ class ArtifactWriteResult:
 class ArtifactStore(Protocol):
     def prepare_run_directory(self, run_id: UUID | str) -> Path: ...
     def finalize_simulation_artifacts(self, run_id: UUID | str) -> ArtifactWriteResult: ...
+    def finalize_sweep_artifacts(self, run_id: UUID | str) -> ArtifactWriteResult: ...
     def generate_download_url(self, artifact_uri: str) -> str: ...
 
 
@@ -47,6 +48,19 @@ class LocalArtifactStore:
             "events": str(run_dir / "events.csv"),
             "monthly_returns": str(run_dir / "monthly_returns.csv"),
             "report_bundle": str(run_dir / "report_bundle.json"),
+        }
+        return ArtifactWriteResult(
+            storage_type=ArtifactStorageType.LOCAL,
+            artifact_dir=str(run_dir),
+            artifact_root_uri=str(run_dir),
+            manifest_json=manifest,
+        )
+
+    def finalize_sweep_artifacts(self, run_id: UUID | str) -> ArtifactWriteResult:
+        run_dir = self.base_dir / "runs" / str(run_id)
+        manifest = {
+            "sweep_summary": str(run_dir / "sweep_summary.json"),
+            "sweep_results": str(run_dir / "sweep_results.csv"),
         }
         return ArtifactWriteResult(
             storage_type=ArtifactStorageType.LOCAL,
@@ -104,6 +118,34 @@ class S3ArtifactStore:
             "events": "events.csv",
             "monthly_returns": "monthly_returns.csv",
             "report_bundle": "report_bundle.json",
+        }
+
+        manifest = {}
+        for manifest_key, filename in expected_files.items():
+            path = run_dir / filename
+            if not path.exists() or not path.is_file():
+                continue
+
+            key = f"{s3_root_prefix}/{filename}"
+            self.s3.upload_file(str(path), self.bucket, key)
+            manifest[manifest_key] = f"s3://{self.bucket}/{key}"
+
+        artifact_root_uri = f"s3://{self.bucket}/{s3_root_prefix}"
+
+        return ArtifactWriteResult(
+            storage_type=ArtifactStorageType.S3,
+            artifact_dir=str(run_dir),
+            artifact_root_uri=artifact_root_uri,
+            manifest_json=manifest,
+        )
+
+    def finalize_sweep_artifacts(self, run_id: UUID | str) -> ArtifactWriteResult:
+        run_dir = self.local_base_dir / "runs" / str(run_id)
+        s3_root_prefix = f"{self.prefix}/runs/{run_id}"
+
+        expected_files = {
+            "sweep_summary": "sweep_summary.json",
+            "sweep_results": "sweep_results.csv",
         }
 
         manifest = {}

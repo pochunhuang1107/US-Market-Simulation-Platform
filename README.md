@@ -146,6 +146,40 @@ python scripts/run_simulation.py --strategy data/sample_strategies/qqq_engine_v2
 
 ---
 
+## Parameter Sweep MVP
+
+Backend parameter sweeps run through the normal run queue with:
+
+- `run_type`: `PARAMETER_SWEEP`
+- `executor_type`: `SWEEP_EXECUTOR`
+
+Sweeps execute variants sequentially from one Strategy V2 base config, write `sweep_summary.json` and `sweep_results.csv`, and rank successful variants by `ranking_metric` (`sharpe` by default). The default safety cap is 25 variants unless `max_variants` is set lower in the request.
+
+Example run payload:
+
+```json
+{
+  "run_type": "PARAMETER_SWEEP",
+  "executor_type": "SWEEP_EXECUTOR",
+  "request_payload": {
+    "base_config": {
+      "...": "Strategy V2 config"
+    },
+    "grid": {
+      "entry_rule.threshold": [20, 25, 30],
+      "exit_rule.threshold": [60, 65, 70],
+      "risk.stop_loss_pct": [null, 0.1]
+    },
+    "ranking_metric": "sharpe",
+    "max_variants": 25
+  }
+}
+```
+
+If a saved strategy version is attached to the run, `base_config` may be omitted and the version config is used as the sweep base.
+
+---
+
 ## Notes
 
 - All strategies must map to the Strategy V2 schema

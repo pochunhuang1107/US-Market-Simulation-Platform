@@ -3,6 +3,7 @@ import { useLocation, useParams } from 'react-router-dom';
 
 import { RunCharts } from '../components/run-detail/RunCharts';
 import { NextResearchStepsPanel } from '../components/run-detail/NextResearchStepsPanel';
+import { ParameterSweepResults } from '../components/run-detail/ParameterSweepResults';
 import { RunHeader } from '../components/run-detail/RunHeader';
 import { RunInsightBreakdown } from '../components/run-detail/RunInsightBreakdown';
 import { RunInsightHero } from '../components/run-detail/RunInsightHero';
@@ -183,6 +184,7 @@ export function RunDetailPage() {
   }, [runId]);
 
   const suggestedStrategyName = suggestStrategyNameFromConfig(run?.request_payload?.draft_config);
+  const isParameterSweep = data?.run.run_type === 'PARAMETER_SWEEP';
 
   async function handleSaveDraftStrategy(payload: { name: string; description: string }) {
     if (!runId || !run) return;
@@ -283,21 +285,27 @@ export function RunDetailPage() {
           <RunHeader run={run} />
         ) : null}
 
-        <RunInsightHero run={data.run} chartData={data.chart_data} />
+        {isParameterSweep ? (
+          <ParameterSweepResults run={data.run} />
+        ) : (
+          <>
+            <RunInsightHero run={data.run} chartData={data.chart_data} />
 
-        <NextResearchStepsPanel
-          run={data.run}
-          canSaveDraftStrategy={data.run.status === 'SUCCEEDED' && !data.run.strategy_id}
-          isSavingDraftStrategy={isSavingDraftStrategy}
-          onSaveDraftStrategy={() => {
-            setSaveStrategyError(null);
-            setIsSaveStrategyModalOpen(true);
-          }}
-        />
+            <NextResearchStepsPanel
+              run={data.run}
+              canSaveDraftStrategy={data.run.status === 'SUCCEEDED' && !data.run.strategy_id}
+              isSavingDraftStrategy={isSavingDraftStrategy}
+              onSaveDraftStrategy={() => {
+                setSaveStrategyError(null);
+                setIsSaveStrategyModalOpen(true);
+              }}
+            />
 
-        <RunInsightBreakdown run={data.run} />
+            <RunInsightBreakdown run={data.run} />
 
-        <RunCharts chartData={data.chart_data} run={data.run} />
+            <RunCharts chartData={data.chart_data} run={data.run} />
+          </>
+        )}
 
         <RunMetaPanel run={data.run} />
       </div>

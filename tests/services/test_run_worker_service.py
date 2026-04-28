@@ -36,6 +36,18 @@ class FakeArtifactStore:
 
         return Result()
 
+    def finalize_sweep_artifacts(self, run_id):
+        class Result:
+            storage_type = "LOCAL"
+            artifact_dir = f"/tmp/runs/{run_id}"
+            artifact_root_uri = f"/tmp/runs/{run_id}"
+            manifest_json = {
+                "sweep_summary": f"/tmp/runs/{run_id}/sweep_summary.json",
+                "sweep_results": f"/tmp/runs/{run_id}/sweep_results.csv",
+            }
+
+        return Result()
+
 
 def test_claim_and_execute_next_run_succeeds(
     monkeypatch,
@@ -258,3 +270,65 @@ def test_claim_and_execute_next_run_succeeds_for_unsaved_draft_config(
     assert refreshed.strategy_id is None
     assert refreshed.strategy_version_id is None
     assert refreshed.summary_json["name"] == "draft"
+
+
+def test_claim_and_execute_next_run_succeeds_for_parameter_sweep(
+    monkeypatch,
+    db_session,
+    create_user,
+):
+    user = create_user(email="worker-sweep@example.com")
+
+    class FakeParameterSweepService:
+        def run_sweep(self, payload, output_dir, fallback_base_config=None):
+            assert payload["grid"] == {"entry_rule.threshold": [20, 25]}
+            assert fallback_base_config is None
+            assert output_dir == "/tmp/fake-run-dir"
+            return {
+                "summary": {
+                    "run_type": "PARAMETER_SWEEP",
+                    "variant_count": 2,
+                    "succeeded_count": 2,
+                    "failed_count": 0,
+                    "ranking_metric": "sharpe_ratio",
+                    "best_variant": {"variant_name": "best"},
+                },
+                "results": [],
+            }
+
+    monkeypatch.setattr(
+        "market_simulator.platform.services.run_worker_service.ParameterSweepService",
+        FakeParameterSweepService,
+    )
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {
+            "base_config": {
+                "name": "qqq-rsi",
+            },
+            "grid": {"entry_rule.threshold": [20, 25]},
+        },
+        max_attempts=3,
+    )
+    enqueue_run(db_session, run)
+
+    service = RunWorkerService(artifact_store=FakeArtifactStore())
+    result = service.claim_and_execute_next_run(
+        db_session,
+        worker_id="worker-sweep-1",
+        lease_seconds=300,
+    )
+
+    refreshed = get_run(db_session, run.id)
+
+    assert result is not None
+    assert result["status"] == "SUCCEEDED"
+    assert refreshed.status == RunStatus.SUCCEEDED
+    assert refreshed.summary_json["variant_count"] == 2
+    assert refreshed.artifact_manifest_json["sweep_summary"].endswith("sweep_summary.json")

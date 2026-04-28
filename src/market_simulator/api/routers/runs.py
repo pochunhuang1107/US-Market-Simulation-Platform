@@ -21,6 +21,10 @@ from market_simulator.api.schemas.runs import (
     SaveDraftRunAsStrategyResponse,
 )
 from market_simulator.platform.services.artifact_store import build_artifact_store
+from market_simulator.platform.services.parameter_sweep import (
+    ParameterSweepError,
+    build_sweep_request,
+)
 from market_simulator.platform.services.run_chart_service import RunChartService
 from market_simulator.platform.services.run_comparison_service import RunComparisonService
 from market_simulator.platform.services.run_dispatcher_service import RunDispatcherService
@@ -126,6 +130,24 @@ def create_run_api(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         request_payload["draft_config"] = req.draft_config
+
+    if req.run_type == "PARAMETER_SWEEP":
+        fallback_base_config = None
+        if not isinstance(request_payload.get("base_config"), dict):
+            if req.draft_config is not None:
+                fallback_base_config = req.draft_config
+            elif req.strategy_version_id is not None:
+                version = get_strategy_version(db, req.strategy_version_id)
+                if version is not None:
+                    fallback_base_config = version.config_json
+
+        try:
+            build_sweep_request(
+                request_payload,
+                fallback_base_config=fallback_base_config,
+            )
+        except ParameterSweepError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     duplicate_run = find_duplicate_active_run(
         db,
@@ -446,6 +468,20 @@ def get_run_dashboard_api(
 
     if not run.artifact_manifest_json:
         raise HTTPException(status_code=404, detail="Run artifacts not found")
+
+    if run.run_type == "PARAMETER_SWEEP":
+        return RunDashboardResponse(
+            run=run_response,
+            chart_data=RunChartDataResponse(
+                run_id=str(run.id),
+                equity_curve=[],
+                drawdown_curve=[],
+                monthly_returns=[],
+                sleeve_equity_curve=[],
+                sleeve_weight_curve=[],
+                trade_markers=[],
+            ),
+        )
 
     try:
         chart_data = chart_service.load_chart_data(run.artifact_manifest_json)
