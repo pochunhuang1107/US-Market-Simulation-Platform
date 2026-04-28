@@ -1,6 +1,7 @@
 import uuid
 import json
 import hashlib
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, or_, select
@@ -129,7 +130,7 @@ def _apply_run_filters(
     query,
     *,
     user_id,
-    status: str | None = None,
+    status: str | Sequence[str] | None = None,
     executor_type: str | None = None,
     run_type: str | None = None,
     strategy_id: str | None = None,
@@ -137,7 +138,10 @@ def _apply_run_filters(
     query = query.filter(Run.user_id == user_id)
 
     if status is not None:
-        query = query.filter(Run.status == status)
+        if isinstance(status, str):
+            query = query.filter(Run.status == status)
+        else:
+            query = query.filter(Run.status.in_(status))
 
     if executor_type is not None:
         query = query.filter(Run.executor_type == executor_type)
@@ -155,7 +159,7 @@ def list_runs(
     db: Session,
     user_id,
     *,
-    status: str | None = None,
+    status: str | Sequence[str] | None = None,
     executor_type: str | None = None,
     run_type: str | None = None,
     strategy_id: str | None = None,
@@ -195,7 +199,7 @@ def count_runs(
     db: Session,
     user_id,
     *,
-    status: str | None = None,
+    status: str | Sequence[str] | None = None,
     executor_type: str | None = None,
     run_type: str | None = None,
     strategy_id: str | None = None,

@@ -204,7 +204,7 @@ def list_runs_api(
 
 @router.get("/dashboard", response_model=RunDashboardListResponse)
 def list_runs_dashboard_api(
-    status: str | None = Query(default=None),
+    status: list[str] | None = Query(default=None),
     executor_type: str | None = Query(default=None),
     run_type: str | None = Query(default=None),
     strategy_id: str | None = Query(default=None),
@@ -217,7 +217,7 @@ def list_runs_dashboard_api(
 ):
 
     params = RunDashboardQueryParams(
-        status=status,
+        status=status or [],
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
@@ -230,7 +230,7 @@ def list_runs_dashboard_api(
     total = count_runs(
         db,
         user["id"],
-        status=params.status,
+        status=params.status or None,
         executor_type=params.executor_type,
         run_type=params.run_type,
         strategy_id=params.strategy_id,
@@ -239,7 +239,7 @@ def list_runs_dashboard_api(
     runs = list_runs(
         db,
         user["id"],
-        status=params.status,
+        status=params.status or None,
         executor_type=params.executor_type,
         run_type=params.run_type,
         strategy_id=params.strategy_id,

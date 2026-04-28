@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { PaginationBar } from '../components/runs/PaginationBar';
@@ -10,6 +10,9 @@ import { fetchRunsDashboard, fetchStrategies } from '../lib/api';
 import type { RunDashboardListResponse, RunSortBy, RunSortOrder, StrategyListItem } from '../types/api';
 
 const DEFAULT_PAGE_SIZE = 20;
+const ACTIVE_RUN_STATUSES = ['PENDING', 'QUEUED', 'LEASED', 'RUNNING'];
+const ACTIVE_RUN_STATUS_SET = new Set(ACTIVE_RUN_STATUSES);
+const UNSUCCESSFUL_RUN_STATUSES = new Set(['FAILED', 'CANCELED']);
 
 export function RunsPage() {
   const [runsResponse, setRunsResponse] = useState<RunDashboardListResponse | null>(null);
@@ -22,6 +25,16 @@ export function RunsPage() {
   const [sortBy, setSortBy] = useState<RunSortBy>('created_at');
   const [sortOrder, setSortOrder] = useState<RunSortOrder>('desc');
   const [page, setPage] = useState(1);
+  const summary = useMemo(() => {
+    const items = runsResponse?.items ?? [];
+
+    return {
+      total: items.length,
+      succeeded: items.filter((run) => run.status === 'SUCCEEDED').length,
+      active: items.filter((run) => ACTIVE_RUN_STATUS_SET.has(run.status)).length,
+      unsuccessful: items.filter((run) => UNSUCCESSFUL_RUN_STATUSES.has(run.status)).length
+    };
+  }, [runsResponse?.items]);
 
   useEffect(() => {
     void fetchStrategies().then(setStrategies).catch(() => setStrategies([]));
@@ -36,7 +49,7 @@ export function RunsPage() {
 
       try {
         const response = await fetchRunsDashboard({
-          status: status || undefined,
+          status: getStatusQuery(status),
           strategy_id: strategyId || undefined,
           page,
           page_size: DEFAULT_PAGE_SIZE,
@@ -70,7 +83,7 @@ export function RunsPage() {
       <PageHeader
         eyebrow="Runs"
         title="Run History"
-        description="Review previous simulations, open completed results, and compare promising strategy runs."
+        description="Review simulation results, reopen completed runs, and choose candidates for comparison."
         actions={
           <Link
             to="/runs/new"
@@ -80,6 +93,15 @@ export function RunsPage() {
           </Link>
         }
       />
+
+      {runsResponse ? (
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Run inventory summary">
+          <SummaryCard label="Visible runs" value={summary.total} detail="Current page" />
+          <SummaryCard label="Succeeded" value={summary.succeeded} detail="Ready to reopen" tone="success" />
+          <SummaryCard label="Active" value={summary.active} detail="In progress" tone="active" />
+          <SummaryCard label="Failed / canceled" value={summary.unsuccessful} detail="Needs review" tone="danger" />
+        </section>
+      ) : null}
 
       <RunFilters
         status={status}
@@ -116,6 +138,43 @@ export function RunsPage() {
         hasNext={runsResponse?.has_next ?? false}
         onPageChange={setPage}
       />
+    </div>
+  );
+}
+
+function getStatusQuery(status: string): string | string[] | undefined {
+  if (!status) return undefined;
+  if (status === 'ACTIVE') return ACTIVE_RUN_STATUSES;
+  return status;
+}
+
+function SummaryCard({
+  label,
+  value,
+  detail,
+  tone = 'neutral'
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  tone?: 'neutral' | 'success' | 'active' | 'danger';
+}) {
+  const toneClass =
+    tone === 'success'
+      ? 'text-emerald-300'
+      : tone === 'active'
+        ? 'app-accent'
+        : tone === 'danger'
+          ? 'text-rose-300'
+          : 'app-title';
+
+  return (
+    <div className="app-card rounded-2xl border px-4 py-3">
+      <p className="app-text-soft text-xs font-semibold uppercase tracking-[0.16em]">{label}</p>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <p className={`text-2xl font-semibold ${toneClass}`}>{value}</p>
+        <p className="app-text-muted pb-1 text-xs">{detail}</p>
+      </div>
     </div>
   );
 }
