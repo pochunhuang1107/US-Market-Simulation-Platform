@@ -121,11 +121,11 @@ export function ParameterSweepDraftCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-start sm:justify-end lg:self-start">
           <button
             type="button"
             onClick={() => setShowJson((value) => !value)}
-            className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
+            className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-semibold leading-5 transition sm:whitespace-nowrap"
           >
             {showJson ? 'Hide JSON' : 'Show JSON'}
           </button>
@@ -134,7 +134,7 @@ export function ParameterSweepDraftCard({
               type="button"
               onClick={onRun}
               disabled={isRunning}
-              className="app-button-primary rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-button-primary rounded-2xl px-4 py-2 text-sm font-semibold leading-5 transition disabled:cursor-not-allowed disabled:opacity-60 sm:whitespace-nowrap"
             >
               {isRunning ? 'Running...' : 'Run Parameter Sweep'}
             </button>

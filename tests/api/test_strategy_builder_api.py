@@ -69,6 +69,241 @@ def _qqq_rsi_core_overlay_current_config() -> dict:
     }
 
 
+def _qqq_sma_current_config() -> dict:
+    return {
+        "schema_version": "2.0",
+        "name": "qqq-sma-test",
+        "tradable_symbol": "QQQ",
+        "benchmark_symbol": "SPY",
+        "reference_symbols": [],
+        "start_date": "2021-01-01",
+        "end_date": "2024-12-31",
+        "initial_capital": 100000,
+        "transaction_cost_bps": 5,
+        "allocation": {
+            "entry_mode": "percent_of_equity",
+            "entry_value": 1.0,
+            "max_position_pct": 1.0,
+        },
+        "entry_rule": {
+            "kind": "atomic",
+            "type": "sma_cross_above",
+            "symbol": "QQQ",
+            "fast_window": 10,
+            "slow_window": 30,
+        },
+        "exit_rule": {
+            "kind": "atomic",
+            "type": "sma_cross_below",
+            "symbol": "QQQ",
+            "fast_window": 10,
+            "slow_window": 30,
+        },
+        "risk": {
+            "stop_loss_pct": None,
+            "take_profit_pct": None,
+            "cooldown_bars": 0,
+        },
+        "core_overlay": {
+            "enabled": False,
+            "core_allocation_pct": 0.0,
+        },
+        "position_management": None,
+    }
+
+
+def test_generate_strategy_builder_follow_up_rsi_sweep_uses_current_config(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try entry thresholds 20, 25, 30 and exit thresholds 60, 65, 70. Rank by Sharpe.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["base_config"] == current_config
+    assert sweep["grid"] == {
+        "entry_rule.threshold": [20, 25, 30],
+        "exit_rule.threshold": [60, 65, 70],
+    }
+    assert sweep["ranking_metric"] == "sharpe_ratio"
+    assert sweep["variant_count"] == 9
+
+
+def test_generate_strategy_builder_follow_up_rsi_range_sweep_uses_current_config(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Sweep RSI buy threshold from 20 to 30 and sell threshold 60 to 70.",
+            "context": {"current_config": _qqq_rsi_core_overlay_current_config()},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {
+        "entry_rule.threshold": [20, 25, 30],
+        "exit_rule.threshold": [60, 65, 70],
+    }
+    assert sweep["variant_count"] == 9
+
+
+def test_generate_strategy_builder_follow_up_sma_sweep_uses_sma_paths(client):
+    current_config = _qqq_sma_current_config()
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try entry slow windows 10, 20 and exit slow windows 20, 30.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["base_config"] == current_config
+    assert sweep["grid"] == {
+        "entry_rule.slow_window": [10, 20],
+        "exit_rule.slow_window": [20, 30],
+    }
+    assert "entry_rule.threshold" not in sweep["grid"]
+    assert "exit_rule.threshold" not in sweep["grid"]
+    assert sweep["variant_count"] == 4
+
+
+def test_generate_strategy_builder_follow_up_risk_sweep_parses_percent_and_cooldown(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try stop loss 5%, 10% and take profit 10%, 15% and cooldown 0, 5 bars.",
+            "context": {"current_config": _qqq_rsi_core_overlay_current_config()},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {
+        "risk.stop_loss_pct": [0.05, 0.1],
+        "risk.take_profit_pct": [0.1, 0.15],
+        "risk.cooldown_bars": [0, 5],
+    }
+    assert sweep["variant_count"] == 8
+
+
+def test_generate_strategy_builder_follow_up_sweep_ranking_metric_total_return(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try entry thresholds 20, 25 and exit thresholds 60, 65. Rank by total return.",
+            "context": {"current_config": _qqq_rsi_core_overlay_current_config()},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert body["sweep_draft"]["ranking_metric"] == "total_return_pct"
+
+
+def test_generate_strategy_builder_follow_up_sweep_over_limit_returns_guidance(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Try entry thresholds 20, 25, 30 and exit thresholds 60, 65, 70 "
+                "and stop loss 5%, 10%, 15%."
+            ),
+            "context": {"current_config": _qqq_rsi_core_overlay_current_config()},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["sweep_draft"] is None
+    assert body["message"] == "This sweep would create 27 variants, but your plan allows up to 25."
+
+
+def test_generate_strategy_builder_follow_up_mismatched_parameter_returns_guidance(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try RSI thresholds 20, 30.",
+            "context": {"current_config": _qqq_sma_current_config()},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["sweep_draft"] is None
+    assert body["message"] == (
+        "This draft does not use RSI rules yet. You can create an RSI strategy first, "
+        "or ask me to replace the entry/exit rules with RSI."
+    )
+
+
+def test_generate_strategy_builder_existing_sweep_allows_simple_grid_and_ranking_edits(client):
+    current_sweep = {
+        "title": "QQQ RSI Threshold Sweep",
+        "base_config": _qqq_rsi_core_overlay_current_config(),
+        "grid": {
+            "entry_rule.threshold": [20, 25],
+            "exit_rule.threshold": [60, 65],
+        },
+        "ranking_metric": "sharpe_ratio",
+        "variant_count": 4,
+        "max_variants": 25,
+        "summary": "Existing sweep draft.",
+    }
+
+    add_response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Add entry threshold 35.",
+            "context": {"current_config": current_sweep},
+        },
+    )
+
+    assert add_response.status_code == 200
+    add_body = add_response.json()
+    assert add_body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert add_body["sweep_draft"]["grid"]["entry_rule.threshold"] == [20, 25, 35]
+    assert add_body["sweep_draft"]["variant_count"] == 6
+
+    rank_response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Rank by total return.",
+            "context": {"current_config": add_body["sweep_draft"]},
+        },
+    )
+
+    assert rank_response.status_code == 200
+    rank_body = rank_response.json()
+    assert rank_body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert rank_body["sweep_draft"]["ranking_metric"] == "total_return_pct"
+
+
 def test_generate_strategy_builder_returns_rsi_parameter_sweep_draft(client):
     response = client.post(
         "/strategy-builder/generate",
