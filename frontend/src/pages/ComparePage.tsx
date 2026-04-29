@@ -6,13 +6,21 @@ import { CurveChart, pctFormatter } from '../components/compare/CurveChart';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
-import { fetchRunComparison, fetchRunComparisonChart, fetchRunsDashboard } from '../lib/api';
-import { formatNumber, formatPct, formatRunLabel, shortRunId } from '../lib/formatters';
-import type { RunComparisonChartResponse, RunComparisonResponse, RunDashboardListItem } from '../types/api';
+import { fetchRun, fetchRunComparison, fetchRunComparisonChart, fetchRunsDashboard } from '../lib/api';
+import {
+  formatNumber,
+  formatPct,
+  formatRunLabel,
+  formatSavedSweepVariantSource,
+  isSavedSweepVariantResult,
+  shortRunId
+} from '../lib/formatters';
+import type { RunComparisonChartResponse, RunComparisonResponse, RunDashboardListItem, RunResponse } from '../types/api';
 
 const MAX_COMPARE_RUNS = 4;
 
 type ComparableRunMetric = RunComparisonResponse['runs'][number];
+type ComparableRunListItem = RunDashboardListItem | ComparableRunMetric;
 
 type ParsedRunIdsParam = {
   runIds: string[];
@@ -46,9 +54,9 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function formatCompareError(error: unknown): string {
-  const message = error instanceof Error ? error.message : 'Failed to compare runs';
+  const message = error instanceof Error ? error.message : 'Failed to compare results';
   if (message.toLowerCase().includes('comparison limit reached')) {
-    return `Comparison limit reached for your plan. Select up to ${MAX_COMPARE_RUNS} runs.`;
+    return `Comparison limit reached for your plan. Select up to ${MAX_COMPARE_RUNS} results.`;
   }
   return message;
 }
@@ -71,7 +79,7 @@ function buildComparisonLabelMap(runs: ComparableRunMetric[]) {
   const labelCounts = new Map<string, number>();
 
   runs.forEach((run) => {
-    const label = formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
+    const label = formatComparableRunLabel(run);
     baseLabels.set(run.run_id, label);
     labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
   });
@@ -84,6 +92,45 @@ function buildComparisonLabelMap(runs: ComparableRunMetric[]) {
       return [run.run_id, uniqueLabel];
     })
   );
+}
+
+function formatComparableRunLabel(run: ComparableRunListItem): string {
+  const baseLabel = formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
+  return isSavedSweepVariantResult(run) ? `Saved sweep variant · ${baseLabel}` : baseLabel;
+}
+
+function runResponseToDashboardItem(run: RunResponse): RunDashboardListItem {
+  const summary = run.summary_json ?? {};
+
+  return {
+    run_id: run.id,
+    strategy_id: run.strategy_id,
+    strategy_version_id: run.strategy_version_id,
+    strategy_name: run.strategy_name,
+    strategy_version_number: run.strategy_version_number,
+    source: run.source,
+    source_sweep_run_id: run.source_sweep_run_id,
+    source_variant_id: run.source_variant_id,
+    source_variant_rank: run.source_variant_rank,
+    source_ranking_metric: run.source_ranking_metric,
+    status: run.status,
+    run_type: run.run_type,
+    executor_type: run.executor_type,
+    created_at: run.created_at,
+    finished_at: run.finished_at,
+    progress_pct: run.progress_pct,
+    progress_message: run.progress_message,
+    artifact_storage_type: run.artifact_storage_type,
+    has_artifacts: Boolean(run.artifact_manifest_json),
+    total_return_pct: typeof summary.total_return_pct === 'number' ? summary.total_return_pct : null,
+    benchmark_return_pct: typeof summary.benchmark_return_pct === 'number' ? summary.benchmark_return_pct : null,
+    alpha_vs_benchmark_pct: typeof summary.alpha_vs_benchmark_pct === 'number' ? summary.alpha_vs_benchmark_pct : null,
+    cagr_pct: typeof summary.cagr_pct === 'number' ? summary.cagr_pct : null,
+    sharpe_ratio: typeof summary.sharpe_ratio === 'number' ? summary.sharpe_ratio : null,
+    max_drawdown_pct: typeof summary.max_drawdown_pct === 'number' ? summary.max_drawdown_pct : null,
+    trade_count: typeof summary.trade_count === 'number' ? summary.trade_count : null,
+    win_rate_pct: typeof summary.win_rate_pct === 'number' ? summary.win_rate_pct : null
+  };
 }
 
 function relabelComparisonChart(
@@ -158,7 +205,7 @@ function ComparisonDateWindowPanel({
   const hasOverlapWindow = metadata.has_common_overlap && metadata.overlap_start && metadata.overlap_end;
   const isMissingWindowWarning = metadata.warning_message?.toLowerCase().includes('could not be inferred') ?? false;
   const title = hasNoCommonOverlap
-    ? 'These runs do not have a common comparison window.'
+    ? 'These results do not have a common comparison window.'
     : isMissingWindowWarning
     ? 'Date ranges unavailable'
     : 'Date ranges differ';
@@ -171,7 +218,7 @@ function ComparisonDateWindowPanel({
           <h2 className="text-base font-semibold app-title">{title}</h2>
           <p className="mt-2 text-sm leading-6">
             {hasNoCommonOverlap
-              ? 'The selected runs were tested over non-overlapping date ranges, so the app cannot determine a fair winner.'
+              ? 'The selected results were tested over non-overlapping date ranges, so the app cannot determine a fair winner.'
               : hasOverlapWindow
               ? `Common overlap: ${formatDateOnly(metadata.overlap_start)} to ${formatDateOnly(metadata.overlap_end)}.`
               : metadata.warning_message}
@@ -194,14 +241,14 @@ function ComparisonDateWindowPanel({
                 to="/runs"
                 className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
               >
-                Back to run history
+                Back to result history
               </Link>
             </div>
           ) : null}
         </div>
         <div className="min-w-full lg:min-w-80">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] app-label">
-            Original run windows
+            Original result windows
           </div>
           <dl className="mt-3 grid gap-2 text-sm">
             {metadata.run_windows.map((window) => (
@@ -240,7 +287,7 @@ function NextComparisonSteps({
             Next comparison steps
           </div>
           <p className="app-text-muted mt-2 text-sm leading-6">
-            Review the strongest candidates, pick another group, or return to the run history.
+            Review the strongest candidates, pick another group, or return to the result history.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -249,7 +296,7 @@ function NextComparisonSteps({
               to={`/runs/${bestReturnRun.run_id}`}
               className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition"
             >
-              Open best return run
+              Open best return result
             </Link>
           ) : null}
           {bestSharpeRun ? (
@@ -257,14 +304,14 @@ function NextComparisonSteps({
               to={`/runs/${bestSharpeRun.run_id}`}
               className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
             >
-              Open best Sharpe run
+              Open best Sharpe result
             </Link>
           ) : null}
           <Link
             to="/runs"
             className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
           >
-            Back to run history
+            Back to result history
           </Link>
           <button
             type="button"
@@ -304,17 +351,17 @@ const ComparisonResults = memo(function ComparisonResults({
         title={hasNoCommonOverlap ? 'Full-period Reference Summary' : 'Comparison Summary'}
         subtitle={
           hasNoCommonOverlap
-            ? 'Full-period metrics for the selected runs. These rows are reference only and should not be read as a fair winner comparison.'
+            ? 'Full-period metrics for the selected results. These rows are reference only and should not be read as a fair winner comparison.'
             : usesOverlapMetrics
             ? `Metrics are calculated over the common overlap window: ${formatDateOnly(comparison.metadata.overlap_start)} to ${formatDateOnly(comparison.metadata.overlap_end)}.`
-            : 'Metric summary for the selected runs.'
+            : 'Metric summary for the selected results.'
         }
       >
         <div className="app-table overflow-auto rounded-2xl border">
           <table className="min-w-full divide-y app-divider text-sm">
             <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
               <tr>
-                <th className="px-4 py-3">Run</th>
+                <th className="px-4 py-3">Result</th>
                 <th className="px-4 py-3">Total Return</th>
                 <th className="px-4 py-3">Alpha</th>
                 <th className="px-4 py-3">CAGR</th>
@@ -326,7 +373,7 @@ const ComparisonResults = memo(function ComparisonResults({
               {comparison.runs.map((run) => (
                 <tr key={run.run_id} className="app-row-hover">
                   <td className="px-4 py-3 font-medium app-title">
-                    <div>{formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id)}</div>
+                    <div>{formatComparableRunLabel(run)}</div>
                     <div className="mt-1 font-mono text-xs font-normal app-text-soft">
                       {shortRunId(run.run_id)}
                     </div>
@@ -348,11 +395,11 @@ const ComparisonResults = memo(function ComparisonResults({
 
 const ComparisonCharts = memo(function ComparisonCharts({ chart }: { chart: RunComparisonChartResponse }) {
   const strategySubtitle = useMemo(
-    () => getComparisonChartSubtitle(chart, 'How each selected strategy run grew over the comparison window.'),
+    () => getComparisonChartSubtitle(chart, 'How each selected strategy result grew over the comparison window.'),
     [chart]
   );
   const benchmarkSubtitle = useMemo(
-    () => getComparisonChartSubtitle(chart, "How each run's benchmark performed over the same window."),
+    () => getComparisonChartSubtitle(chart, "How each result's benchmark performed over the same window."),
     [chart]
   );
   const strategyDrawdownSubtitle = useMemo(
@@ -413,6 +460,7 @@ export function ComparePage() {
   const compareRequestIdRef = useRef(0);
 
   const [availableRuns, setAvailableRuns] = useState<RunDashboardListItem[]>([]);
+  const [hydratedSelectedRuns, setHydratedSelectedRuns] = useState<Record<string, RunDashboardListItem>>({});
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>(initialSelectedRunIds);
   const [comparison, setComparison] = useState<RunComparisonResponse | null>(null);
   const [comparisonChart, setComparisonChart] = useState<RunComparisonChartResponse | null>(null);
@@ -425,6 +473,7 @@ export function ComparePage() {
       autoCompareKeyRef.current = null;
       compareRequestIdRef.current += 1;
       setSelectedRunIds([]);
+      setHydratedSelectedRuns({});
       setComparison(null);
       setComparisonChart(null);
       setErrorMessage(null);
@@ -436,16 +485,15 @@ export function ComparePage() {
       autoCompareKeyRef.current = null;
       compareRequestIdRef.current += 1;
       setSelectedRunIds([]);
+      setHydratedSelectedRuns({});
       setComparison(null);
       setComparisonChart(null);
-      setErrorMessage(`Comparison limit reached for your plan. Select up to ${MAX_COMPARE_RUNS} runs.`);
+      setErrorMessage(`Comparison limit reached for your plan. Select up to ${MAX_COMPARE_RUNS} results.`);
       setLoadingComparison(false);
       return;
     }
 
-    if (initialSelectedRunIds.length >= 2) {
-      setSelectedRunIds(initialSelectedRunIds);
-    }
+    setSelectedRunIds(initialSelectedRunIds);
   }, [initialSelectedRunIds, runIdsParam, urlRunIdLimitExceeded]);
 
   useEffect(() => {
@@ -465,7 +513,7 @@ export function ComparePage() {
         }
       } catch (error) {
         if (!ignore) {
-          setErrorMessage(error instanceof Error ? error.message : 'Failed to load comparable runs');
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to load comparable results');
         }
       } finally {
         if (!ignore) {
@@ -480,12 +528,57 @@ export function ComparePage() {
     };
   }, []);
 
-  const selectedRuns = useMemo(
-    () => availableRuns.filter((run) => selectedRunIds.includes(run.run_id)),
-    [availableRuns, selectedRunIds]
-  );
+  useEffect(() => {
+    let ignore = false;
+    const availableIds = new Set(availableRuns.map((run) => run.run_id));
+    const missingRunIds = selectedRunIds.filter(
+      (runId) => !availableIds.has(runId) && !hydratedSelectedRuns[runId]
+    );
+
+    if (missingRunIds.length === 0) return;
+
+    async function hydrateSelectedRuns() {
+      try {
+        const hydrated = await Promise.all(
+          missingRunIds.map(async (runId) => runResponseToDashboardItem(await fetchRun(runId)))
+        );
+        if (ignore) return;
+
+        setHydratedSelectedRuns((current) => {
+          const next = { ...current };
+          hydrated.forEach((run) => {
+            next[run.run_id] = run;
+          });
+          return next;
+        });
+      } catch (error) {
+        if (!ignore) {
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to load selected result');
+        }
+      }
+    }
+
+    void hydrateSelectedRuns();
+    return () => {
+      ignore = true;
+    };
+  }, [availableRuns, hydratedSelectedRuns, selectedRunIds]);
+
+  const selectedRuns = useMemo(() => {
+    const availableById = new Map(availableRuns.map((run) => [run.run_id, run]));
+
+    return selectedRunIds
+      .map((runId) => availableById.get(runId) ?? hydratedSelectedRuns[runId] ?? null)
+      .filter((run): run is RunDashboardListItem => run !== null);
+  }, [availableRuns, hydratedSelectedRuns, selectedRunIds]);
 
   const selectionLimitReached = selectedRunIds.length >= MAX_COMPARE_RUNS;
+  const selectedRunsSubtitle =
+    selectedRunIds.length === 1
+      ? 'Choose one more result to compare.'
+      : selectionLimitReached
+        ? 'Comparison limit reached. Remove one selected result before adding another.'
+        : 'Choose at least two succeeded results to compare.';
   const shouldShowComparisonCharts = Boolean(
     comparisonChart && comparison?.metadata.has_common_overlap !== false
   );
@@ -494,7 +587,7 @@ export function ComparePage() {
     const runIds = runIdsOverride ?? selectedRunIds;
 
     if (runIds.length < 2) {
-      setErrorMessage('Select at least two succeeded runs to compare.');
+      setErrorMessage('Select at least two succeeded results to compare.');
       return;
     }
 
@@ -540,6 +633,7 @@ export function ComparePage() {
     autoCompareKeyRef.current = null;
     compareRequestIdRef.current += 1;
     setSelectedRunIds([]);
+    setHydratedSelectedRuns({});
     setComparison(null);
     setComparisonChart(null);
     setErrorMessage(null);
@@ -569,8 +663,8 @@ export function ComparePage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Compare"
-        title="Run Comparison Workspace"
-        description="Select multiple succeeded runs, then compare normalized strategy curves, benchmark curves, and drawdown series."
+        title="Result Comparison Workspace"
+        description="Select multiple succeeded results, then compare normalized strategy curves, benchmark curves, and drawdown series."
         actions={
           <button
             type="button"
@@ -580,7 +674,7 @@ export function ComparePage() {
             disabled={loadingComparison || selectedRunIds.length < 2}
             className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {loadingComparison ? 'Comparing…' : 'Compare selected runs'}
+            {loadingComparison ? 'Comparing…' : 'Compare selected results'}
           </button>
         }
       />
@@ -589,7 +683,7 @@ export function ComparePage() {
 
       {loadingComparison ? (
         <StateCard
-          title="Comparing selected runs"
+          title="Comparing selected results"
           description="Loading comparison metrics and chart overlays. This may take a few seconds for larger run artifacts."
         />
       ) : null}
@@ -599,19 +693,17 @@ export function ComparePage() {
       {shouldShowComparisonCharts && comparisonChart ? <ComparisonCharts chart={comparisonChart} /> : null}
 
       <SectionCard
-        title={`Selected Runs (${selectedRunIds.length} / ${MAX_COMPARE_RUNS})`}
-        subtitle={
-          selectionLimitReached
-            ? 'Comparison limit reached. Remove one selected run before adding another.'
-            : 'Choose at least two succeeded runs to compare.'
-        }
+        title={`Selected Results (${selectedRunIds.length} / ${MAX_COMPARE_RUNS})`}
+        subtitle={selectedRunsSubtitle}
       >
-        {selectedRuns.length === 0 ? (
-          <p className="text-sm app-text-muted">No runs selected yet.</p>
+        {selectedRunIds.length > 0 && selectedRuns.length === 0 ? (
+          <p className="text-sm app-text-muted">Loading selected result…</p>
+        ) : selectedRuns.length === 0 ? (
+          <p className="text-sm app-text-muted">No results selected yet.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {selectedRuns.map((run) => {
-              const label = formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
+              const label = formatComparableRunLabel(run);
               const idLabel = shortRunId(run.run_id);
               return (
                 <button
@@ -632,15 +724,15 @@ export function ComparePage() {
       </SectionCard>
 
       <SectionCard
-        title="Succeeded Runs"
-        subtitle={`Recent finished runs available for comparison. Select up to ${MAX_COMPARE_RUNS} runs.`}
+        title="Comparable Results"
+        subtitle={`Recent finished results available for comparison. Select up to ${MAX_COMPARE_RUNS} results.`}
       >
         <div className="app-table overflow-auto rounded-2xl border">
           <table className="min-w-full divide-y app-divider text-sm">
             <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
               <tr>
                 <th className="px-4 py-3">Pick</th>
-                <th className="px-4 py-3">Run</th>
+                <th className="px-4 py-3">Result</th>
                 <th className="px-4 py-3">Return</th>
                 <th className="px-4 py-3">Sharpe</th>
                 <th className="px-4 py-3">Max DD</th>
@@ -650,7 +742,7 @@ export function ComparePage() {
               {loadingRuns ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-12 text-center app-text-muted">
-                    Loading succeeded runs…
+                    Loading comparable results…
                   </td>
                 </tr>
               ) : (
@@ -669,9 +761,11 @@ export function ComparePage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium app-title">
-                          {formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id)}
+                          {formatComparableRunLabel(run)}
                         </div>
-                        <div className="mt-1 font-mono text-xs app-text-soft">{run.run_id}</div>
+                        <div className="mt-1 text-xs app-text-soft">
+                          {isSavedSweepVariantResult(run) ? formatSavedSweepVariantSource(run) : run.run_id}
+                        </div>
                       </td>
                       <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
                       <td className="px-4 py-3 app-text-muted">{formatNumber(run.sharpe_ratio)}</td>

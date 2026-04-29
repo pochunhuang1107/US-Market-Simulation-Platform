@@ -60,6 +60,7 @@ class PromoteSweepVariantResponse(BaseModel):
     variant_id: str
     strategy_id: str
     version_id: str
+    derived_run_id: str | None = None
 
 
 class SweepVariantDetailResponse(BaseModel):
@@ -67,6 +68,10 @@ class SweepVariantDetailResponse(BaseModel):
     variant: dict[str, Any]
     rank: int
     ranking_metric: str | None = None
+    sweep_origin: Literal["STANDALONE", "SAVED_STRATEGY"]
+    saved_strategy_id: str | None = None
+    saved_version_id: str | None = None
+    saved_run_id: str | None = None
     chart_data: dict[str, Any] | None = None
 
 
@@ -116,6 +121,11 @@ class RunResponse(BaseModel):
     strategy_version_id: UUID | None
     strategy_name: str | None = None
     strategy_version_number: int | None = None
+    source: str | None = None
+    source_sweep_run_id: str | None = None
+    source_variant_id: str | None = None
+    source_variant_rank: int | None = None
+    source_ranking_metric: str | None = None
 
     run_type: str
     executor_type: str
@@ -289,6 +299,11 @@ class RunComparisonSummary(BaseModel):
     strategy_version_id: str | None = None
     strategy_name: str | None = None
     strategy_version_number: int | None = None
+    source: str | None = None
+    source_sweep_run_id: str | None = None
+    source_variant_id: str | None = None
+    source_variant_rank: int | None = None
+    source_ranking_metric: str | None = None
     status: str
     total_return_pct: float | None = None
     benchmark_return_pct: float | None = None
@@ -354,6 +369,11 @@ class RunDashboardListItem(BaseModel):
     strategy_version_id: str | None = None
     strategy_name: str | None = None
     strategy_version_number: int | None = None
+    source: str | None = None
+    source_sweep_run_id: str | None = None
+    source_variant_id: str | None = None
+    source_variant_rank: int | None = None
+    source_ranking_metric: str | None = None
     status: str
     run_type: str
     executor_type: str

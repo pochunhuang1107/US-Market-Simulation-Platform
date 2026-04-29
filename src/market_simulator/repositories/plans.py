@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from market_simulator.db.enums import StrategyStatus
 from market_simulator.db.models.run import Run
@@ -65,13 +65,18 @@ def count_runs_created_today(db: Session, user_id: str) -> int:
     start_of_day = datetime.combine(now.date(), time.min, tzinfo=timezone.utc)
     end_of_day = start_of_day + timedelta(days=1)
 
-    return (
-        db.query(func.count(Run.id))
+    rows = (
+        db.query(Run.request_payload)
         .filter(
             Run.user_id == user_id,
             Run.created_at >= start_of_day,
             Run.created_at < end_of_day,
         )
-        .scalar()
-        or 0
+        .all()
+    )
+
+    return sum(
+        1
+        for (request_payload,) in rows
+        if (request_payload or {}).get("source") != "sweep_variant_save"
     )

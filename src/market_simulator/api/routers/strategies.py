@@ -37,6 +37,28 @@ def hash_config(config):
     return hashlib.sha256(normalized.encode()).hexdigest()
 
 
+def _run_source_metadata(run) -> dict:
+    payload = run.request_payload or {}
+    source = payload.get("source")
+    if source != "sweep_variant_save":
+        return {
+            "source": None,
+            "source_sweep_run_id": None,
+            "source_variant_id": None,
+            "source_variant_rank": None,
+            "source_ranking_metric": None,
+        }
+
+    source_variant_rank = payload.get("source_variant_rank")
+    return {
+        "source": "sweep_variant_save",
+        "source_sweep_run_id": payload.get("source_sweep_run_id"),
+        "source_variant_id": payload.get("source_variant_id"),
+        "source_variant_rank": source_variant_rank if isinstance(source_variant_rank, int) else None,
+        "source_ranking_metric": payload.get("source_ranking_metric"),
+    }
+
+
 @router.post("")
 def create_strategy_api(
     req: CreateStrategyRequest,
@@ -166,6 +188,7 @@ def get_strategy_dashboard_api(
     associated_runs = []
     for run in recent_runs:
         summary_json = run.summary_json or {}
+        source_metadata = _run_source_metadata(run)
 
         associated_runs.append(
             RunDashboardListItem(
@@ -176,6 +199,7 @@ def get_strategy_dashboard_api(
                 strategy_version_number=(
                     run.strategy_version.version_number if run.strategy_version else None
                 ),
+                **source_metadata,
                 status=str(run.status),
                 run_type=str(run.run_type),
                 executor_type=str(run.executor_type),
@@ -215,9 +239,11 @@ def get_strategy_dashboard_api(
 
         latest_run_id = str(latest_run.id)
         latest_finished_at = latest_run.finished_at
+        source_metadata = _run_source_metadata(latest_run)
 
         latest_performance = StrategyLatestPerformance(
             run_id=latest_run_id,
+            **source_metadata,
             finished_at=latest_finished_at,
             total_return_pct=summary_json.get("total_return_pct"),
             benchmark_return_pct=summary_json.get("benchmark_return_pct"),

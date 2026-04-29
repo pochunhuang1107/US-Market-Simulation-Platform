@@ -56,6 +56,29 @@ export function shortRunId(runId: Nullable<string> | undefined): string {
   return runId ? runId.slice(0, 8) : '';
 }
 
+type RunSourceMetadata = {
+  source?: Nullable<string>;
+  source_sweep_run_id?: Nullable<string>;
+  source_variant_id?: Nullable<string>;
+  source_variant_rank?: Nullable<number>;
+  source_ranking_metric?: Nullable<string>;
+};
+
+export function isSavedSweepVariantResult(run: RunSourceMetadata): boolean {
+  return run.source === 'sweep_variant_save';
+}
+
+export function formatSavedSweepVariantSource(run: RunSourceMetadata): string {
+  const sweepId = shortRunId(run.source_sweep_run_id);
+  const variantId = shortRunId(run.source_variant_id);
+  const parts = [];
+
+  if (sweepId) parts.push(`sweep ${sweepId}`);
+  if (variantId) parts.push(`variant ${variantId}`);
+
+  return parts.length > 0 ? `Saved from ${parts.join(' · ')}` : 'Saved from sweep variant';
+}
+
 const RUN_TYPE_LABELS: Record<string, string> = {
   SIMULATION: 'Backtest',
   PORTFOLIO: 'Portfolio run',

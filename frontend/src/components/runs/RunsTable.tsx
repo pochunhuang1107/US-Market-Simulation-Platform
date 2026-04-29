@@ -7,6 +7,8 @@ import {
   formatPct,
   formatRunLabel,
   formatRunType,
+  formatSavedSweepVariantSource,
+  isSavedSweepVariantResult,
   shortRunId
 } from '../../lib/formatters';
 import type { RunDashboardListItem } from '../../types/api';
@@ -64,28 +66,47 @@ export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
             ) : (
               runs.map((run) => {
                 const progress = getProgressDisplay(run);
+                const isSavedSweepVariant = isSavedSweepVariantResult(run);
 
                 return (
                   <tr key={run.run_id} className="app-row-hover align-top transition">
                     <td className="px-5 py-4">
                       <div className="max-w-[280px]">
                         <div className="flex flex-wrap items-center gap-2">
-                          {run.strategy_id ? (
-                            <Link to={`/strategies/${run.strategy_id}`} className="font-semibold app-title transition hover:text-cyan-400">
-                              {formatRunLabel(run.strategy_name, run.strategy_version_number)}
-                            </Link>
-                          ) : (
-                            <span className="font-semibold app-title">{formatRunLabel(run.strategy_name, run.strategy_version_number)}</span>
-                          )}
+                          <Link to={`/runs/${run.run_id}`} className="font-semibold app-title transition hover:text-cyan-400">
+                            {formatRunLabel(run.strategy_name, run.strategy_version_number)}
+                          </Link>
+                          {isSavedSweepVariant ? (
+                            <span className="app-badge rounded-full px-2 py-0.5 text-[10px] font-semibold">
+                              Saved sweep variant
+                            </span>
+                          ) : null}
                         </div>
                         <p className="mt-2 text-xs app-text-soft">
-                          <span>{formatRunType(run.run_type)}</span>
-                          <span className="mx-1.5">·</span>
-                          <span className="app-text-muted">{formatExecutorType(run.executor_type)}</span>
+                          {isSavedSweepVariant ? (
+                            <span>{formatSavedSweepVariantSource(run)}</span>
+                          ) : (
+                            <>
+                              <span>{formatRunType(run.run_type)}</span>
+                              <span className="mx-1.5">·</span>
+                              <span className="app-text-muted">{formatExecutorType(run.executor_type)}</span>
+                            </>
+                          )}
                         </p>
                         <p className="mt-1 font-mono text-[11px] app-text-muted" title={run.run_id}>
                           ID {shortRunId(run.run_id)}
                         </p>
+                        {run.strategy_id ? (
+                          <p className="mt-1 text-xs app-text-muted">
+                            Strategy:{' '}
+                            <Link to={`/strategies/${run.strategy_id}`} className="font-semibold transition hover:text-cyan-400">
+                              {run.strategy_name ?? 'Open strategy'}
+                            </Link>
+                            {run.strategy_version_number ? (
+                              <span className="app-text-soft"> · v{run.strategy_version_number}</span>
+                            ) : null}
+                          </p>
+                        ) : null}
                         <div className="mt-3 flex items-center gap-2">
                           <Link
                             to={`/runs/${run.run_id}`}

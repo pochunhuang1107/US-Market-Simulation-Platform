@@ -3,12 +3,14 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { RunCharts } from '../components/run-detail/RunCharts';
 import { RunInsightHero } from '../components/run-detail/RunInsightHero';
+import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
 import { MetricCard } from '../components/shared/MetricCard';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
-import { fetchSweepVariantDetail } from '../lib/api';
+import { fetchSweepVariantDetail, promoteSweepVariant } from '../lib/api';
 import { formatDecimal, formatNumber, formatPct } from '../lib/formatters';
+import { suggestStrategyNameFromConfig } from '../lib/suggestStrategyName';
 import {
   formatParameterLabel,
   formatParameterValue,
@@ -57,6 +59,28 @@ function rankForMetric(data: SweepVariantDetailResponse, variantId: string, metr
   return index === -1 ? data.rank : index + 1;
 }
 
+function formatSaveStrategyError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Failed to save strategy';
+
+  if (message.includes('Saved strategy limit reached')) {
+    return 'Saved strategy limit reached. Go to Strategy Library and archive an older strategy, then try saving again.';
+  }
+
+  if (message.includes('Run not found')) {
+    return 'Sweep run not found. It may have been deleted or is no longer available.';
+  }
+
+  if (message.includes('Sweep variant not found')) {
+    return 'Sweep variant not found. Return to the sweep results and choose another variant.';
+  }
+
+  if (message.includes('saveable strategy config') || message.includes('valid Strategy V2 config')) {
+    return 'This variant does not include a valid strategy config to save.';
+  }
+
+  return message;
+}
+
 export function SweepVariantDetailPage() {
   const { runId, variantId } = useParams();
   const [searchParams] = useSearchParams();
@@ -65,6 +89,9 @@ export function SweepVariantDetailPage() {
   const [data, setData] = useState<SweepVariantDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSaveStrategyModalOpen, setIsSaveStrategyModalOpen] = useState(false);
+  const [isSavingStrategy, setIsSavingStrategy] = useState(false);
+  const [saveStrategyError, setSaveStrategyError] = useState<string | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -117,7 +144,7 @@ export function SweepVariantDetailPage() {
   }, [config, data]);
 
   function handleEditAsNewVersion() {
-    if (!runId || !variantId || !data || !data.run.strategy_id || !config) return;
+    if (!runId || !variantId || !data || data.sweep_origin !== 'SAVED_STRATEGY' || !data.run.strategy_id || !config) return;
 
     const rankingMetric = searchParams.get('rankingMetric') || data.ranking_metric || 'sharpe_ratio';
     const rank = rankForMetric(data, variantId, rankingMetric);
@@ -139,6 +166,43 @@ export function SweepVariantDetailPage() {
     });
   }
 
+  async function handleSaveStrategy(payload: { name: string; description: string }) {
+    if (!runId || !variantId || !data || data.sweep_origin !== 'STANDALONE') return;
+    if (data.saved_strategy_id) {
+      navigate(`/strategies/${data.saved_strategy_id}`);
+      return;
+    }
+
+    const rankingMetric = searchParams.get('rankingMetric') || data.ranking_metric || 'sharpe_ratio';
+    const rank = rankForMetric(data, variantId, rankingMetric);
+    const changeNote = `Saved from parameter sweep run ${shortRunId(runId)}, rank #${rank} by ${formatRankingMetricName(rankingMetric)}.`;
+
+    setSaveStrategyError(null);
+    setIsSavingStrategy(true);
+
+    try {
+      const response = await promoteSweepVariant(runId, variantId, {
+        name: payload.name,
+        description: payload.description || `Saved from sweep run ${runId}`,
+        change_note: changeNote
+      });
+
+      setIsSaveStrategyModalOpen(false);
+      navigate(`/strategies/${response.strategy_id}`, {
+        state: {
+          notice: {
+            tone: 'success',
+            message: 'Strategy saved successfully from sweep variant.'
+          }
+        }
+      });
+    } catch (error) {
+      setSaveStrategyError(formatSaveStrategyError(error));
+    } finally {
+      setIsSavingStrategy(false);
+    }
+  }
+
   if (loading) {
     return <StateCard title="Loading sweep variant" description="Fetching the selected variant metrics and config." />;
   }
@@ -153,6 +217,9 @@ export function SweepVariantDetailPage() {
   const displayRank = variantId ? rankForMetric(data, variantId, rankingMetric) : data.rank;
   const parameterRows = sortedParameterEntries(variant.parameters);
   const hasChartData = Boolean(data.chart_data && data.chart_data.equity_curve.length > 0);
+  const suggestedStrategyName = suggestStrategyNameFromConfig(config);
+  const isStandaloneSweep = data.sweep_origin === 'STANDALONE';
+  const savedStrategyId = isStandaloneSweep ? data.saved_strategy_id : null;
 
   const metrics = [
     { label: 'Total Return', value: formatPct(toNumber(variant.total_return_pct)), tone: getMetricTone(toNumber(variant.total_return_pct)) },
@@ -165,7 +232,8 @@ export function SweepVariantDetailPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <>
+      <div className="space-y-6">
       <PageHeader
         eyebrow={`Sweep run ${shortRunId(data.run.id)}`}
         title="Sweep Variant"
@@ -178,7 +246,25 @@ export function SweepVariantDetailPage() {
             >
               Back to sweep
             </Link>
-            {data.run.strategy_id ? (
+            {savedStrategyId ? (
+              <Link
+                to={`/strategies/${savedStrategyId}`}
+                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+              >
+                Open saved strategy
+              </Link>
+            ) : isStandaloneSweep ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveStrategyError(null);
+                  setIsSaveStrategyModalOpen(true);
+                }}
+                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+              >
+                Save strategy
+              </button>
+            ) : (
               <button
                 type="button"
                 onClick={handleEditAsNewVersion}
@@ -186,20 +272,10 @@ export function SweepVariantDetailPage() {
               >
                 Edit as new version
               </button>
-            ) : (
-              <span className="app-button-secondary rounded-xl px-4 py-2 text-sm font-semibold opacity-60">
-                Save as strategy draft
-              </span>
             )}
           </>
         }
       />
-
-      {!data.run.strategy_id ? (
-        <div className="app-note rounded-2xl border px-4 py-3 text-sm">
-          Saving standalone sweep variants will be added next.
-        </div>
-      ) : null}
 
       <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
         {metrics.map((metric) => (
@@ -246,6 +322,24 @@ export function SweepVariantDetailPage() {
           </pre>
         </details>
       </SectionCard>
-    </div>
+      </div>
+
+      <SaveStrategyModal
+        isOpen={isSaveStrategyModalOpen}
+        initialName={suggestedStrategyName}
+        title="Save this variant as a strategy"
+        helperText="This creates a saved strategy from the selected sweep variant so you can continue research or track it later."
+        isSaving={isSavingStrategy}
+        errorMessage={saveStrategyError}
+        onClose={() => {
+          if (isSavingStrategy) return;
+          setSaveStrategyError(null);
+          setIsSaveStrategyModalOpen(false);
+        }}
+        onSubmit={(payload) => {
+          void handleSaveStrategy(payload);
+        }}
+      />
+    </>
   );
 }
