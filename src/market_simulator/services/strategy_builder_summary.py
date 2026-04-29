@@ -65,18 +65,18 @@ def _describe_atomic_rule(rule: dict[str, Any]) -> str:
 
     if rule_type == "sma_above":
         if fast_window == 1:
-            return f"{symbol} is above its {slow_window}-day SMA"
+            return f"{symbol} price is above its {slow_window}-day SMA"
         return f"{symbol} {fast_window}-day SMA is above its {slow_window}-day SMA"
 
     if rule_type == "sma_cross_above":
         if fast_window == 1:
             return f"{symbol} crosses above its {slow_window}-day SMA"
-        return f"{symbol} {fast_window}-day SMA crosses above its {slow_window}-day SMA"
+        return f"{symbol} {fast_window}-day SMA crosses above {symbol} {slow_window}-day SMA"
 
     if rule_type == "sma_cross_below":
         if fast_window == 1:
             return f"{symbol} crosses below its {slow_window}-day SMA"
-        return f"{symbol} {fast_window}-day SMA crosses below its {slow_window}-day SMA"
+        return f"{symbol} {fast_window}-day SMA crosses below {symbol} {slow_window}-day SMA"
 
     if rule_type == "macd_bullish_cross":
         return f"{symbol} MACD turns bullish"
@@ -121,7 +121,7 @@ def _describe_rule(rule: dict | None) -> str:
             and nested_rule.get("fast_window") == 1
         ):
             symbol = _format_rule_symbol(nested_rule)
-            return f"{symbol} is below its {nested_rule.get('slow_window')}-day SMA"
+            return f"{symbol} price is below its {nested_rule.get('slow_window')}-day SMA"
         return f"not ({_describe_rule(nested_rule)})"
 
     if kind == "group":

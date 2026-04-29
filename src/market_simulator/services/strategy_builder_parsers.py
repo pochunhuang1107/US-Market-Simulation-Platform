@@ -494,9 +494,9 @@ def _extract_rsi_exit_lookback_edit(text: str) -> int | None:
 
 def _extract_sma_crossover_pair(text: str) -> tuple[int, int] | None:
     patterns = [
-        r"(\d+)\s*(?:day|d)?\s*sma\s*(?:cross(?:es)?|crossing)?\s*above\s*(\d+)\s*(?:day|d)?\s*sma",
+        r"(\d+)\s*(?:[-\s]*(?:day|d))?[-\s]*sma\s*(?:cross(?:es)?|crossing)?\s*(?:above|below)\s*(?:[A-Z]{2,5}\s+)?(\d+)\s*(?:[-\s]*(?:day|d))?[-\s]*sma",
         r"(\d+)\s*/\s*(\d+)\s*sma",
-        r"(\d+)\s*(?:day|d)?\s+(?:and|\/)\s*(\d+)\s*(?:day|d)?\s+sma",
+        r"(\d+)\s*(?:[-\s]*(?:day|d))?\s+(?:and|\/)\s*(\d+)\s*(?:[-\s]*(?:day|d))?\s+sma",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -510,10 +510,10 @@ def _extract_sma_crossover_pair(text: str) -> tuple[int, int] | None:
 
 def _extract_sma_above_pair(text: str) -> tuple[int, int] | None:
     patterns = [
-        r"(\d+)\s*(?:day|d)?\s*sma\s+(?:is\s+)?above\s+(\d+)\s*(?:day|d)?\s*sma",
+        r"(\d+)\s*(?:[-\s]*(?:day|d))?[-\s]*sma\s+(?:is\s+)?above\s+(?:[A-Z]{2,5}\s+)?(\d+)\s*(?:[-\s]*(?:day|d))?[-\s]*sma",
         r"sma\s+above\s+(\d+)\s*/\s*(\d+)",
         r"(\d+)\s*/\s*(\d+)\s*sma\s+above",
-        r"(\d+)\s*(?:day|d)?\s+sma\s+above\s+(\d+)\s*(?:day|d)?\s+sma",
+        r"(\d+)\s*(?:[-\s]*(?:day|d))?\s+sma\s+above\s+(\d+)\s*(?:[-\s]*(?:day|d))?\s+sma",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -811,9 +811,9 @@ def _split_clause_conditions(text: str) -> tuple[str | None, list[str]] | None:
 
 def _extract_sma_pair_any_direction(text: str) -> tuple[int, int] | None:
     patterns = [
-        r"(\d+)\s*(?:day|d)?\s*sma\s*(?:cross(?:es)?|crossing)?\s*(?:above|below)\s*(\d+)\s*(?:day|d)?\s*sma",
+        r"(\d+)\s*(?:[-\s]*(?:day|d))?[-\s]*sma\s*(?:cross(?:es)?|crossing)?\s*(?:above|below)\s*(?:[A-Z]{2,5}\s+)?(\d+)\s*(?:[-\s]*(?:day|d))?[-\s]*sma",
         r"(\d+)\s*/\s*(\d+)\s*sma",
-        r"(\d+)\s*(?:day|d)?\s+(?:and|\/)\s*(\d+)\s*(?:day|d)?\s+sma",
+        r"(\d+)\s*(?:[-\s]*(?:day|d))?\s+(?:and|\/)\s*(\d+)\s*(?:[-\s]*(?:day|d))?\s+sma",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -834,7 +834,7 @@ def _extract_clause_symbol(text: str, *, tradable_symbol: str) -> str:
 def _extract_single_sma_window(text: str) -> int | None:
     patterns = [
         r"\b(?:sma|moving\s+average)\s*(\d+)\b",
-        r"\b(\d+)\s*(?:day|d)?[-\s]*(?:sma|moving\s+average)\b",
+        r"\b(\d+)\s*(?:[-\s]*(?:day|d))?[-\s]*(?:sma|moving\s+average)\b",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -1825,6 +1825,7 @@ __all__ = [
     "_extract_sma_crossover_pair",
     "_extract_sma_filter_window_edit",
     "_extract_sma_pair_any_direction",
+    "_extract_single_sma_window",
     "_extract_symbols",
     "_extract_temporal_bars_edit",
     "_extract_temporal_mode_edit",

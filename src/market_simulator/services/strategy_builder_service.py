@@ -113,6 +113,7 @@ from market_simulator.services.strategy_builder_parsers import (
     _extract_sma_above_pair,
     _extract_sma_crossover_pair,
     _extract_sma_filter_window_edit,
+    _extract_single_sma_window,
     _extract_temporal_bars_edit,
     _extract_temporal_mode_edit,
     _extract_tradable_symbol_edit,
@@ -147,6 +148,32 @@ from market_simulator.services.strategy_builder_parsers import (
 def _has_current_config(req: StrategyBuilderGenerateRequest) -> bool:
     current_config = req.context.current_config if req.context else None
     return isinstance(current_config, dict) and bool(current_config)
+
+
+def _has_price_above_sma_intent(prompt: str) -> bool:
+    return bool(re.search(r"\b(above|over)\b", prompt, flags=re.IGNORECASE))
+
+
+def _has_price_below_sma_intent(prompt: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(below|under|falls?\s+below|drops?\s+below)\b",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _looks_like_exit_only_prompt(prompt: str) -> bool:
+    has_exit = bool(re.search(r"\b(exit|sell|selling)\b", prompt, flags=re.IGNORECASE))
+    has_entry = bool(re.search(r"\b(entry|buy|buying)\b", prompt, flags=re.IGNORECASE))
+    return has_exit and not has_entry
+
+
+def _looks_like_entry_only_prompt(prompt: str) -> bool:
+    has_entry = bool(re.search(r"\b(entry|buy|buying)\b", prompt, flags=re.IGNORECASE))
+    has_exit = bool(re.search(r"\b(exit|sell|selling)\b", prompt, flags=re.IGNORECASE))
+    return has_entry and not has_exit
 
 
 def _has_numeric_threshold(rule: dict[str, Any]) -> bool:
@@ -825,6 +852,7 @@ def _build_base_rule_candidates(
     rsi_exit_lookback_edit = _extract_rsi_exit_lookback_edit(prompt)
     sma_pair = _extract_sma_crossover_pair(prompt)
     sma_above_pair = _extract_sma_above_pair(prompt)
+    single_sma_window = _extract_single_sma_window(prompt)
 
     entry_fast_window_edit = _extract_entry_fast_window_edit(prompt)
     entry_slow_window_edit = _extract_entry_slow_window_edit(prompt)
@@ -864,6 +892,59 @@ def _build_base_rule_candidates(
 
     if "moving average" in prompt_lower or "sma" in prompt_lower:
         selected_pair = sma_above_pair if sma_above_pair is not None else sma_pair
+        price_sma_rule = (
+            {
+                "kind": "atomic",
+                "type": "sma_above",
+                "symbol": tradable_symbol,
+                "fast_window": 1,
+                "slow_window": single_sma_window,
+            }
+            if selected_pair is None
+            and single_sma_window is not None
+            and (_has_price_above_sma_intent(prompt) or _has_price_below_sma_intent(prompt))
+            else None
+        )
+
+        if price_sma_rule is not None:
+            if _has_price_below_sma_intent(prompt) and not _has_price_above_sma_intent(prompt):
+                if exit_rule is None and _looks_like_exit_only_prompt(prompt):
+                    exit_rule = {
+                        "kind": "not",
+                        "rule": price_sma_rule,
+                    }
+                elif entry_rule is None:
+                    entry_rule = {
+                        "kind": "not",
+                        "rule": price_sma_rule,
+                    }
+            else:
+                if entry_rule is None:
+                    entry_rule = price_sma_rule
+
+                if exit_rule is None and not _looks_like_entry_only_prompt(prompt):
+                    exit_rule = {
+                        "kind": "not",
+                        "rule": price_sma_rule,
+                    }
+
+            assumptions.append(
+                f"Interpreted price-vs-SMA language using {single_sma_window} as the SMA window."
+            )
+            return {
+                "entry_rule": entry_rule,
+                "exit_rule": exit_rule,
+                "rsi_entry_threshold_edit": rsi_entry_threshold_edit,
+                "rsi_exit_threshold_edit": rsi_exit_threshold_edit,
+                "rsi_entry_lookback_edit": rsi_entry_lookback_edit,
+                "rsi_exit_lookback_edit": rsi_exit_lookback_edit,
+                "entry_fast_window_edit": entry_fast_window_edit,
+                "entry_slow_window_edit": entry_slow_window_edit,
+                "exit_fast_window_edit": exit_fast_window_edit,
+                "exit_slow_window_edit": exit_slow_window_edit,
+                "has_partial_sma_window_edit": has_partial_sma_window_edit,
+            }
+
         fast_window, slow_window = selected_pair if selected_pair else (20, 50)
         if selected_pair:
             assumptions.append(
@@ -2748,7 +2829,125 @@ def _collect_rule_parameter_paths(
     return []
 
 
-def _resolve_legacy_sweep_path(base_config: dict[str, Any], path: str) -> tuple[str | None, str | None]:
+def _has_sweep_side_word(prompt: str, side: str) -> bool:
+    if side == "entry":
+        return bool(re.search(r"\b(entry|buy|buying)\b", prompt, flags=re.IGNORECASE))
+    return bool(re.search(r"\b(exit|sell|selling)\b", prompt, flags=re.IGNORECASE))
+
+
+def _has_sweep_family_word(prompt: str, family: str) -> bool:
+    if family == "rsi":
+        return bool(re.search(r"\brsi\b", prompt, flags=re.IGNORECASE))
+    if family == "sma":
+        return bool(re.search(r"\b(sma|moving\s+average)\b", prompt, flags=re.IGNORECASE))
+    return False
+
+
+def _has_generic_sma_window_intent(prompt: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:sma|moving\s+average)\s+(?:lookbacks?|windows?)\b",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+        and not re.search(r"\b(fast|slow)\s+windows?\b", prompt, flags=re.IGNORECASE)
+    )
+
+
+def _root_key_for_sweep_path(path: str) -> str | None:
+    if path.startswith("entry_rule."):
+        return "entry_rule"
+    if path.startswith("exit_rule."):
+        return "exit_rule"
+    return None
+
+
+def _path_conflicts_with_explicit_sweep_side(prompt: str, path: str, family: str) -> bool:
+    if not _has_sweep_family_word(prompt, family):
+        return False
+
+    root_key = _root_key_for_sweep_path(path)
+    if root_key == "entry_rule":
+        return _has_sweep_side_word(prompt, "exit") and not _has_sweep_side_word(prompt, "entry")
+    if root_key == "exit_rule":
+        return _has_sweep_side_word(prompt, "entry") and not _has_sweep_side_word(prompt, "exit")
+    return False
+
+
+def _explicit_sweep_root_for_conflicting_path(prompt: str, path: str, family: str) -> str | None:
+    if not _path_conflicts_with_explicit_sweep_side(prompt, path, family):
+        return None
+    if _has_sweep_side_word(prompt, "entry"):
+        return "entry_rule"
+    if _has_sweep_side_word(prompt, "exit"):
+        return "exit_rule"
+    return None
+
+
+def _resolve_semantic_sweep_target(
+    *,
+    base_config: dict[str, Any],
+    prompt: str,
+    path: str,
+    root_key: str,
+    attribute: str,
+    family: str,
+    label: str,
+    strict_ambiguity: bool,
+) -> tuple[str | None, str | None]:
+    requested_root = _root_key_for_sweep_path(path) or root_key
+    prompt_has_requested_side = _has_sweep_side_word(
+        prompt,
+        "entry" if requested_root == "entry_rule" else "exit",
+    )
+    prompt_has_any_side = _has_sweep_side_word(prompt, "entry") or _has_sweep_side_word(prompt, "exit")
+    prompt_has_family = _has_sweep_family_word(prompt, family)
+
+    search_roots = [requested_root]
+    if strict_ambiguity and prompt_has_family and not prompt_has_requested_side and not prompt_has_any_side:
+        search_roots = ["entry_rule", "exit_rule"]
+
+    if family == "sma" and attribute == "fast_window" and _has_generic_sma_window_intent(prompt):
+        attribute = "slow_window"
+        label = label.replace("fast window", "window").replace("slow window", "window")
+
+    matches: list[str] = []
+    for search_root in search_roots:
+        matches.extend(
+            _collect_rule_parameter_paths(
+                base_config.get(search_root),
+                root_path=search_root,
+                attribute=attribute,
+                family=family,
+            )
+        )
+
+    if len(matches) == 1:
+        return matches[0], None
+
+    if len(matches) > 1:
+        return None, (
+            f"This draft has multiple possible {label} targets. "
+            "Please specify whether you mean the entry/buy rule or the exit/sell rule."
+        )
+
+    guidance_path = f"{requested_root}.{attribute}"
+    guidance = _parameter_path_guidance(base_config, guidance_path)
+    if guidance is not None:
+        return None, guidance
+    return None, (
+        f"I could not find a matching {label} in the current draft. "
+        "Please choose a parameter that already exists in the strategy rules."
+    )
+
+
+def _resolve_legacy_sweep_path(
+    base_config: dict[str, Any],
+    path: str,
+    *,
+    prompt: str,
+    strict_ambiguity: bool,
+) -> tuple[str | None, str | None]:
     legacy_specs = {
         "entry_rule.threshold": ("entry_rule", "threshold", "rsi", "entry RSI threshold"),
         "exit_rule.threshold": ("exit_rule", "threshold", "rsi", "exit RSI threshold"),
@@ -2762,42 +2961,76 @@ def _resolve_legacy_sweep_path(base_config: dict[str, Any], path: str) -> tuple[
         return path, None
 
     root_key, attribute, family, label = spec
-    rule = base_config.get(root_key)
-    if isinstance(rule, dict) and rule.get("kind") == "atomic":
-        return path, None
-
-    matches = _collect_rule_parameter_paths(
-        rule,
-        root_path=root_key,
-        attribute=attribute,
-        family=family,
+    explicit_root = (
+        _explicit_sweep_root_for_conflicting_path(prompt, path, family)
+        if strict_ambiguity
+        else None
     )
-
-    if len(matches) == 1:
-        return matches[0], None
-
-    if len(matches) > 1:
-        return None, (
-            f"This draft has multiple possible {label} targets. "
-            "Please specify the condition to sweep, such as the first or second condition in the group."
+    if explicit_root is not None:
+        return _resolve_semantic_sweep_target(
+            base_config=base_config,
+            prompt=prompt,
+            path=f"{explicit_root}.{attribute}",
+            root_key=explicit_root,
+            attribute=attribute,
+            family=family,
+            label=label,
+            strict_ambiguity=strict_ambiguity,
         )
 
-    guidance = _parameter_path_guidance(base_config, path)
-    if guidance is not None:
-        return None, guidance
-    return path, None
+    rule = base_config.get(root_key)
+    if isinstance(rule, dict) and rule.get("kind") == "atomic":
+        if (
+            family == "sma"
+            and attribute == "fast_window"
+            and _has_generic_sma_window_intent(prompt)
+        ) or (
+            strict_ambiguity
+            and _has_sweep_family_word(prompt, family)
+            and not _has_sweep_side_word(prompt, "entry")
+            and not _has_sweep_side_word(prompt, "exit")
+        ):
+            return _resolve_semantic_sweep_target(
+                base_config=base_config,
+                prompt=prompt,
+                path=path,
+                root_key=root_key,
+                attribute=attribute,
+                family=family,
+                label=label,
+                strict_ambiguity=strict_ambiguity,
+            )
+        return path, None
+
+    return _resolve_semantic_sweep_target(
+        base_config=base_config,
+        prompt=prompt,
+        path=path,
+        root_key=root_key,
+        attribute=attribute,
+        family=family,
+        label=label,
+        strict_ambiguity=strict_ambiguity,
+    )
 
 
 def _resolve_follow_up_sweep_grid_paths(
     *,
     base_config: dict[str, Any],
     grid: dict[str, list[Any]],
+    prompt: str,
     max_backtest_years: int,
+    strict_ambiguity: bool,
 ) -> tuple[dict[str, list[Any]] | None, dict[str, Any] | None]:
     resolved_grid: dict[str, list[Any]] = {}
 
     for path, values in grid.items():
-        resolved_path, guidance = _resolve_legacy_sweep_path(base_config, path)
+        resolved_path, guidance = _resolve_legacy_sweep_path(
+            base_config,
+            path,
+            prompt=prompt,
+            strict_ambiguity=strict_ambiguity,
+        )
         if guidance is not None:
             return None, _build_response(
                 response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
@@ -2846,13 +3079,17 @@ def _build_parameter_sweep_response(
     ranking_metric: str,
     max_variants: int,
     max_backtest_years: int,
+    prompt: str,
+    strict_ambiguity: bool,
     warnings: list[str] | None = None,
     assumptions: list[str] | None = None,
 ) -> dict[str, Any]:
     grid, path_guidance_response = _resolve_follow_up_sweep_grid_paths(
         base_config=base_config,
         grid=grid,
+        prompt=prompt,
         max_backtest_years=max_backtest_years,
+        strict_ambiguity=strict_ambiguity,
     )
     if path_guidance_response is not None:
         return path_guidance_response
@@ -3013,6 +3250,8 @@ def _generate_existing_parameter_sweep_edit(
         ranking_metric=ranking_metric,
         max_variants=max_variants,
         max_backtest_years=max_backtest_years,
+        prompt=prompt,
+        strict_ambiguity=True,
     )
 
 
@@ -3033,11 +3272,13 @@ def _generate_parameter_sweep_draft(
         if not isinstance(base_config.get("risk"), dict):
             base_config["risk"] = {}
         assumptions.append("Used the current Strategy V2 draft as the sweep base configuration.")
+        strict_ambiguity = True
     else:
         base_config, _, warnings, assumptions, _ = generate_strategy_builder_draft(
             req,
             max_backtest_years=max_backtest_years,
         )
+        strict_ambiguity = False
 
     return _build_parameter_sweep_response(
         base_config=base_config,
@@ -3045,6 +3286,8 @@ def _generate_parameter_sweep_draft(
         ranking_metric=ranking_metric,
         max_variants=max_variants,
         max_backtest_years=max_backtest_years,
+        prompt=req.prompt,
+        strict_ambiguity=strict_ambiguity,
         warnings=warnings,
         assumptions=assumptions,
     )
