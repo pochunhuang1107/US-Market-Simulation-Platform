@@ -69,6 +69,74 @@ def _build_strategy(
     return StrategyV2.model_validate(config)
 
 
+def test_run_simulation_accepts_composite_rsi_and_price_sma_rule() -> None:
+    dates = pd.date_range("2021-01-01", periods=260, freq="D")
+    bundle = SimpleNamespace(
+        tradable=pd.DataFrame(
+            {
+                "date": dates,
+                "close": [100.0 + index * 0.1 for index in range(260)],
+            }
+        ),
+        references={},
+    )
+    strategy = StrategyV2.model_validate(
+        {
+            "schema_version": "2.0",
+            "name": "qqq-composite-smoke",
+            "tradable_symbol": "QQQ",
+            "benchmark_symbol": "QQQ",
+            "reference_symbols": [],
+            "start_date": "2021-01-01",
+            "end_date": "2021-09-17",
+            "initial_capital": 100000,
+            "transaction_cost_bps": 0,
+            "allocation": {
+                "entry_mode": "percent_of_equity",
+                "entry_value": 1.0,
+                "max_position_pct": 1.0,
+            },
+            "entry_rule": {
+                "kind": "group",
+                "operator": "AND",
+                "rules": [
+                    {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 101,
+                    },
+                    {
+                        "kind": "atomic",
+                        "type": "sma_above",
+                        "symbol": "QQQ",
+                        "fast_window": 1,
+                        "slow_window": 200,
+                    },
+                ],
+            },
+            "exit_rule": {
+                "kind": "atomic",
+                "type": "rsi_above",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 101,
+            },
+            "risk": {"cooldown_bars": 0},
+            "core_overlay": {
+                "enabled": False,
+                "core_allocation_pct": 0.0,
+            },
+        }
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+
+    assert len(result.timeline) == 260
+    assert result.summary["ending_equity"] == 100000.0
+
+
 def test_run_simulation_without_position_management_is_all_in_all_out(monkeypatch: pytest.MonkeyPatch) -> None:
     bundle = _build_bundle()
     strategy = _build_strategy(position_management=None)

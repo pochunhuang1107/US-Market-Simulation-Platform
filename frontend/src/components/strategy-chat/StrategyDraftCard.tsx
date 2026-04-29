@@ -61,12 +61,15 @@ function explainAtomicRule(rule: RuleNode): string {
       return `${symbol ?? 'Asset'} RSI${lookback ? `(${lookback})` : ''} rises above ${threshold ?? '—'}`;
 
     case 'sma_cross_above':
+      if (fastWindow === 1) return `${symbol ?? 'Asset'} crosses above its ${slowWindow ?? 'slow'}-day SMA`;
       return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA crosses above ${slowWindow ?? 'slow'}-day SMA`;
 
     case 'sma_cross_below':
+      if (fastWindow === 1) return `${symbol ?? 'Asset'} crosses below its ${slowWindow ?? 'slow'}-day SMA`;
       return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA crosses below ${slowWindow ?? 'slow'}-day SMA`;
 
     case 'sma_above':
+      if (fastWindow === 1) return `${symbol ?? 'Asset'} is above its ${slowWindow ?? 'slow'}-day SMA`;
       return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA stays above ${slowWindow ?? 'slow'}-day SMA`;
 
     case 'macd_bullish_cross':
@@ -106,7 +109,19 @@ export function explainRule(rule: unknown): string {
   if (kind === 'atomic') return explainAtomicRule(node);
 
   if (kind === 'not') {
-    const innerRule = 'rule' in node ? explainRule(node.rule) : 'the inner rule';
+    const nestedRule = 'rule' in node && node.rule && typeof node.rule === 'object' ? (node.rule as RuleNode) : null;
+    if (
+      nestedRule &&
+      nestedRule.kind === 'atomic' &&
+      nestedRule.type === 'sma_above' &&
+      nestedRule.fast_window === 1
+    ) {
+      const symbol = typeof nestedRule.symbol === 'string' ? nestedRule.symbol : 'Asset';
+      const slowWindow = typeof nestedRule.slow_window === 'number' ? nestedRule.slow_window : 'slow';
+      return `${symbol} is below its ${slowWindow}-day SMA`;
+    }
+
+    const innerRule = nestedRule ? explainRule(nestedRule) : 'the inner rule';
     return `NOT: ${innerRule}`;
   }
 
@@ -142,7 +157,7 @@ export function explainRule(rule: unknown): string {
     const explainedRules = rules.map((child) => explainRule(child));
 
     return explainedRules.length > 0
-      ? `${operator} group: ${explainedRules.join(` ${operator} `)}`
+      ? explainedRules.join(` ${operator} `)
       : `${operator} group`;
   }
 

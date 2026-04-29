@@ -31,6 +31,13 @@ function formatGridValue(path: string, value: unknown): string {
 }
 
 function formatGridLabel(path: string): string {
+  if (/^entry_rule\..*\.threshold$/.test(path)) return 'Entry RSI threshold';
+  if (/^exit_rule\..*\.threshold$/.test(path)) return 'Exit RSI threshold';
+  if (/^entry_rule\..*\.fast_window$/.test(path)) return 'Entry fast window';
+  if (/^entry_rule\..*\.slow_window$/.test(path)) return 'Entry slow window';
+  if (/^exit_rule\..*\.fast_window$/.test(path)) return 'Exit fast window';
+  if (/^exit_rule\..*\.slow_window$/.test(path)) return 'Exit slow window';
+
   const labels: Record<string, string> = {
     'entry_rule.threshold': 'Entry RSI threshold',
     'exit_rule.threshold': 'Exit RSI threshold',

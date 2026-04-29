@@ -1620,6 +1620,9 @@ def _collect_reference_symbols_from_rule(rule: Any) -> list[str]:
     kind = rule.get("kind")
 
     if kind == "atomic":
+        symbol = rule.get("symbol")
+        if isinstance(symbol, str):
+            symbols.append(symbol.upper())
         reference_symbol = rule.get("reference_symbol")
         if isinstance(reference_symbol, str):
             symbols.append(reference_symbol.upper())

@@ -575,6 +575,16 @@ def _extract_exit_slow_window_edit(text: str) -> int | None:
     return _extract_int(text, patterns)
 
 
+def _extract_sma_filter_window_edit(text: str) -> int | None:
+    patterns = [
+        r"change\s+(?:sma|moving\s+average)\s+filter\s+to\s+(\d+)\s*(?:days?|bars?)?",
+        r"set\s+(?:sma|moving\s+average)\s+filter\s+to\s+(\d+)\s*(?:days?|bars?)?",
+        r"update\s+(?:sma|moving\s+average)\s+filter\s+to\s+(\d+)\s*(?:days?|bars?)?",
+        r"(?:sma|moving\s+average)\s+filter\s+to\s+(\d+)\s*(?:days?|bars?)?",
+    ]
+    return _extract_int(text, patterns)
+
+
 _MONTH_NAME_TO_NUMBER = {
     "january": 1,
     "february": 2,
@@ -763,7 +773,7 @@ def _extract_relative_strength_threshold_edit(text: str) -> float | None:
 
 def _extract_entry_exit_rule_clauses(text: str) -> tuple[str | None, str | None]:
     match = re.search(
-        r"(?:entry|buy)\s+when\s+(.+?)(?:,\s*|\s+)(?:and\s+)?(?:exit|sell)\s+when\s+(.+)$",
+        r"(?:entry|buy)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:,\s*|\s+)(?:and\s+)?(?:exit|sell)(?:\s+[A-Z]{2,5})?\s+when\s+(.+)$",
         text,
         flags=re.IGNORECASE,
     )
@@ -815,6 +825,89 @@ def _extract_sma_pair_any_direction(text: str) -> tuple[int, int] | None:
     return None
 
 
+def _extract_clause_symbol(text: str, *, tradable_symbol: str) -> str:
+    for symbol in _extract_symbols(text):
+        return symbol
+    return tradable_symbol
+
+
+def _extract_single_sma_window(text: str) -> int | None:
+    patterns = [
+        r"\b(?:sma|moving\s+average)\s*(\d+)\b",
+        r"\b(\d+)\s*(?:day|d)?[-\s]*(?:sma|moving\s+average)\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _has_sma_cross_intent(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\bcross(?:es|ed|ing)?\s+(?:above|below)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _build_single_sma_rule(
+    *,
+    clause_text: str,
+    symbol: str,
+    window: int,
+    side: str,
+) -> tuple[dict, list[str]]:
+    clause_lower = clause_text.lower()
+    assumptions = [
+        "Interpreted price-vs-SMA language using a 1-day SMA as the price proxy."
+    ]
+
+    base_rule = {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": symbol,
+        "fast_window": 1,
+        "slow_window": window,
+    }
+
+    if _has_sma_cross_intent(clause_text):
+        rule_type = (
+            "sma_cross_below"
+            if "below" in clause_lower
+            else "sma_cross_above"
+        )
+        return (
+            {
+                **base_rule,
+                "type": rule_type,
+            },
+            assumptions,
+        )
+
+    if "below" in clause_lower or "under" in clause_lower:
+        return (
+            {
+                "kind": "not",
+                "rule": base_rule,
+            },
+            assumptions,
+        )
+
+    if "above" in clause_lower or "over" in clause_lower:
+        return base_rule, assumptions
+
+    return (
+        {
+            **base_rule,
+            "type": "sma_cross_above" if side == "entry" else "sma_cross_below",
+        },
+        assumptions,
+    )
+
+
 def _build_atomic_rule_from_clause(
     clause_text: str,
     *,
@@ -824,6 +917,10 @@ def _build_atomic_rule_from_clause(
 ) -> tuple[dict | None, list[str]]:
     assumptions: list[str] = []
     clause_lower = clause_text.lower()
+    clause_symbol = _extract_clause_symbol(
+        clause_text,
+        tradable_symbol=tradable_symbol,
+    )
 
     if "rsi" in clause_lower:
         rsi_below = _extract_rsi_rule(clause_text, direction="below")
@@ -835,7 +932,7 @@ def _build_atomic_rule_from_clause(
                 {
                     "kind": "atomic",
                     "type": "rsi_below",
-                    "symbol": tradable_symbol,
+                    "symbol": clause_symbol,
                     "lookback": lookback,
                     "threshold": threshold,
                 },
@@ -848,7 +945,7 @@ def _build_atomic_rule_from_clause(
                 {
                     "kind": "atomic",
                     "type": "rsi_above",
-                    "symbol": tradable_symbol,
+                    "symbol": clause_symbol,
                     "lookback": lookback,
                     "threshold": threshold,
                 },
@@ -858,8 +955,18 @@ def _build_atomic_rule_from_clause(
         return None, assumptions
 
     if "moving average" in clause_lower or "sma" in clause_lower:
+        single_window = _extract_single_sma_window(clause_text)
         above_pair = _extract_sma_above_pair(clause_text)
         pair = above_pair if above_pair is not None else _extract_sma_pair_any_direction(clause_text)
+
+        if single_window is not None and pair is None:
+            return _build_single_sma_rule(
+                clause_text=clause_text,
+                symbol=clause_symbol,
+                window=single_window,
+                side=side,
+            )
+
         fast_window, slow_window = pair if pair else (20, 50)
 
         if pair is None:
@@ -878,7 +985,7 @@ def _build_atomic_rule_from_clause(
             {
                 "kind": "atomic",
                 "type": rule_type,
-                "symbol": tradable_symbol,
+                "symbol": clause_symbol,
                 "fast_window": fast_window,
                 "slow_window": slow_window,
             },
@@ -890,7 +997,7 @@ def _build_atomic_rule_from_clause(
             {
                 "kind": "atomic",
                 "type": "macd_bullish_cross" if side == "entry" else "macd_bearish_cross",
-                "symbol": tradable_symbol,
+                "symbol": clause_symbol,
             },
             assumptions,
         )
@@ -900,7 +1007,7 @@ def _build_atomic_rule_from_clause(
             {
                 "kind": "atomic",
                 "type": "kd_golden_cross" if side == "entry" else "kd_dead_cross",
-                "symbol": tradable_symbol,
+                "symbol": clause_symbol,
             },
             assumptions,
         )
@@ -1219,6 +1326,8 @@ def _extract_group_operator_edit(
     patterns = [
         rf"change\s+{side}\s+group\s+operator\s+to\s+(and|or)",
         rf"set\s+{side}\s+group\s+operator\s+to\s+(and|or)",
+        rf"change\s+{side}\s+from\s+(?:and|or)\s+to\s+(and|or)",
+        rf"switch\s+{side}\s+from\s+(?:and|or)\s+to\s+(and|or)",
         rf"{side}\s+group\s+operator\s+(?:to\s+)?(and|or)",
     ]
     for pattern in patterns:
@@ -1714,6 +1823,7 @@ __all__ = [
     "_extract_sequence_step_edit",
     "_extract_sma_above_pair",
     "_extract_sma_crossover_pair",
+    "_extract_sma_filter_window_edit",
     "_extract_sma_pair_any_direction",
     "_extract_symbols",
     "_extract_temporal_bars_edit",
