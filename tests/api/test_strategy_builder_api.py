@@ -6,6 +6,10 @@ import pytest
 import market_simulator.services.strategy_builder_service as builder_service
 import market_simulator.services.strategy_builder_parsers as builder_parsers
 import market_simulator.services.strategy_builder_response as builder_response
+from market_simulator.platform.services.parameter_sweep import (
+    generate_variant_configs,
+    get_nested,
+)
 from market_simulator.settings import get_settings
 from market_simulator.db.models import Plan
 
@@ -414,7 +418,7 @@ def test_generate_strategy_builder_composite_entry_and_prompt(client):
         json={
             "prompt": (
                 "Create a QQQ strategy from 2021-01-01 to 2024-12-31. "
-                "Buy when RSI 14 is below 30 and QQQ is above its 200 day SMA. "
+                "Buy when RSI 14 is below 30 and QQQ is above its 200-day SMA. "
                 "Sell when RSI 14 is above 70."
             ),
         },
@@ -443,8 +447,150 @@ def test_generate_strategy_builder_composite_entry_and_prompt(client):
     }
     assert config["exit_rule"]["kind"] == "atomic"
     assert config["exit_rule"]["type"] == "rsi_above"
-    assert "Enter when QQQ RSI(14) is below 30 and QQQ is above its 200-day SMA." in body["summary"]
+    assert "Enter when QQQ RSI(14) is below 30 and QQQ price is above its 200-day SMA." in body["summary"]
     assert "Exit when QQQ RSI(14) is above 70." in body["summary"]
+
+
+def test_generate_strategy_builder_simple_price_above_sma_prompt_uses_requested_window(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy from 2021-01-01 to 2024-12-31. "
+                "Buy when QQQ is above its 200-day SMA."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "QQQ",
+        "fast_window": 1,
+        "slow_window": 200,
+    }
+    assert "Enter when QQQ price is above its 200-day SMA." in body["summary"]
+    assert "20-day SMA" not in body["summary"]
+    assert "50-day SMA" not in body["summary"]
+
+
+def test_generate_strategy_builder_follow_up_sma_sweep_targets_price_sma_window(client):
+    draft_response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy from 2021-01-01 to 2024-12-31. "
+                "Buy when QQQ is above its 200-day SMA."
+            ),
+        },
+    )
+    assert draft_response.status_code == 200
+    current_config = draft_response.json()["config"]
+
+    sweep_response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try SMA windows 100, 150, 200.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert sweep_response.status_code == 200
+    body = sweep_response.json()
+    sweep = body["sweep_draft"]
+    path = "entry_rule.slow_window"
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {path: [100, 150, 200]}
+    assert get_nested(sweep["base_config"], path) == 200
+
+    variants = generate_variant_configs(sweep["base_config"], sweep["grid"])
+    assert [get_nested(variant["config"], path) for variant in variants] == [100, 150, 200]
+    assert {variant["config"]["entry_rule"]["fast_window"] for variant in variants} == {1}
+
+
+def test_generate_strategy_builder_composite_explicit_symbol_sma_crossover_preserves_windows(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy from 2021-01-01 to 2024-12-31. "
+                "Buy when QQQ 20-day SMA crosses above QQQ 50-day SMA. "
+                "Sell when RSI 14 is above 70."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "sma_cross_above",
+        "symbol": "QQQ",
+        "fast_window": 20,
+        "slow_window": 50,
+    }
+    assert "Enter when QQQ 20-day SMA crosses above QQQ 50-day SMA." in body["summary"]
+    assert "QQQ crosses above its 20-day SMA" not in body["summary"]
+    assert "QQQ price is above its 20-day SMA" not in body["summary"]
+
+
+def test_generate_strategy_builder_composite_explicit_sma_crossover_preserves_windows(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy from 2021-01-01 to 2024-12-31. "
+                "Buy when 20-day SMA crosses above 50-day SMA. "
+                "Sell when RSI 14 is above 70."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"]["type"] == "sma_cross_above"
+    assert config["entry_rule"]["fast_window"] == 20
+    assert config["entry_rule"]["slow_window"] == 50
+    assert "Enter when QQQ 20-day SMA crosses above QQQ 50-day SMA." in body["summary"]
+
+
+def test_generate_strategy_builder_composite_explicit_sma_cross_below_preserves_windows(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy from 2021-01-01 to 2024-12-31. "
+                "Buy when QQQ 50-day SMA crosses below QQQ 200-day SMA. "
+                "Sell when RSI 14 is above 70."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "sma_cross_below",
+        "symbol": "QQQ",
+        "fast_window": 50,
+        "slow_window": 200,
+    }
+    assert "Enter when QQQ 50-day SMA crosses below QQQ 200-day SMA." in body["summary"]
 
 
 def test_generate_strategy_builder_composite_exit_or_prompt(client):
@@ -453,7 +599,7 @@ def test_generate_strategy_builder_composite_exit_or_prompt(client):
         json={
             "prompt": (
                 "Buy QQQ when RSI 14 is below 30. "
-                "Sell QQQ when RSI 14 is above 70 or QQQ is below its 200 day SMA."
+                "Sell QQQ when RSI 14 is above 70 or QQQ is below its 200-day SMA."
             ),
         },
     )
@@ -478,7 +624,38 @@ def test_generate_strategy_builder_composite_exit_or_prompt(client):
             "slow_window": 200,
         },
     }
-    assert "Exit when QQQ RSI(14) is above 70 or QQQ is below its 200-day SMA." in body["summary"]
+    assert "Exit when QQQ RSI(14) is above 70 or QQQ price is below its 200-day SMA." in body["summary"]
+
+
+def test_generate_strategy_builder_simple_price_below_sma_exit_prompt_uses_requested_window(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy from 2021-01-01 to 2024-12-31. "
+                "Sell when QQQ falls below its 200-day SMA."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["exit_rule"] == {
+        "kind": "not",
+        "rule": {
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": "QQQ",
+            "fast_window": 1,
+            "slow_window": 200,
+        },
+    }
+    assert "Exit when QQQ price is below its 200-day SMA." in body["summary"]
+    assert "20-day SMA" not in body["summary"]
+    assert "50-day SMA" not in body["summary"]
 
 
 def test_generate_strategy_builder_composite_reference_symbol_condition(client):
@@ -562,6 +739,255 @@ def test_generate_strategy_builder_composite_follow_up_edits_and_sweep(client):
     assert sweep_body["sweep_draft"]["grid"] == {
         "entry_rule.rules[0].threshold": [20, 25, 30],
     }
+
+
+def test_generate_strategy_builder_follow_up_sweep_targets_entry_rsi_inside_composite_group(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["entry_rule"] = {
+        "kind": "group",
+        "operator": "AND",
+        "rules": [
+            {
+                "kind": "atomic",
+                "type": "rsi_below",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 30,
+            },
+            {
+                "kind": "atomic",
+                "type": "sma_above",
+                "symbol": "QQQ",
+                "fast_window": 1,
+                "slow_window": 200,
+            },
+        ],
+    }
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try RSI entry thresholds 25, 30, 35.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+    path = "entry_rule.rules[0].threshold"
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {path: [25, 30, 35]}
+    assert get_nested(sweep["base_config"], path) == 30
+
+    variants = generate_variant_configs(sweep["base_config"], sweep["grid"])
+    assert [get_nested(variant["config"], path) for variant in variants] == [25, 30, 35]
+    assert {variant["config"]["exit_rule"]["threshold"] for variant in variants} == {70}
+
+
+def test_generate_strategy_builder_follow_up_sweep_targets_exit_rsi_inside_composite_group(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["exit_rule"] = {
+        "kind": "group",
+        "operator": "OR",
+        "rules": [
+            {
+                "kind": "atomic",
+                "type": "rsi_above",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 70,
+            },
+            {
+                "kind": "not",
+                "rule": {
+                    "kind": "atomic",
+                    "type": "sma_above",
+                    "symbol": "QQQ",
+                    "fast_window": 1,
+                    "slow_window": 200,
+                },
+            },
+        ],
+    }
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try exit RSI thresholds 65, 70, 75.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+    path = "exit_rule.rules[0].threshold"
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {path: [65, 70, 75]}
+    assert get_nested(sweep["base_config"], path) == 70
+
+    variants = generate_variant_configs(sweep["base_config"], sweep["grid"])
+    assert [get_nested(variant["config"], path) for variant in variants] == [65, 70, 75]
+    assert {variant["config"]["entry_rule"]["threshold"] for variant in variants} == {30}
+
+
+def test_generate_strategy_builder_follow_up_sweep_targets_sma_lookback_inside_composite_group(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["entry_rule"] = {
+        "kind": "group",
+        "operator": "AND",
+        "rules": [
+            {
+                "kind": "atomic",
+                "type": "rsi_below",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 30,
+            },
+            {
+                "kind": "atomic",
+                "type": "sma_above",
+                "symbol": "QQQ",
+                "fast_window": 1,
+                "slow_window": 200,
+            },
+        ],
+    }
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try SMA windows 100, 150, 200.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+    path = "entry_rule.rules[1].slow_window"
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {path: [100, 150, 200]}
+    assert get_nested(sweep["base_config"], path) == 200
+
+    variants = generate_variant_configs(sweep["base_config"], sweep["grid"])
+    assert [get_nested(variant["config"], path) for variant in variants] == [100, 150, 200]
+    assert {variant["config"]["entry_rule"]["rules"][1]["fast_window"] for variant in variants} == {1}
+    assert {variant["config"]["entry_rule"]["rules"][0]["threshold"] for variant in variants} == {30}
+
+
+def test_generate_strategy_builder_follow_up_sweep_targets_sma_inside_nested_exit_group(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["exit_rule"] = {
+        "kind": "group",
+        "operator": "OR",
+        "rules": [
+            {
+                "kind": "atomic",
+                "type": "rsi_above",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 70,
+            },
+            {
+                "kind": "group",
+                "operator": "AND",
+                "rules": [
+                    {
+                        "kind": "atomic",
+                        "type": "sma_above",
+                        "symbol": "QQQ",
+                        "fast_window": 1,
+                        "slow_window": 200,
+                    },
+                    {
+                        "kind": "atomic",
+                        "type": "macd_bearish_cross",
+                        "symbol": "QQQ",
+                    },
+                ],
+            },
+        ],
+    }
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try exit SMA windows 100, 150, 200.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+    path = "exit_rule.rules[1].rules[0].slow_window"
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {path: [100, 150, 200]}
+    assert get_nested(sweep["base_config"], path) == 200
+
+    variants = generate_variant_configs(sweep["base_config"], sweep["grid"])
+    assert [get_nested(variant["config"], path) for variant in variants] == [100, 150, 200]
+    assert {variant["config"]["exit_rule"]["rules"][0]["threshold"] for variant in variants} == {70}
+
+
+def test_generate_strategy_builder_follow_up_sweep_ambiguous_duplicate_indicator_returns_guidance(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["entry_rule"] = {
+        "kind": "group",
+        "operator": "AND",
+        "rules": [
+            current_config["entry_rule"],
+            {
+                "kind": "atomic",
+                "type": "sma_above",
+                "symbol": "QQQ",
+                "fast_window": 1,
+                "slow_window": 200,
+            },
+        ],
+    }
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try RSI thresholds 25, 30, 35.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["sweep_draft"] is None
+    assert "multiple possible" in body["message"]
+    assert "entry/buy rule or the exit/sell rule" in body["message"]
+
+
+def test_generate_strategy_builder_follow_up_sweep_missing_target_returns_guidance(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try SMA windows 100, 150, 200.",
+            "context": {"current_config": _qqq_rsi_core_overlay_current_config()},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["sweep_draft"] is None
+    assert body["message"] == (
+        "This draft does not use SMA rules yet. You can create an SMA strategy first, "
+        "or ask me to replace the entry/exit rules with SMA."
+    )
 
 
 def test_generate_strategy_builder_follow_up_changes_exit_group_operator(client):
@@ -864,12 +1290,13 @@ def test_generate_strategy_builder_draft_parses_custom_moving_average_windows(cl
     response = client.post(
         "/strategy-builder/generate",
         json={
-            "prompt": "Create a moving average strategy for SPY using 10 day SMA crosses above 30 day SMA",
+            "prompt": "Create a moving average strategy for SPY using 10-day SMA crosses above 30-day SMA",
         },
     )
 
     assert response.status_code == 200
-    config = response.json()["config"]
+    body = response.json()
+    config = body["config"]
 
     assert config["entry_rule"]["type"] == "sma_cross_above"
     assert config["exit_rule"]["type"] == "sma_cross_below"
@@ -877,6 +1304,8 @@ def test_generate_strategy_builder_draft_parses_custom_moving_average_windows(cl
     assert config["entry_rule"]["slow_window"] == 30
     assert config["exit_rule"]["fast_window"] == 10
     assert config["exit_rule"]["slow_window"] == 30
+    assert "SPY 10-day SMA crosses above SPY 30-day SMA" in body["summary"]
+    assert "SPY price is above its 30-day SMA" not in body["summary"]
 
 
 def test_generate_strategy_builder_draft_parses_sma_above_strategy(client):
