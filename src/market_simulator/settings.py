@@ -75,6 +75,7 @@ class Settings(BaseModel):
     )
 
     env: str = os.getenv("ENV", "local")
+    auth_mode: str | None = os.getenv("AUTH_MODE")
 
     dev_default_user_id: str | None = os.getenv(
         "DEV_DEFAULT_USER_ID",
@@ -152,6 +153,27 @@ class Settings(BaseModel):
     @property
     def supported_data_end(self) -> date:
         return date.fromisoformat(self.supported_data_end_date)
+
+    @property
+    def normalized_env(self) -> str:
+        return self.env.strip().lower()
+
+    @property
+    def resolved_auth_mode(self) -> str:
+        if self.auth_mode:
+            return self.auth_mode.strip().lower()
+
+        if self.normalized_env in {"local", "dev", "development", "test", "testing"}:
+            return "dev"
+
+        return "required"
+
+    @property
+    def is_dev_auth_enabled(self) -> bool:
+        if self.normalized_env in {"prod", "production", "beta"}:
+            return False
+
+        return self.resolved_auth_mode in {"dev", "local", "test"}
 
 
 _settings: Settings | None = None
