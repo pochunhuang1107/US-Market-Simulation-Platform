@@ -90,6 +90,23 @@ def client(db_session: Session, current_user_ctx: dict[str, str]) -> Generator[T
     app.dependency_overrides.clear()
 
 
+@pytest.fixture
+def real_auth_client(db_session: Session) -> Generator[TestClient, None, None]:
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides.pop(get_current_user, None)
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.clear()
+
+
 def _default_strategy_config() -> dict[str, Any]:
     return {
         "name": "test-strategy",

@@ -311,7 +311,7 @@ function EntitlementSummary({
 
   if (error) {
     return (
-      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+      <div className="app-alert-warning rounded-2xl border px-4 py-3 text-xs">
         {error}
       </div>
     );

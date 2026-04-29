@@ -20,7 +20,9 @@
   --accent-contrast: #082f49;
   --positive: #34d399;
   --warning: #f59e0b;
+  --warning-text: #fef3c7;
   --danger: #fb7185;
+  --danger-text: #ffe4e6;
   --range-selection-fill: rgba(34, 211, 238, 0.10);
   --range-selection-line: rgba(8, 145, 178, 0.72);
 }
@@ -44,7 +46,9 @@ html[data-theme='light'] {
   --accent-contrast: #ecfeff;
   --positive: #059669;
   --warning: #b45309;
+  --warning-text: #78350f;
   --danger: #be123c;
+  --danger-text: #881337;
   --range-selection-fill: rgba(14, 116, 144, 0.10);
   --range-selection-line: rgba(14, 116, 144, 0.78);
 }
@@ -227,7 +231,7 @@ html[data-theme='light'] .app-value-block {
 .app-alert-warning {
   background: color-mix(in srgb, var(--warning) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
-  color: var(--title);
+  color: var(--warning-text);
 }
 .app-alert-success {
   background: rgba(6, 78, 59, 0.36);
@@ -237,7 +241,7 @@ html[data-theme='light'] .app-value-block {
 .app-alert-error {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
-  color: var(--title);
+  color: var(--danger-text);
 }
 .app-validation-error {
   background: color-mix(in srgb, var(--danger) 9%, transparent);
