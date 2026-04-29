@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom';
 interface SaveStrategyModalProps {
   isOpen: boolean;
   initialName: string;
+  title?: string;
+  helperText?: string;
   isSaving?: boolean;
   errorMessage?: string | null;
   onClose: () => void;
@@ -13,6 +15,8 @@ interface SaveStrategyModalProps {
 export function SaveStrategyModal({
   isOpen,
   initialName,
+  title = 'Save this run as a strategy',
+  helperText = 'This creates a saved strategy from the unsaved draft that produced this run.',
   isSaving = false,
   errorMessage = null,
   onClose,
@@ -41,10 +45,10 @@ export function SaveStrategyModal({
             Save strategy
           </p>
           <h2 className="app-title text-2xl font-semibold tracking-tight">
-            Save this run as a strategy
+            {title}
           </h2>
           <p className="app-text-muted text-sm leading-6">
-            This creates a saved strategy from the unsaved draft that produced this run.
+            {helperText}
           </p>
         </div>
 

@@ -91,6 +91,35 @@ def get_run_for_user(db: Session, run_id, user_id):
     )
 
 
+def find_saved_sweep_variant_run(db: Session, *, user_id, sweep_run_id, variant_id: str):
+    child_runs = (
+        db.query(Run)
+        .options(
+            joinedload(Run.strategy),
+            joinedload(Run.strategy_version),
+        )
+        .filter(
+            Run.user_id == user_id,
+            Run.parent_run_id == sweep_run_id,
+            Run.strategy_id.isnot(None),
+            Run.strategy_version_id.isnot(None),
+        )
+        .order_by(Run.created_at.desc())
+        .all()
+    )
+
+    for run in child_runs:
+        payload = run.request_payload or {}
+        if (
+            payload.get("source") == "sweep_variant_save"
+            and str(payload.get("source_sweep_run_id")) == str(sweep_run_id)
+            and str(payload.get("source_variant_id")) == str(variant_id)
+        ):
+            return run
+
+    return None
+
+
 def find_duplicate_active_run(
     db: Session,
     *,
@@ -134,8 +163,13 @@ def _apply_run_filters(
     executor_type: str | None = None,
     run_type: str | None = None,
     strategy_id: str | None = None,
+    include_derived_results: bool = True,
 ):
     query = query.filter(Run.user_id == user_id)
+
+    if not include_derived_results:
+        source = Run.request_payload.op("->>")("source")
+        query = query.filter(or_(source.is_(None), source != "sweep_variant_save"))
 
     if status is not None:
         if isinstance(status, str):
@@ -163,6 +197,7 @@ def list_runs(
     executor_type: str | None = None,
     run_type: str | None = None,
     strategy_id: str | None = None,
+    include_derived_results: bool = True,
     offset: int = 0,
     limit: int = 20,
     sort_by: str = "created_at",
@@ -179,6 +214,7 @@ def list_runs(
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        include_derived_results=include_derived_results,
     )
 
     sort_column = {
@@ -203,6 +239,7 @@ def count_runs(
     executor_type: str | None = None,
     run_type: str | None = None,
     strategy_id: str | None = None,
+    include_derived_results: bool = True,
 ):
     query = db.query(func.count(Run.id))
     query = _apply_run_filters(
@@ -212,6 +249,7 @@ def count_runs(
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        include_derived_results=include_derived_results,
     )
     return query.scalar() or 0
 

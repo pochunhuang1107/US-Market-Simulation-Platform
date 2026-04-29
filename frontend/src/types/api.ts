@@ -19,6 +19,11 @@ export interface RunDashboardListItem {
   strategy_version_id: Nullable<string>;
   strategy_name: Nullable<string>;
   strategy_version_number: Nullable<number>;
+  source: Nullable<string>;
+  source_sweep_run_id: Nullable<string>;
+  source_variant_id: Nullable<string>;
+  source_variant_rank: Nullable<number>;
+  source_ranking_metric: Nullable<string>;
   status: string;
   run_type: string;
   executor_type: string;
@@ -54,6 +59,7 @@ export interface RunsDashboardQuery {
   executor_type?: string;
   run_type?: string;
   strategy_id?: string;
+  include_derived_results?: boolean;
   page?: number;
   page_size?: number;
   sort_by?: RunSortBy;
@@ -84,6 +90,11 @@ export interface RunResponse {
   strategy_version_id: Nullable<string>;
   strategy_name: Nullable<string>;
   strategy_version_number: Nullable<number>;
+  source: Nullable<string>;
+  source_sweep_run_id: Nullable<string>;
+  source_variant_id: Nullable<string>;
+  source_variant_rank: Nullable<number>;
+  source_ranking_metric: Nullable<string>;
   run_type: string;
   executor_type: string;
   status: string;
@@ -173,6 +184,10 @@ export interface SweepVariantDetailResponse {
   variant: Record<string, unknown>;
   rank: number;
   ranking_metric: Nullable<string>;
+  sweep_origin: 'STANDALONE' | 'SAVED_STRATEGY';
+  saved_strategy_id: Nullable<string>;
+  saved_version_id: Nullable<string>;
+  saved_run_id: Nullable<string>;
   chart_data: Nullable<RunChartDataResponse>;
 }
 
@@ -182,6 +197,11 @@ export interface RunComparisonSummary {
   strategy_version_id: Nullable<string>;
   strategy_name: Nullable<string>;
   strategy_version_number: Nullable<number>;
+  source: Nullable<string>;
+  source_sweep_run_id: Nullable<string>;
+  source_variant_id: Nullable<string>;
+  source_variant_rank: Nullable<number>;
+  source_ranking_metric: Nullable<string>;
   status: string;
   total_return_pct: Nullable<number>;
   benchmark_return_pct: Nullable<number>;
@@ -250,6 +270,11 @@ export interface StrategyVersionSummary {
 
 export interface StrategyLatestPerformance {
   run_id: string;
+  source: Nullable<string>;
+  source_sweep_run_id: Nullable<string>;
+  source_variant_id: Nullable<string>;
+  source_variant_rank: Nullable<number>;
+  source_ranking_metric: Nullable<string>;
   finished_at: Nullable<string>;
   total_return_pct: Nullable<number>;
   benchmark_return_pct: Nullable<number>;
@@ -336,6 +361,7 @@ export interface PromoteSweepVariantResponse {
   variant_id: string;
   strategy_id: string;
   version_id: string;
+  derived_run_id?: string | null;
 }
 
 export interface StrategyBuilderContext {

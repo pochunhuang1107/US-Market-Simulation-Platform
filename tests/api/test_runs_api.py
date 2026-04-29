@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
-from market_simulator.db.enums import RunStatus
-from market_simulator.db.models import Plan
+from market_simulator.db.enums import RunStatus, SubscriptionStatus
+from market_simulator.db.models import Plan, UserPlanSubscription
+from market_simulator.repositories.plans import count_runs_created_today
 from market_simulator.repositories.runs import create_run, get_run, mark_run_succeeded
 
 def create_plan(
@@ -13,18 +16,26 @@ def create_plan(
     builder_prompt_daily_limit: int,
     builder_prompt_max_chars: int,
     max_backtest_years: int,
+    max_saved_strategies: int = 50,
 ):
     plan = Plan(
+        id=uuid.uuid4(),
         code=code,
         name=code.title(),
+        monthly_price_usd=Decimal("0.00"),
+        daily_free_runs=50,
+        max_saved_strategies=max_saved_strategies,
+        max_tracked_strategies=50,
         allow_ai_builder=True,
-        allow_saved_strategies=True,
-        allow_run_comparison=True,
+        allow_portfolio_runs=True,
+        allow_comparison_runs=True,
+        allow_parameter_sweeps=True,
+        allow_strategy_history=True,
         builder_prompt_daily_limit=builder_prompt_daily_limit,
         builder_prompt_max_chars=builder_prompt_max_chars,
         max_backtest_years=max_backtest_years,
-        max_runs_per_day=50,
-        max_saved_strategies=50,
+        max_comparison_runs=4,
+        is_active=True,
     )
     db_session.add(plan)
     db_session.commit()
@@ -37,20 +48,22 @@ def attach_plan(db_session, *, user_id: str, plan_id: str):
         db_session.query(UserPlanSubscription)
         .filter(
             UserPlanSubscription.user_id == user_id,
-            UserPlanSubscription.is_active.is_(True),
+            UserPlanSubscription.status == SubscriptionStatus.ACTIVE,
         )
         .all()
     )
     for row in existing:
-        row.is_active = False
-        row.ended_at = datetime.now(timezone.utc)
+        row.status = SubscriptionStatus.CANCELED
+        row.ends_at = datetime.now(timezone.utc)
 
     user_plan = UserPlanSubscription(
+        id=uuid.uuid4(),
         user_id=user_id,
         plan_id=plan_id,
-        started_at=datetime.now(timezone.utc) - timedelta(minutes=1),
-        ended_at=None,
-        is_active=True,
+        status=SubscriptionStatus.ACTIVE,
+        starts_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        ends_at=None,
+        auto_renew=False,
     )
     db_session.add(user_plan)
     db_session.commit()
@@ -321,6 +334,10 @@ def test_promote_sweep_variant_for_saved_strategy_creates_current_version(
         f"Promoted from parameter sweep run {str(run.id).split('-')[0]}, rank #1."
     )
 
+    detail_response = client.get(f"/runs/{run.id}/sweep/variants/variant-best")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["sweep_origin"] == "SAVED_STRATEGY"
+
 
 def test_promote_sweep_variant_without_saved_strategy_creates_strategy(
     client,
@@ -334,6 +351,332 @@ def test_promote_sweep_variant_without_saved_strategy_creates_strategy(
     )
     base_config = _strategy_v2_config()
     variant_config = {**base_config, "name": "qqq-rsi-sweep-001-threshold-20"}
+    variant_config["entry_rule"] = {**base_config["entry_rule"], "threshold": 20}
+    sibling_variant_config = {**base_config, "name": "qqq-rsi-sweep-001-threshold-25"}
+    sibling_variant_config["entry_rule"] = {**base_config["entry_rule"], "threshold": 25}
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"base_config": base_config, "grid": {"entry_rule.threshold": [20]}},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={
+            "run_type": "PARAMETER_SWEEP",
+            "ranking_metric": "sharpe_ratio",
+            "variant_count": 2,
+            "best_variant": {
+                "variant_id": "variant-new",
+                "variant_name": variant_config["name"],
+                "parameters": {"entry_rule.threshold": 20},
+                "status": "SUCCEEDED",
+                "config": variant_config,
+            },
+            "results": [
+                {
+                    "variant_id": "variant-new",
+                    "variant_name": variant_config["name"],
+                    "parameters": {"entry_rule.threshold": 20},
+                    "status": "SUCCEEDED",
+                    "total_return_pct": 12.3,
+                    "benchmark_return_pct": 8.0,
+                    "alpha_vs_benchmark_pct": 4.3,
+                    "cagr_pct": 11.8,
+                    "sharpe_ratio": 1.4,
+                    "max_drawdown_pct": -6.5,
+                    "trade_count": 9,
+                    "config": variant_config,
+                },
+                {
+                    "variant_id": "variant-sibling",
+                    "variant_name": sibling_variant_config["name"],
+                    "parameters": {"entry_rule.threshold": 25},
+                    "status": "SUCCEEDED",
+                    "total_return_pct": 10.5,
+                    "benchmark_return_pct": 8.0,
+                    "alpha_vs_benchmark_pct": 2.5,
+                    "cagr_pct": 10.0,
+                    "sharpe_ratio": 1.2,
+                    "max_drawdown_pct": -7.1,
+                    "trade_count": 8,
+                    "config": sibling_variant_config,
+                }
+            ],
+        },
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"sweep_summary": "sweep_summary.json"},
+    )
+
+    response = client.post(f"/runs/{run.id}/sweep/variants/variant-new/promote", json={})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_id"]
+    assert body["version_id"]
+    assert body["derived_run_id"]
+
+    dashboard_response = client.get(f"/strategies/{body['strategy_id']}/dashboard")
+    assert dashboard_response.status_code == 200
+    dashboard = dashboard_response.json()
+    assert dashboard["strategy"]["name"] == "qqq-rsi-sweep-001-threshold-20 - Sweep best"
+    assert dashboard["versions"][0]["config_json"]["entry_rule"]["threshold"] == 20
+    assert dashboard["total_runs"] == 1
+    assert dashboard["latest_run_id"] == body["derived_run_id"]
+    assert dashboard["latest_performance"]["run_id"] == body["derived_run_id"]
+    assert dashboard["latest_performance"]["source"] == "sweep_variant_save"
+    assert dashboard["latest_performance"]["source_sweep_run_id"] == str(run.id)
+    assert dashboard["latest_performance"]["source_variant_id"] == "variant-new"
+    assert dashboard["latest_performance"]["source_variant_rank"] == 1
+    assert dashboard["latest_performance"]["source_ranking_metric"] == "sharpe_ratio"
+    assert dashboard["latest_performance"]["total_return_pct"] == 12.3
+    assert dashboard["associated_runs"][0]["source"] == "sweep_variant_save"
+    assert dashboard["associated_runs"][0]["source_sweep_run_id"] == str(run.id)
+    assert dashboard["associated_runs"][0]["source_variant_id"] == "variant-new"
+
+    derived_run_response = client.get(f"/runs/{body['derived_run_id']}")
+    assert derived_run_response.status_code == 200
+    derived_run = derived_run_response.json()
+    assert derived_run["strategy_id"] == body["strategy_id"]
+    assert derived_run["strategy_version_id"] == body["version_id"]
+    assert derived_run["parent_run_id"] == str(run.id)
+    assert derived_run["status"] == "SUCCEEDED"
+    assert derived_run["source"] == "sweep_variant_save"
+    assert derived_run["source_sweep_run_id"] == str(run.id)
+    assert derived_run["source_variant_id"] == "variant-new"
+    assert derived_run["source_variant_rank"] == 1
+    assert derived_run["source_ranking_metric"] == "sharpe_ratio"
+    assert derived_run["request_payload"]["source"] == "sweep_variant_save"
+    assert derived_run["request_payload"]["source_variant_id"] == "variant-new"
+    assert derived_run["request_payload"]["source_variant_rank"] == 1
+    assert derived_run["request_payload"]["source_ranking_metric"] == "sharpe_ratio"
+
+    derived_dashboard_response = client.get(f"/runs/{body['derived_run_id']}/dashboard")
+    assert derived_dashboard_response.status_code == 200
+    assert count_runs_created_today(db_session, str(user.id)) == 1
+
+    hidden_runs_dashboard_response = client.get(f"/runs/dashboard?strategy_id={body['strategy_id']}")
+    assert hidden_runs_dashboard_response.status_code == 200
+    hidden_runs_dashboard = hidden_runs_dashboard_response.json()
+    assert hidden_runs_dashboard["items"] == []
+    assert hidden_runs_dashboard["total"] == 0
+
+    runs_dashboard_response = client.get(
+        f"/runs/dashboard?strategy_id={body['strategy_id']}&include_derived_results=true"
+    )
+    assert runs_dashboard_response.status_code == 200
+    runs_dashboard = runs_dashboard_response.json()
+    assert runs_dashboard["items"][0]["run_id"] == body["derived_run_id"]
+    assert runs_dashboard["items"][0]["source"] == "sweep_variant_save"
+    assert runs_dashboard["items"][0]["source_variant_id"] == "variant-new"
+
+    run_response = client.get(f"/runs/{run.id}")
+    assert run_response.status_code == 200
+    assert run_response.json()["strategy_id"] is None
+    assert run_response.json()["strategy_version_id"] is None
+
+    saved_detail_response = client.get(f"/runs/{run.id}/sweep/variants/variant-new")
+    assert saved_detail_response.status_code == 200
+    saved_detail = saved_detail_response.json()
+    assert saved_detail["sweep_origin"] == "STANDALONE"
+    assert saved_detail["saved_strategy_id"] == body["strategy_id"]
+    assert saved_detail["saved_version_id"] == body["version_id"]
+    assert saved_detail["saved_run_id"] == body["derived_run_id"]
+
+    duplicate_response = client.post(f"/runs/{run.id}/sweep/variants/variant-new/promote", json={})
+    assert duplicate_response.status_code == 200
+    duplicate_body = duplicate_response.json()
+    assert duplicate_body["strategy_id"] == body["strategy_id"]
+    assert duplicate_body["version_id"] == body["version_id"]
+    assert duplicate_body["derived_run_id"] == body["derived_run_id"]
+
+    sibling_detail_response = client.get(f"/runs/{run.id}/sweep/variants/variant-sibling")
+    assert sibling_detail_response.status_code == 200
+    assert sibling_detail_response.json()["sweep_origin"] == "STANDALONE"
+    assert sibling_detail_response.json()["run"]["strategy_id"] is None
+    assert sibling_detail_response.json()["saved_strategy_id"] is None
+
+    sibling_save_response = client.post(
+        f"/runs/{run.id}/sweep/variants/variant-sibling/promote",
+        json={"name": "Saved sibling variant"},
+    )
+    assert sibling_save_response.status_code == 200
+    sibling_body = sibling_save_response.json()
+    assert sibling_body["strategy_id"] != body["strategy_id"]
+    assert sibling_body["derived_run_id"] != body["derived_run_id"]
+
+    sibling_dashboard_response = client.get(f"/strategies/{sibling_body['strategy_id']}/dashboard")
+    assert sibling_dashboard_response.status_code == 200
+    sibling_dashboard = sibling_dashboard_response.json()
+    assert sibling_dashboard["versions"][0]["config_json"]["entry_rule"]["threshold"] == 25
+    assert sibling_dashboard["latest_run_id"] == sibling_body["derived_run_id"]
+    assert count_runs_created_today(db_session, str(user.id)) == 1
+
+    normal_run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "normal user-triggered run"},
+        max_attempts=1,
+    )
+    normal_run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(normal_run)
+    mark_run_succeeded(
+        db_session,
+        normal_run,
+        summary_json={"total_return_pct": 2.0},
+        artifact_dir=f"data/local_artifacts/runs/{normal_run.id}",
+        artifact_manifest_json={"summary": "summary.json"},
+    )
+
+    default_dashboard_response = client.get("/runs/dashboard")
+    assert default_dashboard_response.status_code == 200
+    default_dashboard = default_dashboard_response.json()
+    default_run_ids = {item["run_id"] for item in default_dashboard["items"]}
+    assert str(run.id) in default_run_ids
+    assert str(normal_run.id) in default_run_ids
+    assert body["derived_run_id"] not in default_run_ids
+    assert sibling_body["derived_run_id"] not in default_run_ids
+
+    default_list_response = client.get("/runs")
+    assert default_list_response.status_code == 200
+    default_list_run_ids = {item["id"] for item in default_list_response.json()["items"]}
+    assert str(run.id) in default_list_run_ids
+    assert str(normal_run.id) in default_list_run_ids
+    assert body["derived_run_id"] not in default_list_run_ids
+
+    comparison_response = client.get(
+        f"/runs/compare?run_ids={body['derived_run_id']},{sibling_body['derived_run_id']}"
+    )
+    assert comparison_response.status_code == 200
+    comparison_runs = comparison_response.json()["runs"]
+    assert {item["source"] for item in comparison_runs} == {"sweep_variant_save"}
+    assert {item["source_variant_id"] for item in comparison_runs} == {
+        "variant-new",
+        "variant-sibling",
+    }
+
+
+def test_legacy_linked_standalone_sweep_variant_stays_independently_saveable(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="sweep-promote-legacy-linked@example.com",
+    )
+    base_config = _strategy_v2_config()
+    first_variant_config = {**base_config, "name": "qqq-rsi-sweep-legacy-20"}
+    first_variant_config["entry_rule"] = {**base_config["entry_rule"], "threshold": 20}
+    sibling_variant_config = {**base_config, "name": "qqq-rsi-sweep-legacy-25"}
+    sibling_variant_config["entry_rule"] = {**base_config["entry_rule"], "threshold": 25}
+
+    legacy_strategy, legacy_version = create_strategy_bundle(
+        user_id=str(user.id),
+        strategy_name="Legacy saved variant",
+        config_json=first_variant_config,
+    )
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"base_config": base_config, "grid": {"entry_rule.threshold": [20, 25]}},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={
+            "run_type": "PARAMETER_SWEEP",
+            "ranking_metric": "sharpe_ratio",
+            "variant_count": 2,
+            "results": [
+                {
+                    "variant_id": "variant-legacy-saved",
+                    "variant_name": first_variant_config["name"],
+                    "parameters": {"entry_rule.threshold": 20},
+                    "status": "SUCCEEDED",
+                    "config": first_variant_config,
+                },
+                {
+                    "variant_id": "variant-legacy-sibling",
+                    "variant_name": sibling_variant_config["name"],
+                    "parameters": {"entry_rule.threshold": 25},
+                    "status": "SUCCEEDED",
+                    "config": sibling_variant_config,
+                },
+            ],
+        },
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"sweep_summary": "sweep_summary.json"},
+    )
+    run.strategy_id = legacy_strategy.id
+    run.strategy_version_id = legacy_version.id
+    db_session.commit()
+
+    detail_response = client.get(f"/runs/{run.id}/sweep/variants/variant-legacy-sibling")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["sweep_origin"] == "STANDALONE"
+    assert detail["run"]["strategy_id"] == str(legacy_strategy.id)
+
+    save_response = client.post(
+        f"/runs/{run.id}/sweep/variants/variant-legacy-sibling/promote",
+        json={"name": "Legacy sibling independent save"},
+    )
+
+    assert save_response.status_code == 200
+    body = save_response.json()
+    assert body["strategy_id"] != str(legacy_strategy.id)
+
+
+def test_promote_sweep_variant_without_saved_strategy_enforces_strategy_limit(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="sweep-promote-limit@example.com",
+        with_default_plan=False,
+    )
+    plan = create_plan(
+        db_session,
+        code="ONE_STRATEGY",
+        builder_prompt_daily_limit=20,
+        builder_prompt_max_chars=1000,
+        max_backtest_years=5,
+        max_saved_strategies=1,
+    )
+    attach_plan(db_session, user_id=str(user.id), plan_id=str(plan.id))
+    create_strategy_bundle(user_id=str(user.id), strategy_name="Existing saved strategy")
+
+    base_config = _strategy_v2_config()
+    variant_config = {**base_config, "name": "qqq-rsi-sweep-limit"}
     variant_config["entry_rule"] = {**base_config["entry_rule"], "threshold": 20}
 
     run = create_run(
@@ -356,16 +699,9 @@ def test_promote_sweep_variant_without_saved_strategy_creates_strategy(
             "run_type": "PARAMETER_SWEEP",
             "ranking_metric": "sharpe_ratio",
             "variant_count": 1,
-            "best_variant": {
-                "variant_id": "variant-new",
-                "variant_name": variant_config["name"],
-                "parameters": {"entry_rule.threshold": 20},
-                "status": "SUCCEEDED",
-                "config": variant_config,
-            },
             "results": [
                 {
-                    "variant_id": "variant-new",
+                    "variant_id": "variant-limit",
                     "variant_name": variant_config["name"],
                     "parameters": {"entry_rule.threshold": 20},
                     "status": "SUCCEEDED",
@@ -377,22 +713,13 @@ def test_promote_sweep_variant_without_saved_strategy_creates_strategy(
         artifact_manifest_json={"sweep_summary": "sweep_summary.json"},
     )
 
-    response = client.post(f"/runs/{run.id}/sweep/variants/variant-new/promote", json={})
+    response = client.post(
+        f"/runs/{run.id}/sweep/variants/variant-limit/promote",
+        json={"name": "Should not save"},
+    )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["strategy_id"]
-    assert body["version_id"]
-
-    dashboard_response = client.get(f"/strategies/{body['strategy_id']}/dashboard")
-    assert dashboard_response.status_code == 200
-    dashboard = dashboard_response.json()
-    assert dashboard["strategy"]["name"] == "qqq-rsi-sweep-001-threshold-20 - Sweep best"
-    assert dashboard["versions"][0]["config_json"]["entry_rule"]["threshold"] == 20
-
-    run_response = client.get(f"/runs/{run.id}")
-    assert run_response.status_code == 200
-    assert run_response.json()["strategy_id"] == body["strategy_id"]
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Saved strategy limit reached for plan ONE_STRATEGY (1)"
 
 
 def test_get_sweep_variant_detail_returns_metrics_config_and_rank(
@@ -458,6 +785,7 @@ def test_get_sweep_variant_detail_returns_metrics_config_and_rank(
     body = response.json()
     assert body["rank"] == 1
     assert body["ranking_metric"] == "sharpe_ratio"
+    assert body["sweep_origin"] == "STANDALONE"
     assert body["chart_data"] is None
     assert body["variant"]["total_return_pct"] == 12.3
     assert body["variant"]["config"]["entry_rule"]["threshold"] == 20
@@ -2217,6 +2545,7 @@ def test_save_draft_run_as_strategy_creates_strategy_and_links_run(
     assert get_body["strategy_id"] == body["strategy_id"]
     assert get_body["strategy_version_id"] == body["version_id"]
     assert get_body["strategy_name"] == "My Saved Draft"
+    assert get_body["source"] is None
 
 
 def test_save_draft_run_as_strategy_requires_succeeded_run(

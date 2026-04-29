@@ -209,6 +209,8 @@ class RunComparisonService:
 
     def _build_full_period_run_summary(self, run: Any) -> dict[str, Any]:
         summary_json = run.summary_json or {}
+        request_payload = run.request_payload or {}
+        source_variant_rank = request_payload.get("source_variant_rank")
 
         return {
             "run_id": str(run.id),
@@ -218,6 +220,11 @@ class RunComparisonService:
             "strategy_version_number": (
                 run.strategy_version.version_number if run.strategy_version else None
             ),
+            "source": request_payload.get("source"),
+            "source_sweep_run_id": request_payload.get("source_sweep_run_id"),
+            "source_variant_id": request_payload.get("source_variant_id"),
+            "source_variant_rank": source_variant_rank if isinstance(source_variant_rank, int) else None,
+            "source_ranking_metric": request_payload.get("source_ranking_metric"),
             "status": str(run.status),
             "total_return_pct": summary_json.get("total_return_pct"),
             "benchmark_return_pct": summary_json.get("benchmark_return_pct"),

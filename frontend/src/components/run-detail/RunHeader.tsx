@@ -5,6 +5,8 @@ import {
   formatExecutorType,
   formatRunLabel,
   formatRunType,
+  formatSavedSweepVariantSource,
+  isSavedSweepVariantResult,
   shortRunId
 } from '../../lib/formatters';
 import type { RunResponse } from '../../types/api';
@@ -98,17 +100,25 @@ function getCoreOverlayLabel(run: RunResponse): string | null {
 }
 
 export function RunHeader({ run }: RunHeaderProps) {
+  const isSavedSweepVariant = isSavedSweepVariantResult(run);
   const title = run.strategy_id
     ? formatRunLabel(run.strategy_name, run.strategy_version_number)
     : 'Unsaved draft run';
-  const resultLabel = run.run_type === 'PARAMETER_SWEEP' ? 'Sweep Result' : 'Simulation Result';
+  const resultLabel = isSavedSweepVariant
+    ? 'Saved Sweep Variant Result'
+    : run.run_type === 'PARAMETER_SWEEP' ? 'Sweep Result' : 'Simulation Result';
   const benchmarkLabel = getBenchmarkLabel(run);
   const coreOverlayLabel = getCoreOverlayLabel(run);
-  const metadata = [
-    formatRunType(run.run_type),
-    formatExecutorType(run.executor_type),
-    `Created ${formatDateTime(run.created_at)}`
-  ];
+  const metadata = isSavedSweepVariant
+    ? [
+        formatSavedSweepVariantSource(run),
+        `Created ${formatDateTime(run.created_at)}`
+      ]
+    : [
+        formatRunType(run.run_type),
+        formatExecutorType(run.executor_type),
+        `Created ${formatDateTime(run.created_at)}`
+      ];
 
   if (benchmarkLabel) {
     metadata.push(`Benchmark: ${benchmarkLabel}`);
@@ -145,10 +155,10 @@ export function RunHeader({ run }: RunHeaderProps) {
 
           <div className="flex flex-wrap items-center gap-3">
             <Link to="/runs" className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition">
-              Back to runs
+              Back to results
             </Link>
 
-            {run.parent_run_id ? (
+            {!isSavedSweepVariant && run.parent_run_id ? (
               <Link
                 to={`/runs/${run.parent_run_id}`}
                 className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"

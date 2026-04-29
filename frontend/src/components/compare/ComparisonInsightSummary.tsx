@@ -1,4 +1,4 @@
-import { formatNumber, formatPct, formatRunLabel } from '../../lib/formatters';
+import { formatNumber, formatPct, formatRunLabel, isSavedSweepVariantResult } from '../../lib/formatters';
 import type { RunComparisonResponse, RunComparisonSummary } from '../../types/api';
 
 type MetricWinner = {
@@ -13,7 +13,8 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function getRunLabel(run: RunComparisonSummary) {
-  return formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
+  const label = formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
+  return isSavedSweepVariantResult(run) ? `Saved sweep variant · ${label}` : label;
 }
 
 function pickBestRun(

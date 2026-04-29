@@ -24,6 +24,7 @@ from market_simulator.api.schemas.runs import (
     SaveDraftRunAsStrategyResponse,
     SweepVariantDetailResponse,
 )
+from market_simulator.db.enums import RunStatus
 from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.platform.services.artifact_store import build_artifact_store
 from market_simulator.platform.services.parameter_sweep import (
@@ -37,10 +38,12 @@ from market_simulator.platform.services.run_worker_service import RunWorkerServi
 from market_simulator.repositories.runs import (
     count_runs,
     create_run,
+    find_saved_sweep_variant_run,
     find_duplicate_active_run,
     get_run_for_user,
     link_run_to_strategy_version,
     list_runs,
+    mark_run_succeeded,
 )
 from market_simulator.repositories.strategies import (
     create_strategy,
@@ -74,6 +77,8 @@ def _build_run_response(run) -> RunResponse:
     response.strategy_version_number = (
         run.strategy_version.version_number if run.strategy_version else None
     )
+    for key, value in _run_source_metadata(run).items():
+        setattr(response, key, value)
     return response
 
 
@@ -86,9 +91,52 @@ def _short_run_id(run_id: str) -> str:
     return str(run_id).split("-")[0]
 
 
+def _run_source_metadata(run) -> dict:
+    payload = run.request_payload or {}
+    source = payload.get("source")
+    if source != "sweep_variant_save":
+        return {
+            "source": None,
+            "source_sweep_run_id": None,
+            "source_variant_id": None,
+            "source_variant_rank": None,
+            "source_ranking_metric": None,
+        }
+
+    source_variant_rank = payload.get("source_variant_rank")
+    return {
+        "source": "sweep_variant_save",
+        "source_sweep_run_id": payload.get("source_sweep_run_id"),
+        "source_variant_id": payload.get("source_variant_id"),
+        "source_variant_rank": source_variant_rank if isinstance(source_variant_rank, int) else None,
+        "source_ranking_metric": payload.get("source_ranking_metric"),
+    }
+
+
 def _strategy_name_from_config(config: dict, variant_name: str | None = None) -> str:
     name = config.get("name") or variant_name or "Strategy"
     return f"{str(name).strip() or 'Strategy'} - Sweep best"
+
+
+def _sweep_origin(run) -> str:
+    request_payload = run.request_payload or {}
+    explicit_origin = request_payload.get("sweep_origin")
+    if explicit_origin in {"STANDALONE", "SAVED_STRATEGY"}:
+        return explicit_origin
+
+    if isinstance(request_payload.get("base_config"), dict):
+        return "STANDALONE"
+
+    return "SAVED_STRATEGY" if run.strategy_id is not None else "STANDALONE"
+
+
+def _sweep_origin_strategy_id(run) -> str | None:
+    request_payload = run.request_payload or {}
+    origin_strategy_id = request_payload.get("sweep_origin_strategy_id")
+    if isinstance(origin_strategy_id, str) and origin_strategy_id.strip():
+        return origin_strategy_id
+
+    return str(run.strategy_id) if run.strategy_id is not None else None
 
 
 def _find_sweep_variant(run, variant_id: str) -> dict | None:
@@ -184,6 +232,72 @@ def _variant_artifact_manifest(variant: dict) -> dict[str, str] | None:
     return manifest
 
 
+def _sweep_variant_summary_json(variant: dict, variant_id: str) -> dict:
+    excluded_keys = {"config", "artifact_dir"}
+    summary = {
+        key: value
+        for key, value in variant.items()
+        if key not in excluded_keys
+    }
+    summary["source"] = "sweep_variant_save"
+    summary["variant_id"] = str(summary.get("variant_id") or variant_id)
+    return summary
+
+
+def _create_sweep_variant_result_run(
+    db: Session,
+    *,
+    user_id: str,
+    sweep_run,
+    variant_id: str,
+    variant: dict,
+    rank: int | None,
+    ranking_metric: str | None,
+    strategy_id,
+    strategy_version_id,
+    config: dict,
+):
+    manifest = _variant_artifact_manifest(variant) or {}
+    variant_artifact_dir = variant.get("artifact_dir")
+    artifact_dir = (
+        variant_artifact_dir
+        if isinstance(variant_artifact_dir, str) and variant_artifact_dir.strip()
+        else f"{sweep_run.artifact_dir or 'data/local_artifacts/runs'}/{sweep_run.id}/variants/{variant_id}"
+    )
+
+    run = create_run(
+        db,
+        user_id,
+        strategy_id,
+        strategy_version_id,
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {
+            "source": "sweep_variant_save",
+            "source_sweep_run_id": str(sweep_run.id),
+            "source_variant_id": variant_id,
+            "source_variant_rank": rank,
+            "source_ranking_metric": ranking_metric,
+            "draft_config": config,
+        },
+        max_attempts=1,
+        parent_run_id=sweep_run.id,
+    )
+    run.status = RunStatus.RUNNING
+    db.commit()
+    db.refresh(run)
+
+    return mark_run_succeeded(
+        db,
+        run,
+        summary_json=_sweep_variant_summary_json(variant, variant_id),
+        artifact_dir=artifact_dir,
+        artifact_manifest_json=manifest,
+        artifact_storage_type=sweep_run.artifact_storage_type,
+        artifact_root_uri=artifact_dir if manifest else None,
+    )
+
+
 def _load_variant_chart_data(variant: dict) -> dict | None:
     manifest = _variant_artifact_manifest(variant)
     if manifest is None:
@@ -268,6 +382,14 @@ def create_run_api(
         except ParameterSweepError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        if req.strategy_id is not None:
+            request_payload.setdefault("sweep_origin", "SAVED_STRATEGY")
+            request_payload.setdefault("sweep_origin_strategy_id", req.strategy_id)
+            if req.strategy_version_id is not None:
+                request_payload.setdefault("sweep_origin_strategy_version_id", req.strategy_version_id)
+        else:
+            request_payload.setdefault("sweep_origin", "STANDALONE")
+
     duplicate_run = find_duplicate_active_run(
         db,
         user_id=user["id"],
@@ -307,6 +429,7 @@ def list_runs_api(
     executor_type: str | None = Query(default=None),
     run_type: str | None = Query(default=None),
     strategy_id: str | None = Query(default=None),
+    include_derived_results: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -321,6 +444,7 @@ def list_runs_api(
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        include_derived_results=include_derived_results,
     )
 
     runs = list_runs(
@@ -330,6 +454,7 @@ def list_runs_api(
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        include_derived_results=include_derived_results,
         offset=offset,
         limit=page_size,
     )
@@ -349,6 +474,7 @@ def list_runs_dashboard_api(
     executor_type: str | None = Query(default=None),
     run_type: str | None = Query(default=None),
     strategy_id: str | None = Query(default=None),
+    include_derived_results: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str = "created_at",
@@ -375,6 +501,7 @@ def list_runs_dashboard_api(
         executor_type=params.executor_type,
         run_type=params.run_type,
         strategy_id=params.strategy_id,
+        include_derived_results=include_derived_results,
     )
 
     runs = list_runs(
@@ -384,6 +511,7 @@ def list_runs_dashboard_api(
         executor_type=params.executor_type,
         run_type=params.run_type,
         strategy_id=params.strategy_id,
+        include_derived_results=include_derived_results,
         offset=(params.page - 1) * params.page_size,
         limit=params.page_size,
         sort_by=params.sort_by,
@@ -393,6 +521,7 @@ def list_runs_dashboard_api(
     items = []
     for run in runs:
         summary_json = run.summary_json or {}
+        source_metadata = _run_source_metadata(run)
 
         items.append(
             RunDashboardListItem(
@@ -403,6 +532,7 @@ def list_runs_dashboard_api(
                 strategy_version_number=(
                     run.strategy_version.version_number if run.strategy_version else None
                 ),
+                **source_metadata,
                 status=str(run.status),
                 run_type=str(run.run_type),
                 executor_type=str(run.executor_type),
@@ -594,12 +724,34 @@ def promote_sweep_variant_api(
         or f"Promoted from parameter sweep run {_short_run_id(str(run.id))}, rank #{rank or 'unknown'}."
     )
 
-    if run.strategy_id is not None:
+    sweep_origin = _sweep_origin(run)
+
+    if sweep_origin == "SAVED_STRATEGY":
         enforce_strategy_history_access(db, user["id"])
-        strategy = get_strategy_for_user(db, str(run.strategy_id), user["id"])
+        origin_strategy_id = _sweep_origin_strategy_id(run)
+        if origin_strategy_id is None:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+
+        strategy = get_strategy_for_user(db, origin_strategy_id, user["id"])
         if strategy is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
+        derived_run = None
     else:
+        existing_saved_run = find_saved_sweep_variant_run(
+            db,
+            user_id=user["id"],
+            sweep_run_id=run.id,
+            variant_id=variant_id,
+        )
+        if existing_saved_run is not None:
+            return PromoteSweepVariantResponse(
+                run_id=str(run.id),
+                variant_id=variant_id,
+                strategy_id=str(existing_saved_run.strategy_id),
+                version_id=str(existing_saved_run.strategy_version_id),
+                derived_run_id=str(existing_saved_run.id),
+            )
+
         enforce_strategy_create_access(db, user["id"])
         strategy = create_strategy(
             db,
@@ -618,12 +770,19 @@ def promote_sweep_variant_api(
         change_note=change_note,
     )
 
-    if run.strategy_id is None:
-        link_run_to_strategy_version(
+    if sweep_origin == "STANDALONE":
+        ranking_metric = (run.summary_json or {}).get("ranking_metric")
+        derived_run = _create_sweep_variant_result_run(
             db,
-            run,
+            user_id=user["id"],
+            sweep_run=run,
+            variant_id=variant_id,
+            variant=variant,
+            rank=rank,
+            ranking_metric=ranking_metric if isinstance(ranking_metric, str) else None,
             strategy_id=strategy.id,
             strategy_version_id=version.id,
+            config=config,
         )
 
     return PromoteSweepVariantResponse(
@@ -631,6 +790,7 @@ def promote_sweep_variant_api(
         variant_id=variant_id,
         strategy_id=str(strategy.id),
         version_id=str(version.id),
+        derived_run_id=str(derived_run.id) if derived_run is not None else None,
     )
 
 
@@ -659,12 +819,24 @@ def get_sweep_variant_detail_api(
     variant = {**variant, "config": config}
     rank = _sweep_variant_rank(run, variant_id)
     ranking_metric = (run.summary_json or {}).get("ranking_metric")
+    saved_run = None
+    if _sweep_origin(run) == "STANDALONE":
+        saved_run = find_saved_sweep_variant_run(
+            db,
+            user_id=user["id"],
+            sweep_run_id=run.id,
+            variant_id=variant_id,
+        )
 
     return SweepVariantDetailResponse(
         run=_build_run_response(run),
         variant=variant,
         rank=rank or 0,
         ranking_metric=ranking_metric if isinstance(ranking_metric, str) else None,
+        sweep_origin=_sweep_origin(run),
+        saved_strategy_id=str(saved_run.strategy_id) if saved_run is not None else None,
+        saved_version_id=str(saved_run.strategy_version_id) if saved_run is not None else None,
+        saved_run_id=str(saved_run.id) if saved_run is not None else None,
         chart_data=_load_variant_chart_data(variant),
     )
 
@@ -695,6 +867,20 @@ def get_run_dashboard_api(
 
     if run.status != "SUCCEEDED":
         raise HTTPException(status_code=400, detail="Dashboard is only available for succeeded runs")
+
+    if (run.request_payload or {}).get("source") == "sweep_variant_save" and not run.artifact_manifest_json:
+        return RunDashboardResponse(
+            run=run_response,
+            chart_data=RunChartDataResponse(
+                run_id=str(run.id),
+                equity_curve=[],
+                drawdown_curve=[],
+                monthly_returns=[],
+                sleeve_equity_curve=[],
+                sleeve_weight_curve=[],
+                trade_markers=[],
+            ),
+        )
 
     if not run.artifact_manifest_json:
         raise HTTPException(status_code=404, detail="Run artifacts not found")

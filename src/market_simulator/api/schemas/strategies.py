@@ -60,6 +60,11 @@ class StrategyVersionSummary(BaseModel):
 
 class StrategyLatestPerformance(BaseModel):
     run_id: str
+    source: str | None = None
+    source_sweep_run_id: str | None = None
+    source_variant_id: str | None = None
+    source_variant_rank: int | None = None
+    source_ranking_metric: str | None = None
     finished_at: datetime | None = None
     total_return_pct: float | None = None
     benchmark_return_pct: float | None = None

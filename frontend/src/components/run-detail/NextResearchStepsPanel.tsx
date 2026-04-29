@@ -17,6 +17,8 @@ export function NextResearchStepsPanel({
   onSaveDraftStrategy
 }: NextResearchStepsPanelProps) {
   const modifyBuilderState = getModifyBuilderState(run);
+  const isSavedSweepVariantResult = run.source === 'sweep_variant_save';
+  const canCompareWithParent = Boolean(run.parent_run_id) && !isSavedSweepVariantResult;
 
   return (
     <section className="app-card-soft rounded-2xl border p-4">
@@ -41,7 +43,7 @@ export function NextResearchStepsPanel({
             </Link>
           ) : null}
 
-          {run.parent_run_id ? (
+          {canCompareWithParent ? (
             <Link
               to={`/compare?runIds=${run.parent_run_id},${run.id}`}
               className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"

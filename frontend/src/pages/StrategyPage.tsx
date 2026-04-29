@@ -8,7 +8,12 @@ import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
 import { archiveStrategy, fetchStrategyDashboard, restoreStrategy } from '../lib/api';
-import { formatDateTime, formatPct } from '../lib/formatters';
+import {
+  formatDateTime,
+  formatPct,
+  formatSavedSweepVariantSource,
+  isSavedSweepVariantResult
+} from '../lib/formatters';
 import type { StrategyDashboardResponse } from '../types/api';
 
 function formatStrategyType(value: string | null | undefined) {
@@ -131,6 +136,7 @@ export function StrategyPage() {
       : notice?.tone === 'info'
         ? 'app-note'
         : 'app-alert-success';
+  const latestIsSavedSweepVariant = data?.latest_performance ? isSavedSweepVariantResult(data.latest_performance) : false;
 
   async function handleStatusAction() {
     if (!strategyId || !data) return;
@@ -219,6 +225,11 @@ export function StrategyPage() {
             <p className="app-text-muted mt-2 text-sm leading-6">
               Open the latest result, compare recent performance, or continue from the saved version in chat.
             </p>
+            {latestIsSavedSweepVariant && data?.latest_performance ? (
+              <div className="app-note mt-3 inline-flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2 text-xs">
+                <span>{formatSavedSweepVariantSource(data.latest_performance)}</span>
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             {data.latest_run_id ? (
@@ -226,11 +237,11 @@ export function StrategyPage() {
                 to={`/runs/${data.latest_run_id}`}
                 className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition"
               >
-                Open latest run
+                Open latest result
               </Link>
             ) : (
               <span className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold opacity-60">
-                Open latest run
+                Open latest result
               </span>
             )}
             {data.latest_run_id ? (
@@ -238,11 +249,11 @@ export function StrategyPage() {
                 to={`/compare?runIds=${data.latest_run_id}`}
                 className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
               >
-                Compare latest run
+                Compare latest result
               </Link>
             ) : (
               <span className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold opacity-60">
-                Compare latest run
+                Compare latest result
               </span>
             )}
             {canContinueInChat ? (
@@ -290,11 +301,6 @@ export function StrategyPage() {
               <h3 className="app-title mt-2 text-xl font-semibold">Latest Performance</h3>
               <p className="app-text-muted mt-1 text-sm">Most recent completed simulation for this saved strategy.</p>
             </div>
-            {data.latest_run_id ? (
-              <Link to={`/runs/${data.latest_run_id}`} className="app-button-primary shrink-0 rounded-xl px-4 py-2 text-sm font-semibold transition">
-                Open latest run
-              </Link>
-            ) : null}
           </div>
           {data.latest_performance ? (
             <div className="space-y-4">
