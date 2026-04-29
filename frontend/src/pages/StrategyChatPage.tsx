@@ -35,6 +35,7 @@ function extractDraftConfig(draft: unknown): Record<string, unknown> | null {
   const record = draft as {
     strategy_config?: unknown;
     config?: unknown;
+    sweep_draft?: unknown;
   };
 
   if (isRecord(record.strategy_config)) {
@@ -43,6 +44,10 @@ function extractDraftConfig(draft: unknown): Record<string, unknown> | null {
 
   if (isRecord(record.config)) {
     return record.config;
+  }
+
+  if (isRecord(record.sweep_draft)) {
+    return record.sweep_draft;
   }
 
   return null;
@@ -82,12 +87,18 @@ function getLatestDraftHeadline(messages: ChatMessage[]): string | null {
     const config = extractDraftConfig(message.draft);
     if (!config) continue;
 
+    const baseConfig = isRecord(config.base_config) ? config.base_config : config;
+
     if (typeof config.name === 'string' && config.name.trim()) {
       return config.name;
     }
 
-    if (typeof config.tradable_symbol === 'string' && config.tradable_symbol.trim()) {
-      return `${config.tradable_symbol} draft`;
+    if (typeof baseConfig.name === 'string' && baseConfig.name.trim()) {
+      return `${baseConfig.name} sweep`;
+    }
+
+    if (typeof baseConfig.tradable_symbol === 'string' && baseConfig.tradable_symbol.trim()) {
+      return `${baseConfig.tradable_symbol} draft`;
     }
 
     return 'Latest draft';

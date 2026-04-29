@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from typing import Any
 
 from market_simulator.api.schemas.strategy_builder import (
@@ -2357,6 +2358,78 @@ def generate_strategy_builder_draft(
 
 _NUMBER_TOKEN = r"\d+(?:\.\d+)?%?"
 
+_SWEEP_PATH_SPECS = [
+    (
+        "entry_rule.threshold",
+        [
+            r"(?:entry\s+rsi|rsi\s+entry)\s+thresholds?",
+            r"rsi\s+buy\s+thresholds?",
+            r"(?:buy|entry)\s+(?:rsi\s+)?thresholds?",
+            r"entry\s+thresholds?",
+            r"entry\s+rsi",
+            r"rsi\s+entry",
+            r"rsi\s+buy",
+            r"rsi\s+thresholds?",
+        ],
+        False,
+    ),
+    (
+        "exit_rule.threshold",
+        [
+            r"(?:exit\s+rsi|rsi\s+exit)\s+thresholds?",
+            r"rsi\s+sell\s+thresholds?",
+            r"(?:sell|exit)\s+(?:rsi\s+)?thresholds?",
+            r"exit\s+thresholds?",
+            r"exit\s+rsi",
+            r"rsi\s+exit",
+            r"rsi\s+sell",
+        ],
+        False,
+    ),
+    (
+        "entry_rule.fast_window",
+        [
+            r"entry\s+(?:rule\s+)?fast\s+windows?",
+            r"(?:sma\s+)?fast\s+windows?",
+            r"sma\s+windows?",
+        ],
+        False,
+    ),
+    (
+        "entry_rule.slow_window",
+        [
+            r"entry\s+(?:rule\s+)?slow\s+windows?",
+            r"(?:sma\s+)?slow\s+windows?",
+        ],
+        False,
+    ),
+    (
+        "exit_rule.fast_window",
+        [r"exit\s+(?:rule\s+)?fast\s+windows?"],
+        False,
+    ),
+    (
+        "exit_rule.slow_window",
+        [r"exit\s+(?:rule\s+)?slow\s+windows?"],
+        False,
+    ),
+    (
+        "risk.stop_loss_pct",
+        [r"stop\s+loss(?:\s+pct|\s+percent|\s+percentages?)?"],
+        True,
+    ),
+    (
+        "risk.take_profit_pct",
+        [r"take\s+profit(?:\s+pct|\s+percent|\s+percentages?)?"],
+        True,
+    ),
+    (
+        "risk.cooldown_bars",
+        [r"cooldown(?:\s+bars?)?"],
+        False,
+    ),
+]
+
 
 def _format_grid_value(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
@@ -2426,6 +2499,25 @@ def _extract_sweep_values(
                 for value in values
             ]
 
+        compact_range_pattern = (
+            rf"{label}\s+({_NUMBER_TOKEN})\s+to\s+({_NUMBER_TOKEN})"
+            rf"(?:\s+by\s+({_NUMBER_TOKEN}))?"
+        )
+        compact_range_match = re.search(compact_range_pattern, text, flags=re.IGNORECASE)
+        if compact_range_match:
+            start = _normalize_sweep_number(compact_range_match.group(1), percent=False)
+            end = _normalize_sweep_number(compact_range_match.group(2), percent=False)
+            step = (
+                _normalize_sweep_number(compact_range_match.group(3), percent=False)
+                if compact_range_match.group(3)
+                else None
+            )
+            values = _range_values(start, end, step)
+            return [
+                _normalize_sweep_number(f"{value}%", percent=True) if percent else value
+                for value in values
+            ]
+
         list_pattern = (
             rf"{label}(?:\s+(?:of|at|to|=|:))?\s+"
             rf"(?P<values>{_NUMBER_TOKEN}(?:\s*(?:,|/|\band\b)\s*{_NUMBER_TOKEN})+)"
@@ -2441,78 +2533,41 @@ def _extract_sweep_values(
 def _extract_parameter_sweep_grid(prompt: str) -> dict[str, list[Any]]:
     grid: dict[str, list[Any]] = {}
 
-    path_specs = [
-        (
-            "entry_rule.threshold",
-            [
-                r"(?:entry\s+rsi|rsi\s+entry)\s+thresholds?",
-                r"entry\s+thresholds?",
-                r"entry\s+rsi",
-                r"rsi\s+entry",
-                r"rsi\s+thresholds?",
-            ],
-            False,
-        ),
-        (
-            "exit_rule.threshold",
-            [
-                r"(?:exit\s+rsi|rsi\s+exit)\s+thresholds?",
-                r"exit\s+thresholds?",
-                r"exit\s+rsi",
-                r"rsi\s+exit",
-            ],
-            False,
-        ),
-        (
-            "entry_rule.fast_window",
-            [
-                r"entry\s+(?:rule\s+)?fast\s+windows?",
-                r"(?:sma\s+)?fast\s+windows?",
-                r"sma\s+windows?",
-            ],
-            False,
-        ),
-        (
-            "entry_rule.slow_window",
-            [
-                r"entry\s+(?:rule\s+)?slow\s+windows?",
-                r"(?:sma\s+)?slow\s+windows?",
-            ],
-            False,
-        ),
-        (
-            "exit_rule.fast_window",
-            [r"exit\s+(?:rule\s+)?fast\s+windows?"],
-            False,
-        ),
-        (
-            "exit_rule.slow_window",
-            [r"exit\s+(?:rule\s+)?slow\s+windows?"],
-            False,
-        ),
-        (
-            "risk.stop_loss_pct",
-            [r"stop\s+loss(?:\s+pct|\s+percent|\s+percentages?)?"],
-            True,
-        ),
-        (
-            "risk.take_profit_pct",
-            [r"take\s+profit(?:\s+pct|\s+percent|\s+percentages?)?"],
-            True,
-        ),
-        (
-            "risk.cooldown_bars",
-            [r"cooldown(?:\s+bars?)?"],
-            False,
-        ),
-    ]
-
-    for path, labels, percent in path_specs:
+    for path, labels, percent in _SWEEP_PATH_SPECS:
         values = _extract_sweep_values(prompt, labels, percent=percent)
         if values is not None:
             grid[path] = values
 
     return grid
+
+
+def _extract_single_sweep_value(
+    text: str,
+    label_patterns: list[str],
+    *,
+    percent: bool,
+) -> Any | None:
+    for label in label_patterns:
+        match = re.search(
+            rf"{label}(?:\s+(?:of|at|to|=|:))?\s+({_NUMBER_TOKEN})\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return _normalize_sweep_number(match.group(1), percent=percent)
+    return None
+
+
+def _extract_sweep_grid_additions(prompt: str) -> dict[str, list[Any]]:
+    if not re.search(r"\b(add|include)\b", prompt, flags=re.IGNORECASE):
+        return {}
+
+    additions: dict[str, list[Any]] = {}
+    for path, labels, percent in _SWEEP_PATH_SPECS:
+        value = _extract_single_sweep_value(prompt, labels, percent=percent)
+        if value is not None:
+            additions[path] = [value]
+    return additions
 
 
 def _looks_like_parameter_sweep_prompt(prompt: str) -> bool:
@@ -2568,16 +2623,93 @@ def _build_parameter_sweep_summary(
     )
 
 
-def _generate_parameter_sweep_draft(
+def _current_sweep_draft_from_context(
     req: StrategyBuilderGenerateRequest,
-    *,
-    max_backtest_years: int,
-) -> dict[str, Any]:
-    grid = _extract_parameter_sweep_grid(req.prompt)
-    ranking_metric = _extract_sweep_ranking_metric(req.prompt)
-    count = variant_count(grid)
-    max_variants = DEFAULT_MAX_VARIANTS
+) -> dict[str, Any] | None:
+    current_config = req.context.current_config if req.context else None
+    if not isinstance(current_config, dict):
+        return None
 
+    if isinstance(current_config.get("sweep_draft"), dict):
+        current_config = current_config["sweep_draft"]
+
+    if isinstance(current_config.get("base_config"), dict) and isinstance(current_config.get("grid"), dict):
+        return current_config
+
+    return None
+
+
+def _parameter_path_guidance(base_config: dict[str, Any], path: str) -> str | None:
+    entry_rule = base_config.get("entry_rule")
+    exit_rule = base_config.get("exit_rule")
+
+    if path == "entry_rule.threshold" and not (
+        _has_rsi_rule(entry_rule, rule_type="rsi_below")
+        or _has_rsi_rule(entry_rule, rule_type="rsi_above")
+    ):
+        return (
+            "This draft does not use RSI rules yet. You can create an RSI strategy first, "
+            "or ask me to replace the entry/exit rules with RSI."
+        )
+
+    if path == "exit_rule.threshold" and not (
+        _has_rsi_rule(exit_rule, rule_type="rsi_below")
+        or _has_rsi_rule(exit_rule, rule_type="rsi_above")
+    ):
+        return (
+            "This draft does not use RSI rules yet. You can create an RSI strategy first, "
+            "or ask me to replace the entry/exit rules with RSI."
+        )
+
+    if path.startswith("entry_rule.") and path.endswith("_window") and not _has_moving_average_rule(entry_rule):
+        return (
+            "This draft does not use SMA rules yet. You can create an SMA strategy first, "
+            "or ask me to replace the entry/exit rules with SMA."
+        )
+
+    if path.startswith("exit_rule.") and path.endswith("_window") and not _has_moving_average_rule(exit_rule):
+        return (
+            "This draft does not use SMA rules yet. You can create an SMA strategy first, "
+            "or ask me to replace the entry/exit rules with SMA."
+        )
+
+    return None
+
+
+def _validate_follow_up_sweep_grid(
+    *,
+    base_config: dict[str, Any],
+    grid: dict[str, list[Any]],
+    max_backtest_years: int,
+) -> dict[str, Any] | None:
+    for path in grid:
+        guidance = _parameter_path_guidance(base_config, path)
+        if guidance is not None:
+            return _build_response(
+                response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+                message=guidance,
+                validation_data=build_validation_data(
+                    message=guidance,
+                    max_backtest_years=max_backtest_years,
+                ),
+                guidance_data=_build_guidance_data(
+                    guidance_type=StrategyBuilderGuidanceType.UNSUPPORTED_EDIT_TARGET,
+                ),
+            )
+    return None
+
+
+def _build_parameter_sweep_response(
+    *,
+    base_config: dict[str, Any],
+    grid: dict[str, list[Any]],
+    ranking_metric: str,
+    max_variants: int,
+    max_backtest_years: int,
+    warnings: list[str] | None = None,
+    assumptions: list[str] | None = None,
+) -> dict[str, Any]:
+    count = variant_count(grid)
     if count > max_variants:
         message = (
             f"This sweep would create {count} variants, but your plan allows up to "
@@ -2592,10 +2724,13 @@ def _generate_parameter_sweep_draft(
             ),
         )
 
-    base_config, _, warnings, assumptions, _ = generate_strategy_builder_draft(
-        req,
+    guidance_response = _validate_follow_up_sweep_grid(
+        base_config=base_config,
+        grid=grid,
         max_backtest_years=max_backtest_years,
     )
+    if guidance_response is not None:
+        return guidance_response
 
     try:
         sweep_request = build_sweep_request(
@@ -2629,17 +2764,139 @@ def _generate_parameter_sweep_draft(
         response_type=StrategyBuilderResponseType.PARAMETER_SWEEP_DRAFT,
         message=summary,
         summary=summary,
-        warnings=warnings,
-        assumptions=assumptions,
+        warnings=warnings or [],
+        assumptions=assumptions or [],
         sweep_draft={
             "title": title,
-            "base_config": base_config,
+            "base_config": sweep_request["base_config"],
             "grid": sweep_request["grid"],
             "ranking_metric": sweep_request["ranking_metric"],
             "variant_count": sweep_request["variant_count"],
             "max_variants": sweep_request["max_variants"],
             "summary": summary,
         },
+    )
+
+
+def _extract_sweep_max_variants_edit(prompt: str) -> int | None:
+    match = re.search(
+        r"(?:change|set|use)?\s*max(?:imum)?\s+variants?\s+(?:to\s+)?(\d+)",
+        prompt,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _generate_existing_parameter_sweep_edit(
+    req: StrategyBuilderGenerateRequest,
+    *,
+    max_backtest_years: int,
+) -> dict[str, Any] | None:
+    current_sweep = _current_sweep_draft_from_context(req)
+    if current_sweep is None:
+        return None
+
+    base_config = current_sweep.get("base_config")
+    current_grid = current_sweep.get("grid")
+    if not isinstance(base_config, dict) or not isinstance(current_grid, dict):
+        return None
+
+    prompt = req.prompt.strip()
+    if not (
+        _looks_like_parameter_sweep_prompt(prompt)
+        or re.search(r"\brank(?:ed|ing)?\s+by\b", prompt, flags=re.IGNORECASE)
+        or re.search(r"\bmax(?:imum)?\s+variants?\b", prompt, flags=re.IGNORECASE)
+        or re.search(r"\b(add|include)\b", prompt, flags=re.IGNORECASE)
+    ):
+        return None
+
+    parsed_grid = _extract_parameter_sweep_grid(prompt)
+    additions = _extract_sweep_grid_additions(prompt)
+    ranking_metric = (
+        _extract_sweep_ranking_metric(prompt)
+        if re.search(r"\brank(?:ed|ing)?\s+by\b", prompt, flags=re.IGNORECASE)
+        else str(current_sweep.get("ranking_metric") or normalize_ranking_metric(None))
+    )
+    max_variants = _extract_sweep_max_variants_edit(prompt)
+    if max_variants is None:
+        existing_max_variants = current_sweep.get("max_variants", DEFAULT_MAX_VARIANTS)
+        max_variants = existing_max_variants if isinstance(existing_max_variants, int) else DEFAULT_MAX_VARIANTS
+    max_variants = min(max_variants, DEFAULT_MAX_VARIANTS)
+
+    grid = {str(path): list(values) for path, values in current_grid.items() if isinstance(values, list)}
+
+    if parsed_grid:
+        for path, values in parsed_grid.items():
+            grid[path] = values
+
+    for path, values in additions.items():
+        existing_values = grid.setdefault(path, [])
+        for value in values:
+            if value not in existing_values:
+                existing_values.append(value)
+
+    has_safe_change = bool(parsed_grid or additions or max_variants != current_sweep.get("max_variants")) or (
+        ranking_metric != current_sweep.get("ranking_metric")
+    )
+    if not has_safe_change:
+        message = (
+            "I can make simple sweep edits like adding one grid value, changing the ranking metric, "
+            "or changing max variants. For larger changes, start from the base strategy draft."
+        )
+        return _build_response(
+            response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+            message=message,
+            validation_data=build_validation_data(
+                message=message,
+                max_backtest_years=max_backtest_years,
+            ),
+            guidance_data=_build_guidance_data(
+                guidance_type=StrategyBuilderGuidanceType.UNSUPPORTED_EDIT_TARGET,
+            ),
+        )
+
+    return _build_parameter_sweep_response(
+        base_config=deepcopy(base_config),
+        grid=grid,
+        ranking_metric=ranking_metric,
+        max_variants=max_variants,
+        max_backtest_years=max_backtest_years,
+    )
+
+
+def _generate_parameter_sweep_draft(
+    req: StrategyBuilderGenerateRequest,
+    *,
+    max_backtest_years: int,
+) -> dict[str, Any]:
+    grid = _extract_parameter_sweep_grid(req.prompt)
+    ranking_metric = _extract_sweep_ranking_metric(req.prompt)
+    max_variants = DEFAULT_MAX_VARIANTS
+    warnings: list[str] = []
+    assumptions: list[str] = []
+
+    current_config = req.context.current_config if req.context else None
+    if isinstance(current_config, dict):
+        base_config = deepcopy(current_config)
+        if not isinstance(base_config.get("risk"), dict):
+            base_config["risk"] = {}
+        assumptions.append("Used the current Strategy V2 draft as the sweep base configuration.")
+    else:
+        base_config, _, warnings, assumptions, _ = generate_strategy_builder_draft(
+            req,
+            max_backtest_years=max_backtest_years,
+        )
+
+    return _build_parameter_sweep_response(
+        base_config=base_config,
+        grid=grid,
+        ranking_metric=ranking_metric,
+        max_variants=max_variants,
+        max_backtest_years=max_backtest_years,
+        warnings=warnings,
+        assumptions=assumptions,
     )
 
 
@@ -2650,6 +2907,13 @@ def generate_strategy_builder_response(
 ) -> dict[str, Any]:
     prompt = req.prompt.strip()
     has_current_config = _has_current_config(req)
+
+    existing_sweep_edit = _generate_existing_parameter_sweep_edit(
+        req,
+        max_backtest_years=max_backtest_years,
+    )
+    if existing_sweep_edit is not None:
+        return existing_sweep_edit
 
     if _looks_like_parameter_sweep_prompt(prompt):
         return _generate_parameter_sweep_draft(
