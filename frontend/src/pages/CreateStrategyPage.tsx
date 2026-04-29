@@ -171,6 +171,23 @@ function summarizeRule(
     };
   }
 
+  if (rule.kind === 'not' && isRecord(rule.rule)) {
+    const nestedRule = rule.rule;
+    if (
+      nestedRule.kind === 'atomic' &&
+      nestedRule.type === 'sma_above' &&
+      nestedRule.fast_window === 1
+    ) {
+      const symbol = formatSymbol(nestedRule.symbol);
+      const slowWindow = typeof nestedRule.slow_window === 'number' ? nestedRule.slow_window : 'slow';
+      return {
+        text: `${symbol} below SMA ${slowWindow}`,
+        kind: 'simple'
+      };
+    }
+    return { text: 'Complex rule group · review JSON', kind: 'complex' };
+  }
+
   if (
     rule.kind === 'window' ||
     rule.kind === 'sequence' ||
@@ -202,10 +219,13 @@ function summarizeAtomicRule(rule: JsonRecord): string | null {
     case 'rsi_above':
       return `${symbol} RSI${lookback ? ` ${lookback}` : ''} above ${threshold ?? 'threshold'}`;
     case 'sma_cross_above':
+      if (fastWindow === 1) return `${symbol} crosses above SMA ${slowWindow}`;
       return `${symbol} SMA ${fastWindow} crosses above SMA ${slowWindow}`;
     case 'sma_cross_below':
+      if (fastWindow === 1) return `${symbol} crosses below SMA ${slowWindow}`;
       return `${symbol} SMA ${fastWindow} crosses below SMA ${slowWindow}`;
     case 'sma_above':
+      if (fastWindow === 1) return `${symbol} above SMA ${slowWindow}`;
       return `${symbol} SMA ${fastWindow} above SMA ${slowWindow}`;
     case 'macd_bullish_cross':
       return `${symbol} MACD bullish cross`;

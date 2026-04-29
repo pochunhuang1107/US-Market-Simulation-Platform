@@ -45,6 +45,117 @@ def _rule_label(rule: dict) -> str:
     return "rule"
 
 
+def _format_rule_symbol(rule: dict[str, Any]) -> str:
+    return str(rule.get("symbol") or "asset")
+
+
+def _describe_atomic_rule(rule: dict[str, Any]) -> str:
+    rule_type = str(rule.get("type") or "rule")
+    symbol = _format_rule_symbol(rule)
+    lookback = rule.get("lookback")
+    threshold = rule.get("threshold")
+    fast_window = rule.get("fast_window")
+    slow_window = rule.get("slow_window")
+
+    if rule_type == "rsi_below":
+        return f"{symbol} RSI({lookback or 14}) is below {_format_number(threshold)}"
+
+    if rule_type == "rsi_above":
+        return f"{symbol} RSI({lookback or 14}) is above {_format_number(threshold)}"
+
+    if rule_type == "sma_above":
+        if fast_window == 1:
+            return f"{symbol} is above its {slow_window}-day SMA"
+        return f"{symbol} {fast_window}-day SMA is above its {slow_window}-day SMA"
+
+    if rule_type == "sma_cross_above":
+        if fast_window == 1:
+            return f"{symbol} crosses above its {slow_window}-day SMA"
+        return f"{symbol} {fast_window}-day SMA crosses above its {slow_window}-day SMA"
+
+    if rule_type == "sma_cross_below":
+        if fast_window == 1:
+            return f"{symbol} crosses below its {slow_window}-day SMA"
+        return f"{symbol} {fast_window}-day SMA crosses below its {slow_window}-day SMA"
+
+    if rule_type == "macd_bullish_cross":
+        return f"{symbol} MACD turns bullish"
+
+    if rule_type == "macd_bearish_cross":
+        return f"{symbol} MACD turns bearish"
+
+    if rule_type == "kd_golden_cross":
+        return f"{symbol} KD/stochastic turns bullish"
+
+    if rule_type == "kd_dead_cross":
+        return f"{symbol} KD/stochastic turns bearish"
+
+    if rule_type == "relative_return_above":
+        reference_symbol = rule.get("reference_symbol") or "reference"
+        return (
+            f"{symbol} beats {reference_symbol} by {_format_pct(threshold)} "
+            f"over {lookback or 'the lookback'} bars"
+        )
+
+    if rule_type == "month_in":
+        return f"month is one of {_format_month_values(rule.get('month_values'))}"
+
+    return rule_type.replace("_", " ")
+
+
+def _describe_rule(rule: dict | None) -> str:
+    if not isinstance(rule, dict):
+        return "a rule"
+
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        return _describe_atomic_rule(rule)
+
+    if kind == "not":
+        nested_rule = rule.get("rule")
+        if (
+            isinstance(nested_rule, dict)
+            and nested_rule.get("kind") == "atomic"
+            and nested_rule.get("type") == "sma_above"
+            and nested_rule.get("fast_window") == 1
+        ):
+            symbol = _format_rule_symbol(nested_rule)
+            return f"{symbol} is below its {nested_rule.get('slow_window')}-day SMA"
+        return f"not ({_describe_rule(nested_rule)})"
+
+    if kind == "group":
+        operator = str(rule.get("operator", "AND")).upper()
+        joiner = " and " if operator == "AND" else " or "
+        child_descriptions = [
+            _describe_rule(child_rule)
+            for child_rule in rule.get("rules", [])
+            if isinstance(child_rule, dict)
+        ]
+        if child_descriptions:
+            return joiner.join(child_descriptions)
+        return f"{operator.lower()} group"
+
+    if kind == "window":
+        mode = str(rule.get("mode", "ANY")).lower()
+        return (
+            f"{mode} of ({_describe_rule(rule.get('rule'))}) within "
+            f"{rule.get('window_bars')} bars"
+        )
+
+    if kind == "sequence":
+        steps = [
+            _describe_rule(step)
+            for step in rule.get("steps", [])
+            if isinstance(step, dict)
+        ]
+        if steps:
+            return f"{' then '.join(steps)} within {rule.get('window_bars')} bars"
+        return "sequence rule"
+
+    return _rule_label(rule)
+
+
 def _rule_signature(rule: dict | None) -> str | None:
     if not rule:
         return None
@@ -577,8 +688,8 @@ def _build_strategy_summary(
             end_date_str=summary_end_date,
             assumptions=assumptions,
         ),
-        f"with entry rule {_rule_label(effective_entry)}",
-        f"and exit rule {_rule_label(effective_exit)}.",
+        f"Enter when {_describe_rule(effective_entry)}.",
+        f"Exit when {_describe_rule(effective_exit)}.",
     ]
 
     if effective_benchmark != effective_symbol:

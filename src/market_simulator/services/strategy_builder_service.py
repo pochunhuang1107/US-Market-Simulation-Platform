@@ -112,6 +112,7 @@ from market_simulator.services.strategy_builder_parsers import (
     _extract_sequence_step_edit,
     _extract_sma_above_pair,
     _extract_sma_crossover_pair,
+    _extract_sma_filter_window_edit,
     _extract_temporal_bars_edit,
     _extract_temporal_mode_edit,
     _extract_tradable_symbol_edit,
@@ -829,6 +830,10 @@ def _build_base_rule_candidates(
     entry_slow_window_edit = _extract_entry_slow_window_edit(prompt)
     exit_fast_window_edit = _extract_exit_fast_window_edit(prompt)
     exit_slow_window_edit = _extract_exit_slow_window_edit(prompt)
+    sma_filter_window_edit = _extract_sma_filter_window_edit(prompt)
+    if sma_filter_window_edit is not None:
+        entry_slow_window_edit = entry_slow_window_edit or sma_filter_window_edit
+        exit_slow_window_edit = exit_slow_window_edit or sma_filter_window_edit
 
     has_partial_sma_window_edit = _has_partial_sma_window_edit(
         entry_fast_window_edit=entry_fast_window_edit,
@@ -2597,9 +2602,9 @@ def _extract_sweep_ranking_metric(prompt: str) -> str:
 
 def _build_parameter_sweep_title(base_config: dict[str, Any], grid: dict[str, list[Any]]) -> str:
     symbol = str(base_config.get("tradable_symbol") or "ETF")
-    if "entry_rule.threshold" in grid or "exit_rule.threshold" in grid:
+    if any(path.endswith(".threshold") or path in {"entry_rule.threshold", "exit_rule.threshold"} for path in grid):
         return f"{symbol} RSI Threshold Sweep"
-    if "entry_rule.fast_window" in grid or "entry_rule.slow_window" in grid:
+    if any(path.endswith("_window") for path in grid):
         return f"{symbol} SMA Window Sweep"
     return f"{symbol} Parameter Sweep"
 
@@ -2676,6 +2681,141 @@ def _parameter_path_guidance(base_config: dict[str, Any], path: str) -> str | No
     return None
 
 
+def _collect_rule_parameter_paths(
+    rule: Any,
+    *,
+    root_path: str,
+    attribute: str,
+    family: str,
+) -> list[str]:
+    if not isinstance(rule, dict):
+        return []
+
+    kind = rule.get("kind")
+
+    if kind == "atomic":
+        rule_type = rule.get("type")
+        if family == "rsi" and rule_type not in {"rsi_below", "rsi_above"}:
+            return []
+        if family == "sma" and rule_type not in {"sma_cross_above", "sma_cross_below", "sma_above"}:
+            return []
+        if attribute not in rule:
+            return []
+        return [f"{root_path}.{attribute}"]
+
+    if kind == "not":
+        return _collect_rule_parameter_paths(
+            rule.get("rule"),
+            root_path=f"{root_path}.rule",
+            attribute=attribute,
+            family=family,
+        )
+
+    if kind == "group":
+        paths: list[str] = []
+        for index, child_rule in enumerate(rule.get("rules", [])):
+            paths.extend(
+                _collect_rule_parameter_paths(
+                    child_rule,
+                    root_path=f"{root_path}.rules[{index}]",
+                    attribute=attribute,
+                    family=family,
+                )
+            )
+        return paths
+
+    if kind == "window":
+        return _collect_rule_parameter_paths(
+            rule.get("rule"),
+            root_path=f"{root_path}.rule",
+            attribute=attribute,
+            family=family,
+        )
+
+    if kind == "sequence":
+        paths: list[str] = []
+        for index, step in enumerate(rule.get("steps", [])):
+            paths.extend(
+                _collect_rule_parameter_paths(
+                    step,
+                    root_path=f"{root_path}.steps[{index}]",
+                    attribute=attribute,
+                    family=family,
+                )
+            )
+        return paths
+
+    return []
+
+
+def _resolve_legacy_sweep_path(base_config: dict[str, Any], path: str) -> tuple[str | None, str | None]:
+    legacy_specs = {
+        "entry_rule.threshold": ("entry_rule", "threshold", "rsi", "entry RSI threshold"),
+        "exit_rule.threshold": ("exit_rule", "threshold", "rsi", "exit RSI threshold"),
+        "entry_rule.fast_window": ("entry_rule", "fast_window", "sma", "entry SMA fast window"),
+        "entry_rule.slow_window": ("entry_rule", "slow_window", "sma", "entry SMA slow window"),
+        "exit_rule.fast_window": ("exit_rule", "fast_window", "sma", "exit SMA fast window"),
+        "exit_rule.slow_window": ("exit_rule", "slow_window", "sma", "exit SMA slow window"),
+    }
+    spec = legacy_specs.get(path)
+    if spec is None:
+        return path, None
+
+    root_key, attribute, family, label = spec
+    rule = base_config.get(root_key)
+    if isinstance(rule, dict) and rule.get("kind") == "atomic":
+        return path, None
+
+    matches = _collect_rule_parameter_paths(
+        rule,
+        root_path=root_key,
+        attribute=attribute,
+        family=family,
+    )
+
+    if len(matches) == 1:
+        return matches[0], None
+
+    if len(matches) > 1:
+        return None, (
+            f"This draft has multiple possible {label} targets. "
+            "Please specify the condition to sweep, such as the first or second condition in the group."
+        )
+
+    guidance = _parameter_path_guidance(base_config, path)
+    if guidance is not None:
+        return None, guidance
+    return path, None
+
+
+def _resolve_follow_up_sweep_grid_paths(
+    *,
+    base_config: dict[str, Any],
+    grid: dict[str, list[Any]],
+    max_backtest_years: int,
+) -> tuple[dict[str, list[Any]] | None, dict[str, Any] | None]:
+    resolved_grid: dict[str, list[Any]] = {}
+
+    for path, values in grid.items():
+        resolved_path, guidance = _resolve_legacy_sweep_path(base_config, path)
+        if guidance is not None:
+            return None, _build_response(
+                response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+                message=guidance,
+                validation_data=build_validation_data(
+                    message=guidance,
+                    max_backtest_years=max_backtest_years,
+                ),
+                guidance_data=_build_guidance_data(
+                    guidance_type=StrategyBuilderGuidanceType.UNSUPPORTED_EDIT_TARGET,
+                ),
+            )
+        if resolved_path is not None:
+            resolved_grid[resolved_path] = values
+
+    return resolved_grid, None
+
+
 def _validate_follow_up_sweep_grid(
     *,
     base_config: dict[str, Any],
@@ -2709,6 +2849,16 @@ def _build_parameter_sweep_response(
     warnings: list[str] | None = None,
     assumptions: list[str] | None = None,
 ) -> dict[str, Any]:
+    grid, path_guidance_response = _resolve_follow_up_sweep_grid_paths(
+        base_config=base_config,
+        grid=grid,
+        max_backtest_years=max_backtest_years,
+    )
+    if path_guidance_response is not None:
+        return path_guidance_response
+    if grid is None:
+        grid = {}
+
     count = variant_count(grid)
     if count > max_variants:
         message = (
