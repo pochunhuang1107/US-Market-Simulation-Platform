@@ -20,9 +20,19 @@ interface RunsTableProps {
   runs: RunDashboardListItem[];
   loading: boolean;
   compact?: boolean;
+  referenceRunId?: string | null;
+  emptyTitle?: string;
+  emptyDescription?: string;
 }
 
-export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
+export function RunsTable({
+  runs,
+  loading,
+  compact = false,
+  referenceRunId = null,
+  emptyTitle = 'No runs match these filters.',
+  emptyDescription = 'Try clearing filters or start from the Home builder.'
+}: RunsTableProps) {
   const columns = compact ? 7 : 9;
 
   return (
@@ -53,8 +63,8 @@ export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
               <tr>
                 <td colSpan={columns} className="px-5 py-16 text-center">
                   <div className="mx-auto max-w-sm">
-                    <p className="app-title text-sm font-semibold">No runs match these filters.</p>
-                    <p className="app-text-muted mt-2 text-sm">Try clearing filters or start from the Home builder.</p>
+                    <p className="app-title text-sm font-semibold">{emptyTitle}</p>
+                    <p className="app-text-muted mt-2 text-sm">{emptyDescription}</p>
                     {!compact ? (
                       <Link to="/" className="app-button-secondary mt-4 inline-flex rounded-xl px-3 py-1.5 text-xs font-medium">
                         Build a strategy
@@ -67,6 +77,7 @@ export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
               runs.map((run) => {
                 const progress = getProgressDisplay(run);
                 const isSavedSweepVariant = isSavedSweepVariantResult(run);
+                const isReferenceRun = referenceRunId === run.run_id;
 
                 return (
                   <tr key={run.run_id} className="app-row-hover align-top transition">
@@ -79,6 +90,11 @@ export function RunsTable({ runs, loading, compact = false }: RunsTableProps) {
                           {isSavedSweepVariant ? (
                             <span className="app-badge rounded-full px-2 py-0.5 text-[10px] font-semibold">
                               Saved sweep variant
+                            </span>
+                          ) : null}
+                          {isReferenceRun ? (
+                            <span className="app-chip-info rounded-full px-2 py-0.5 text-[10px] font-semibold">
+                              Reference
                             </span>
                           ) : null}
                         </div>

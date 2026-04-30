@@ -72,6 +72,27 @@ function shortRunId(runId: string): string {
   return runId.split('-')[0] || runId;
 }
 
+function findRequestedVersion(
+  versions: StrategyVersionSummary[],
+  versionId: string | null,
+  versionNumberParam: string | null
+): StrategyVersionSummary | null {
+  if (versionId) {
+    const version = versions.find((item) => item.id === versionId);
+    return version ?? null;
+  }
+
+  if (versionNumberParam) {
+    const versionNumber = Number(versionNumberParam);
+    if (Number.isInteger(versionNumber)) {
+      const version = versions.find((item) => item.version_number === versionNumber);
+      if (version) return version;
+    }
+  }
+
+  return null;
+}
+
 function rankingValue(row: Record<string, unknown>, metric: string): number {
   const value = toNumber(row[metric]);
   if (value === null) return Number.NEGATIVE_INFINITY;
@@ -139,6 +160,8 @@ export function CreateStrategyVersionPage() {
   const sweepRunId = searchParams.get('sweepRunId');
   const sweepVariantId = searchParams.get('variantId');
   const sweepRankingMetric = searchParams.get('rankingMetric');
+  const requestedSourceVersionId = searchParams.get('fromVersionId') ?? searchParams.get('versionId');
+  const requestedSourceVersionNumber = searchParams.get('fromVersion') ?? searchParams.get('version');
 
   const [strategyDashboard, setStrategyDashboard] = useState<StrategyDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -176,6 +199,9 @@ export function CreateStrategyVersionPage() {
 
         const currentVersion =
           response.versions.find((version) => version.is_current) ?? response.versions[0] ?? null;
+        const sourceVersion =
+          findRequestedVersion(response.versions, requestedSourceVersionId, requestedSourceVersionNumber) ??
+          currentVersion;
 
         if (builderDraft?.configText) {
           setConfigText(editableConfigTextFromString(builderDraft.configText));
@@ -203,7 +229,7 @@ export function CreateStrategyVersionPage() {
           return;
         }
 
-        setConfigText(editableConfigText(currentVersion?.config_json ?? {}));
+        setConfigText(editableConfigText(sourceVersion?.config_json ?? {}));
       } catch (error) {
         if (!active) return;
         setLoadError(normalizeError(error));
@@ -219,7 +245,16 @@ export function CreateStrategyVersionPage() {
     return () => {
       active = false;
     };
-  }, [builderDraft?.changeNote, builderDraft?.configText, strategyId, sweepRankingMetric, sweepRunId, sweepVariantId]);
+  }, [
+    builderDraft?.changeNote,
+    builderDraft?.configText,
+    requestedSourceVersionId,
+    requestedSourceVersionNumber,
+    strategyId,
+    sweepRankingMetric,
+    sweepRunId,
+    sweepVariantId
+  ]);
 
   const currentVersion = useMemo<StrategyVersionSummary | null>(() => {
     if (!strategyDashboard) return null;
@@ -229,6 +264,14 @@ export function CreateStrategyVersionPage() {
       null
     );
   }, [strategyDashboard]);
+
+  const sourceVersion = useMemo<StrategyVersionSummary | null>(() => {
+    if (!strategyDashboard) return null;
+    return (
+      findRequestedVersion(strategyDashboard.versions, requestedSourceVersionId, requestedSourceVersionNumber) ??
+      currentVersion
+    );
+  }, [currentVersion, requestedSourceVersionId, requestedSourceVersionNumber, strategyDashboard]);
 
   async function handleSubmit(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -262,8 +305,8 @@ export function CreateStrategyVersionPage() {
     setSubmitting(true);
 
     try {
-      await createStrategyVersion(strategyId, payload);
-      navigate(`/strategies/${strategyId}`, {
+      const response = await createStrategyVersion(strategyId, payload);
+      navigate(`/strategies/${strategyId}?versionId=${response.version_id}`, {
         state: {
           notice: {
             tone: 'success',
@@ -318,7 +361,7 @@ export function CreateStrategyVersionPage() {
 
         <div className="flex items-center gap-3">
           <Link
-            to={`/strategies/${strategyDashboard.strategy.id}`}
+            to={`/strategies/${strategyDashboard.strategy.id}${sourceVersion ? `?versionId=${sourceVersion.id}` : ''}`}
             className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
           >
             Back to Strategy
@@ -395,12 +438,12 @@ export function CreateStrategyVersionPage() {
                 setConfigText(
                   builderDraft?.configText
                     ? editableConfigTextFromString(builderDraft.configText)
-                    : editableConfigText(currentVersion?.config_json ?? {})
+                    : editableConfigText(sourceVersion?.config_json ?? {})
                 )
               }
               className="app-button-secondary rounded-2xl px-4 py-3 text-sm font-medium transition"
             >
-              {builderDraft ? 'Reset to Builder Draft' : 'Reset to Current Version'}
+              {builderDraft ? 'Reset to Builder Draft' : 'Reset to Starting Version'}
             </button>
           </div>
         </form>
@@ -415,25 +458,25 @@ export function CreateStrategyVersionPage() {
             <div className="mt-5 space-y-3">
               <PreviewRow label="Strategy" value={strategyDashboard.strategy.name} />
               <PreviewRow
-                label="Current Version"
-                value={currentVersion ? `v${currentVersion.version_number}` : '—'}
+                label="Starting Version"
+                value={sourceVersion ? `v${sourceVersion.version_number}` : '—'}
               />
               <PreviewRow
                 label="Strategy Type"
                 value={formatStrategyType(strategyDashboard.strategy.strategy_type)}
               />
-              <PreviewRow label="Current Change Note" value={currentVersion?.change_note ?? '—'} />
+              <PreviewRow label="Starting Change Note" value={sourceVersion?.change_note ?? '—'} />
             </div>
           </section>
 
           <section className="app-card app-shadow rounded-3xl border p-6">
-            <h2 className="app-title text-xl font-semibold">Current Version Snapshot</h2>
+            <h2 className="app-title text-xl font-semibold">Starting Version Snapshot</h2>
             <p className="app-text-muted mt-2 text-sm">
               Read-only reference for the version you are starting from.
             </p>
 
             <pre className="app-code-block app-title mt-5 max-h-[460px] overflow-auto rounded-2xl p-4 text-xs leading-6">
-              {prettifyJson(currentVersion?.config_json ?? {})}
+              {prettifyJson(sourceVersion?.config_json ?? {})}
             </pre>
           </section>
         </div>
