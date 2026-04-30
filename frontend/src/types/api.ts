@@ -15,6 +15,9 @@ export interface StrategyListItem {
 
 export interface RunDashboardListItem {
   run_id: string;
+  comparable_result_ref: Nullable<string>;
+  result_type: Nullable<string>;
+  label: Nullable<string>;
   strategy_id: Nullable<string>;
   strategy_version_id: Nullable<string>;
   strategy_name: Nullable<string>;
@@ -41,6 +44,25 @@ export interface RunDashboardListItem {
   max_drawdown_pct: Nullable<number>;
   trade_count: Nullable<number>;
   win_rate_pct: Nullable<number>;
+  sweep_variant_count: Nullable<number>;
+  sweep_variants: SweepComparableVariantItem[];
+}
+
+export interface SweepComparableVariantItem {
+  comparable_result_ref: string;
+  sweep_run_id: string;
+  variant_id: string;
+  label: string;
+  rank: Nullable<number>;
+  parameters: Nullable<Record<string, unknown>>;
+  total_return_pct: Nullable<number>;
+  benchmark_return_pct: Nullable<number>;
+  alpha_vs_benchmark_pct: Nullable<number>;
+  cagr_pct: Nullable<number>;
+  sharpe_ratio: Nullable<number>;
+  max_drawdown_pct: Nullable<number>;
+  trade_count: Nullable<number>;
+  status: Nullable<string>;
 }
 
 export interface RunDashboardListResponse {
@@ -193,6 +215,9 @@ export interface SweepVariantDetailResponse {
 
 export interface RunComparisonSummary {
   run_id: string;
+  result_ref: Nullable<string>;
+  result_type: Nullable<string>;
+  label: Nullable<string>;
   strategy_id: Nullable<string>;
   strategy_version_id: Nullable<string>;
   strategy_name: Nullable<string>;
@@ -221,6 +246,7 @@ export interface RunComparisonResponse {
 
 export interface RunComparisonWindow {
   run_id: string;
+  result_ref: Nullable<string>;
   start_date: Nullable<string>;
   end_date: Nullable<string>;
 }
@@ -241,6 +267,7 @@ export interface RunComparisonCurvePoint {
 
 export interface RunComparisonCurve {
   run_id: string;
+  result_ref: Nullable<string>;
   label: string;
   benchmark_label: Nullable<string>;
   points: RunComparisonCurvePoint[];

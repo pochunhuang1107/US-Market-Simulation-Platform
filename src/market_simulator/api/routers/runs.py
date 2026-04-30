@@ -33,6 +33,16 @@ from market_simulator.platform.services.parameter_sweep import (
 )
 from market_simulator.platform.services.run_chart_service import RunChartService
 from market_simulator.platform.services.run_comparison_service import RunComparisonService
+from market_simulator.platform.services.run_comparison_service import (
+    build_run_comparable_result,
+    build_sweep_variant_comparable_result,
+    find_sweep_variant,
+    parse_comparable_result_ref,
+    run_result_ref,
+    sweep_variant_label,
+    sweep_variant_rank,
+    sweep_variant_result_ref,
+)
 from market_simulator.platform.services.run_dispatcher_service import RunDispatcherService
 from market_simulator.platform.services.run_worker_service import RunWorkerService
 from market_simulator.repositories.runs import (
@@ -314,6 +324,124 @@ def _load_variant_chart_data(variant: dict) -> dict | None:
         return None
 
 
+def _sweep_variant_items(run) -> list[dict]:
+    results = (run.summary_json or {}).get("results")
+    if not isinstance(results, list):
+        return []
+
+    items = []
+    for index, row in enumerate(results, start=1):
+        if not isinstance(row, dict):
+            continue
+        variant_id = row.get("variant_id")
+        if not isinstance(variant_id, str) or not variant_id.strip():
+            continue
+
+        rank = index
+        parameters = row.get("parameters")
+        items.append(
+            {
+                "comparable_result_ref": sweep_variant_result_ref(run.id, variant_id),
+                "sweep_run_id": str(run.id),
+                "variant_id": variant_id,
+                "label": sweep_variant_label(run, row, rank),
+                "rank": rank,
+                "parameters": parameters if isinstance(parameters, dict) else None,
+                "total_return_pct": row.get("total_return_pct"),
+                "benchmark_return_pct": row.get("benchmark_return_pct"),
+                "alpha_vs_benchmark_pct": row.get("alpha_vs_benchmark_pct"),
+                "cagr_pct": row.get("cagr_pct"),
+                "sharpe_ratio": row.get("sharpe_ratio"),
+                "max_drawdown_pct": row.get("max_drawdown_pct"),
+                "trade_count": row.get("trade_count"),
+                "status": row.get("status") if isinstance(row.get("status"), str) else None,
+            }
+        )
+
+    return items
+
+
+def _parse_result_refs(*, run_ids: str | None, results: str | None) -> list[str]:
+    raw_refs: list[str] = []
+
+    if results is not None:
+        raw_refs.extend(item.strip() for item in results.split(",") if item.strip())
+
+    if run_ids is not None:
+        raw_refs.extend(
+            run_result_ref(run_id.strip())
+            for run_id in run_ids.split(",")
+            if run_id.strip()
+        )
+
+    deduped: list[str] = []
+    seen = set()
+    for ref in raw_refs:
+        if ref in seen:
+            continue
+        seen.add(ref)
+        deduped.append(ref)
+
+    return deduped
+
+
+def _minimum_compare_error(*, run_ids: str | None, results: str | None) -> str:
+    if run_ids is not None and results is None:
+        return "At least two run IDs are required"
+    return "At least two results are required"
+
+
+def _resolve_comparable_results(db: Session, *, user_id: str, result_refs: list[str]) -> list:
+    resolved = []
+
+    for result_ref in result_refs:
+        try:
+            parsed = parse_comparable_result_ref(result_ref)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        if parsed.result_type == "RUN":
+            run = get_run_for_user(db, parsed.run_id, user_id)
+            if run is None:
+                raise HTTPException(status_code=404, detail=f"Run not found: {parsed.run_id}")
+            if run.run_type == "PARAMETER_SWEEP":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Parameter sweep parent results cannot be compared directly. Expand the sweep and select variants.",
+                )
+            if run.status != "SUCCEEDED":
+                raise HTTPException(status_code=400, detail=f"Run is not succeeded: {parsed.run_id}")
+            resolved.append(build_run_comparable_result(run))
+            continue
+
+        if parsed.result_type == "SWEEP_VARIANT":
+            run = get_run_for_user(db, parsed.sweep_run_id, user_id)
+            if run is None:
+                raise HTTPException(status_code=404, detail=f"Sweep run not found: {parsed.sweep_run_id}")
+            if run.run_type != "PARAMETER_SWEEP":
+                raise HTTPException(status_code=400, detail="Only parameter sweep runs have comparable variants")
+            if run.status != "SUCCEEDED":
+                raise HTTPException(status_code=400, detail=f"Sweep run is not succeeded: {parsed.sweep_run_id}")
+
+            variant = find_sweep_variant(run, parsed.variant_id or "")
+            if variant is None:
+                raise HTTPException(status_code=404, detail=f"Sweep variant not found: {parsed.variant_id}")
+
+            resolved.append(
+                build_sweep_variant_comparable_result(
+                    run,
+                    variant_id=parsed.variant_id or "",
+                    variant=variant,
+                    rank=sweep_variant_rank(run, parsed.variant_id or ""),
+                )
+            )
+            continue
+
+        raise HTTPException(status_code=400, detail=f"Unsupported comparable result reference: {result_ref}")
+
+    return resolved
+
+
 def _validate_run_strategy_access(
     db: Session,
     *,
@@ -537,10 +665,23 @@ def list_runs_dashboard_api(
     for run in runs:
         summary_json = run.summary_json or {}
         source_metadata = _run_source_metadata(run)
+        sweep_variants = _sweep_variant_items(run) if run.run_type == "PARAMETER_SWEEP" else []
+        sweep_variant_count = (
+            summary_json.get("variant_count")
+            if run.run_type == "PARAMETER_SWEEP" and isinstance(summary_json.get("variant_count"), int)
+            else len(sweep_variants) if run.run_type == "PARAMETER_SWEEP" else None
+        )
 
         items.append(
             RunDashboardListItem(
                 run_id=str(run.id),
+                comparable_result_ref=(
+                    None if run.run_type == "PARAMETER_SWEEP" else run_result_ref(run.id)
+                ),
+                result_type=(
+                    "PARAMETER_SWEEP_GROUP" if run.run_type == "PARAMETER_SWEEP" else "RUN"
+                ),
+                label=build_run_comparable_result(run).label,
                 strategy_id=str(run.strategy_id) if run.strategy_id else None,
                 strategy_version_id=str(run.strategy_version_id) if run.strategy_version_id else None,
                 strategy_name=run.strategy.name if run.strategy else None,
@@ -565,6 +706,8 @@ def list_runs_dashboard_api(
                 max_drawdown_pct=summary_json.get("max_drawdown_pct"),
                 trade_count=summary_json.get("trade_count"),
                 win_rate_pct=summary_json.get("win_rate_pct"),
+                sweep_variant_count=sweep_variant_count,
+                sweep_variants=sweep_variants,
             )
         )
 
@@ -579,23 +722,17 @@ def list_runs_dashboard_api(
 
 @router.get("/compare", response_model=RunComparisonResponse)
 def compare_runs_api(
-    run_ids: str = Query(..., description="Comma-separated run IDs"),
+    run_ids: str | None = Query(default=None, description="Comma-separated run IDs"),
+    results: str | None = Query(default=None, description="Comma-separated comparable result refs"),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    parsed_run_ids = [run_id.strip() for run_id in run_ids.split(",") if run_id.strip()]
-    if len(parsed_run_ids) < 2:
-        raise HTTPException(status_code=400, detail="At least two run IDs are required")
-    enforce_comparison_run_limit(db, user["id"], len(parsed_run_ids))
+    parsed_result_refs = _parse_result_refs(run_ids=run_ids, results=results)
+    if len(parsed_result_refs) < 2:
+        raise HTTPException(status_code=400, detail=_minimum_compare_error(run_ids=run_ids, results=results))
+    enforce_comparison_run_limit(db, user["id"], len(parsed_result_refs))
 
-    runs = []
-    for run_id in parsed_run_ids:
-        run = get_run_for_user(db, run_id, user["id"])
-        if run is None:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
-        if run.status != "SUCCEEDED":
-            raise HTTPException(status_code=400, detail=f"Run is not succeeded: {run_id}")
-        runs.append(run)
+    runs = _resolve_comparable_results(db, user_id=user["id"], result_refs=parsed_result_refs)
 
     comparison = comparison_service.build_comparison(runs)
     return RunComparisonResponse(
@@ -606,24 +743,18 @@ def compare_runs_api(
 
 @router.get("/compare/chart", response_model=RunComparisonChartResponse)
 def compare_runs_chart_api(
-    run_ids: str = Query(...),
+    run_ids: str | None = Query(default=None),
+    results: str | None = Query(default=None),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    parsed_run_ids = [r.strip() for r in run_ids.split(",") if r.strip()]
+    parsed_result_refs = _parse_result_refs(run_ids=run_ids, results=results)
 
-    if len(parsed_run_ids) < 2:
-        raise HTTPException(status_code=400, detail="At least two run IDs are required")
-    enforce_comparison_run_limit(db, user["id"], len(parsed_run_ids))
+    if len(parsed_result_refs) < 2:
+        raise HTTPException(status_code=400, detail=_minimum_compare_error(run_ids=run_ids, results=results))
+    enforce_comparison_run_limit(db, user["id"], len(parsed_result_refs))
 
-    runs = []
-    for run_id in parsed_run_ids:
-        run = get_run_for_user(db, run_id, user["id"])
-        if run is None:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
-        if run.status != "SUCCEEDED":
-            raise HTTPException(status_code=400, detail=f"Run not succeeded: {run_id}")
-        runs.append(run)
+    runs = _resolve_comparable_results(db, user_id=user["id"], result_refs=parsed_result_refs)
 
     result = comparison_service.build_equity_curves(runs)
 

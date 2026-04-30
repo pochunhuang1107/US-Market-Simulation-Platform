@@ -295,6 +295,9 @@ class RunChartDataResponse(BaseModel):
 
 class RunComparisonSummary(BaseModel):
     run_id: str
+    result_ref: str | None = None
+    result_type: str | None = None
+    label: str | None = None
     strategy_id: str | None = None
     strategy_version_id: str | None = None
     strategy_name: str | None = None
@@ -318,6 +321,7 @@ class RunComparisonSummary(BaseModel):
 
 class RunComparisonWindow(BaseModel):
     run_id: str
+    result_ref: str | None = None
     start_date: str | None = None
     end_date: str | None = None
 
@@ -343,6 +347,7 @@ class RunComparisonCurvePoint(BaseModel):
 
 class RunComparisonCurve(BaseModel):
     run_id: str
+    result_ref: str | None = None
     label: str | None = None
     benchmark_label: str | None = None
     points: list[RunComparisonCurvePoint]
@@ -365,6 +370,9 @@ class RunDashboardResponse(BaseModel):
 
 class RunDashboardListItem(BaseModel):
     run_id: str
+    comparable_result_ref: str | None = None
+    result_type: str | None = None
+    label: str | None = None
     strategy_id: str | None = None
     strategy_version_id: str | None = None
     strategy_name: str | None = None
@@ -391,6 +399,25 @@ class RunDashboardListItem(BaseModel):
     max_drawdown_pct: float | None = None
     trade_count: int | None = None
     win_rate_pct: float | None = None
+    sweep_variant_count: int | None = None
+    sweep_variants: list["SweepComparableVariantItem"] = Field(default_factory=list)
+
+
+class SweepComparableVariantItem(BaseModel):
+    comparable_result_ref: str
+    sweep_run_id: str
+    variant_id: str
+    label: str
+    rank: int | None = None
+    parameters: dict[str, Any] | None = None
+    total_return_pct: float | None = None
+    benchmark_return_pct: float | None = None
+    alpha_vs_benchmark_pct: float | None = None
+    cagr_pct: float | None = None
+    sharpe_ratio: float | None = None
+    max_drawdown_pct: float | None = None
+    trade_count: int | None = None
+    status: str | None = None
 
 
 class RunDashboardListResponse(BaseModel):

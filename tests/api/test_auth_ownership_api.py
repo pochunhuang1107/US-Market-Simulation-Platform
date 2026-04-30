@@ -386,6 +386,28 @@ def test_compare_fails_if_any_compared_run_is_not_owned_by_current_user(
     assert "Run not found" in response.json()["detail"]
 
 
+def test_compare_sweep_variant_fails_for_non_owner(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="compare-sweep-owner@example.com")
+    create_user(user_id=other_id, email="compare-sweep-other@example.com")
+    own_run = _succeeded_run(db_session, user_id=other_id)
+    sweep_run = _succeeded_sweep_run(db_session, user_id=owner_id, config=_strategy_v2_config())
+
+    current_user_ctx["id"] = other_id
+    response = client.get(
+        f"/runs/compare?results=run:{own_run.id},sweep_variant:{sweep_run.id}:variant-1"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"Sweep run not found: {sweep_run.id}"
+
+
 def test_tracking_create_cannot_track_another_users_strategy(
     client,
     create_user,

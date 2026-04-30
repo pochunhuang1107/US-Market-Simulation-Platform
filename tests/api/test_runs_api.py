@@ -190,6 +190,154 @@ def _strategy_v2_config() -> dict:
     }
 
 
+def _create_succeeded_sweep_with_variants(
+    db_session,
+    *,
+    user_id: str,
+    base_config: dict | None = None,
+):
+    config = base_config or _strategy_v2_config()
+    variant_a_config = {**config, "name": "qqq-rsi-sweep-entry-20-exit-70"}
+    variant_a_config["entry_rule"] = {**config["entry_rule"], "threshold": 20}
+    variant_b_config = {**config, "name": "qqq-rsi-sweep-entry-40-exit-80"}
+    variant_b_config["entry_rule"] = {**config["entry_rule"], "threshold": 40}
+    variant_b_config["exit_rule"] = {**config["exit_rule"], "threshold": 80}
+
+    run = create_run(
+        db_session,
+        user_id,
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {
+            "base_config": config,
+            "grid": {
+                "entry_rule.threshold": [20, 40],
+                "exit_rule.threshold": [70, 80],
+            },
+        },
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    return mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={
+            "run_type": "PARAMETER_SWEEP",
+            "ranking_metric": "sharpe_ratio",
+            "variant_count": 2,
+            "best_variant": {
+                "variant_id": "variant-a",
+                "variant_name": variant_a_config["name"],
+                "parameters": {"entry_rule.threshold": 20, "exit_rule.threshold": 70},
+                "status": "SUCCEEDED",
+                "total_return_pct": 12.5,
+                "benchmark_return_pct": 8.0,
+                "alpha_vs_benchmark_pct": 4.5,
+                "cagr_pct": 11.0,
+                "sharpe_ratio": 1.5,
+                "max_drawdown_pct": -5.5,
+                "trade_count": 8,
+                "artifact_dir": f"data/local_artifacts/runs/{run.id}/variants/variant-a",
+                "config": variant_a_config,
+            },
+            "results": [
+                {
+                    "variant_id": "variant-a",
+                    "variant_name": variant_a_config["name"],
+                    "parameters": {"entry_rule.threshold": 20, "exit_rule.threshold": 70},
+                    "status": "SUCCEEDED",
+                    "total_return_pct": 12.5,
+                    "benchmark_return_pct": 8.0,
+                    "alpha_vs_benchmark_pct": 4.5,
+                    "cagr_pct": 11.0,
+                    "sharpe_ratio": 1.5,
+                    "max_drawdown_pct": -5.5,
+                    "trade_count": 8,
+                    "artifact_dir": f"data/local_artifacts/runs/{run.id}/variants/variant-a",
+                    "config": variant_a_config,
+                },
+                {
+                    "variant_id": "variant-b",
+                    "variant_name": variant_b_config["name"],
+                    "parameters": {"entry_rule.threshold": 40, "exit_rule.threshold": 80},
+                    "status": "SUCCEEDED",
+                    "total_return_pct": 9.5,
+                    "benchmark_return_pct": 8.0,
+                    "alpha_vs_benchmark_pct": 1.5,
+                    "cagr_pct": 8.7,
+                    "sharpe_ratio": 1.1,
+                    "max_drawdown_pct": -7.0,
+                    "trade_count": 9,
+                    "artifact_dir": f"data/local_artifacts/runs/{run.id}/variants/variant-b",
+                    "config": variant_b_config,
+                },
+            ],
+        },
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"sweep_summary": f"data/local_artifacts/runs/{run.id}/sweep_summary.json"},
+    )
+
+
+def _mock_comparable_chart_data(monkeypatch):
+    def fake_load_chart_data(manifest):
+        summary_ref = manifest["summary"]
+        if "variant-a" in summary_ref:
+            return {
+                "equity_curve": [
+                    {"date": "2024-01-01", "strategy_equity": 100.0, "benchmark_equity": 100.0},
+                    {"date": "2024-01-02", "strategy_equity": 112.5, "benchmark_equity": 108.0},
+                ],
+                "drawdown_curve": [
+                    {"date": "2024-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                    {"date": "2024-01-02", "strategy_drawdown_pct": -5.5, "benchmark_drawdown_pct": -2.0},
+                ],
+                "monthly_returns": [],
+                "sleeve_equity_curve": [],
+                "sleeve_weight_curve": [],
+                "trade_markers": [],
+            }
+        if "variant-b" in summary_ref:
+            return {
+                "equity_curve": [
+                    {"date": "2024-01-01", "strategy_equity": 100.0, "benchmark_equity": 100.0},
+                    {"date": "2024-01-02", "strategy_equity": 109.5, "benchmark_equity": 108.0},
+                ],
+                "drawdown_curve": [
+                    {"date": "2024-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                    {"date": "2024-01-02", "strategy_drawdown_pct": -7.0, "benchmark_drawdown_pct": -2.0},
+                ],
+                "monthly_returns": [],
+                "sleeve_equity_curve": [],
+                "sleeve_weight_curve": [],
+                "trade_markers": [],
+            }
+
+        return {
+            "equity_curve": [
+                {"date": "2024-01-01", "strategy_equity": 100.0, "benchmark_equity": 100.0},
+                {"date": "2024-01-02", "strategy_equity": 110.0, "benchmark_equity": 105.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2024-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-01-02", "strategy_drawdown_pct": -4.0, "benchmark_drawdown_pct": -1.0},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        fake_load_chart_data,
+    )
+
+
 def test_create_run_returns_pending(
     client,
     create_user,
@@ -1737,6 +1885,222 @@ def test_compare_runs_returns_strategy_metadata(
     assert target_run["strategy_version_number"] == version.version_number
 
 
+def test_runs_dashboard_exposes_sweep_variants_as_comparable_children(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    create_user(user_id=current_user_ctx["id"], email="compare-sweep-list@example.com")
+    sweep_run = _create_succeeded_sweep_with_variants(
+        db_session,
+        user_id=current_user_ctx["id"],
+    )
+
+    response = client.get("/runs/dashboard?status=SUCCEEDED")
+    assert response.status_code == 200
+
+    body = response.json()
+    sweep_item = next(item for item in body["items"] if item["run_id"] == str(sweep_run.id))
+    assert sweep_item["result_type"] == "PARAMETER_SWEEP_GROUP"
+    assert sweep_item["comparable_result_ref"] is None
+    assert sweep_item["sweep_variant_count"] == 2
+    assert [variant["variant_id"] for variant in sweep_item["sweep_variants"]] == [
+        "variant-a",
+        "variant-b",
+    ]
+    assert sweep_item["sweep_variants"][0]["comparable_result_ref"] == (
+        f"sweep_variant:{sweep_run.id}:variant-a"
+    )
+    assert "Rank #1" in sweep_item["sweep_variants"][0]["label"]
+
+
+def test_compare_normal_run_and_sweep_variant_with_typed_results(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="compare-normal-variant@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    normal_run = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="compare normal plus variant",
+    )
+    sweep_run = _create_succeeded_sweep_with_variants(
+        db_session,
+        user_id=current_user_ctx["id"],
+    )
+    _mock_comparable_chart_data(monkeypatch)
+
+    results = f"run:{normal_run.id},sweep_variant:{sweep_run.id}:variant-a"
+    response = client.get(f"/runs/compare?results={results}")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert [item["result_ref"] for item in body["runs"]] == [
+        f"run:{normal_run.id}",
+        f"sweep_variant:{sweep_run.id}:variant-a",
+    ]
+    variant_summary = body["runs"][1]
+    assert variant_summary["result_type"] == "SWEEP_VARIANT"
+    assert variant_summary["source"] == "sweep_variant"
+    assert variant_summary["source_sweep_run_id"] == str(sweep_run.id)
+    assert variant_summary["source_variant_id"] == "variant-a"
+    assert variant_summary["source_variant_rank"] == 1
+    assert variant_summary["total_return_pct"] == 12.5
+    assert "Rank #1" in variant_summary["label"]
+
+    chart_response = client.get(f"/runs/compare/chart?results={results}")
+    assert chart_response.status_code == 200
+    chart_body = chart_response.json()
+    assert [curve["result_ref"] for curve in chart_body["strategy_curves"]] == [
+        f"run:{normal_run.id}",
+        f"sweep_variant:{sweep_run.id}:variant-a",
+    ]
+    assert chart_body["strategy_curves"][1]["points"][1]["value"] == 112.5
+
+
+def test_compare_sweep_variant_against_sweep_variant_with_typed_results(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="compare-variant-variant@example.com")
+    sweep_run = _create_succeeded_sweep_with_variants(
+        db_session,
+        user_id=current_user_ctx["id"],
+    )
+    _mock_comparable_chart_data(monkeypatch)
+
+    results = f"sweep_variant:{sweep_run.id}:variant-a,sweep_variant:{sweep_run.id}:variant-b"
+    response = client.get(f"/runs/compare?results={results}")
+    assert response.status_code == 200
+    assert [item["source_variant_id"] for item in response.json()["runs"]] == [
+        "variant-a",
+        "variant-b",
+    ]
+
+    chart_response = client.get(f"/runs/compare/chart?results={results}")
+    assert chart_response.status_code == 200
+    chart_body = chart_response.json()
+    assert [curve["run_id"] for curve in chart_body["strategy_curves"]] == [
+        f"sweep_variant:{sweep_run.id}:variant-a",
+        f"sweep_variant:{sweep_run.id}:variant-b",
+    ]
+    assert chart_body["strategy_curves"][0]["points"][1]["value"] == 112.5
+    assert chart_body["strategy_curves"][1]["points"][1]["value"] == 109.5
+
+
+def test_compare_rejects_parameter_sweep_parent_result(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(user_id=current_user_ctx["id"], email="compare-parent-reject@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    normal_run = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="compare parent reject normal",
+    )
+    sweep_run = _create_succeeded_sweep_with_variants(
+        db_session,
+        user_id=current_user_ctx["id"],
+    )
+
+    response = client.get(f"/runs/compare?results=run:{normal_run.id},run:{sweep_run.id}")
+
+    assert response.status_code == 400
+    assert "Parameter sweep parent results cannot be compared directly" in response.json()["detail"]
+
+
+def test_compare_invalid_sweep_variant_returns_clear_404(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(user_id=current_user_ctx["id"], email="compare-invalid-variant@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    normal_run = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="compare invalid variant normal",
+    )
+    sweep_run = _create_succeeded_sweep_with_variants(
+        db_session,
+        user_id=current_user_ctx["id"],
+    )
+
+    response = client.get(
+        f"/runs/compare?results=run:{normal_run.id},sweep_variant:{sweep_run.id}:missing-variant"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Sweep variant not found: missing-variant"
+
+
+def test_compare_limit_counts_sweep_variants(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="compare-variant-limit@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    runs = [
+        _create_succeeded_run(
+            db_session,
+            user_id=current_user_ctx["id"],
+            strategy_id=str(strategy.id),
+            strategy_version_id=str(version.id),
+            note=f"compare variant limit {index}",
+        )
+        for index in range(3)
+    ]
+    sweep_run = _create_succeeded_sweep_with_variants(
+        db_session,
+        user_id=current_user_ctx["id"],
+    )
+
+    def fail_if_compared(_runs):
+        raise AssertionError("over-limit mixed comparison should be rejected before building comparison")
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.build_comparison",
+        fail_if_compared,
+    )
+
+    results = ",".join(
+        [
+            *(f"run:{run.id}" for run in runs),
+            f"sweep_variant:{sweep_run.id}:variant-a",
+            f"sweep_variant:{sweep_run.id}:variant-b",
+        ]
+    )
+    response = client.get(f"/runs/compare?results={results}")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Comparison limit reached for your plan. Select up to 4 runs."
+
+
 def test_compare_runs_metadata_same_date_windows_has_common_overlap(
     client,
     db_session,
@@ -1780,8 +2144,18 @@ def test_compare_runs_metadata_same_date_windows_has_common_overlap(
 
     metadata = response.json()["metadata"]
     assert metadata["run_windows"] == [
-        {"run_id": str(run_1.id), "start_date": "2024-01-01", "end_date": "2024-12-31"},
-        {"run_id": str(run_2.id), "start_date": "2024-01-01", "end_date": "2024-12-31"},
+        {
+            "run_id": str(run_1.id),
+            "result_ref": f"run:{run_1.id}",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+        },
+        {
+            "run_id": str(run_2.id),
+            "result_ref": f"run:{run_2.id}",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+        },
     ]
     assert metadata["overlap_start"] == "2024-01-01"
     assert metadata["overlap_end"] == "2024-12-31"

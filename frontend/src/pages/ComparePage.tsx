@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import { ComparisonInsightSummary } from '../components/compare/ComparisonInsightSummary';
@@ -6,7 +6,7 @@ import { CurveChart, pctFormatter } from '../components/compare/CurveChart';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
-import { fetchRun, fetchRunComparison, fetchRunComparisonChart, fetchRunsDashboard } from '../lib/api';
+import { fetchRun, fetchRunComparison, fetchRunComparisonChart, fetchRunsDashboard, fetchSweepVariantDetail } from '../lib/api';
 import {
   formatNumber,
   formatPct,
@@ -15,21 +15,59 @@ import {
   isSavedSweepVariantResult,
   shortRunId
 } from '../lib/formatters';
-import type { RunComparisonChartResponse, RunComparisonResponse, RunDashboardListItem, RunResponse } from '../types/api';
+import { formatParameterSummary, isRecord, toNumber, toStringValue } from '../lib/sweepVariants';
+import type { RunComparisonChartResponse, RunComparisonResponse, RunDashboardListItem, RunResponse, SweepComparableVariantItem } from '../types/api';
 
 const MAX_COMPARE_RUNS = 4;
 
 type ComparableRunMetric = RunComparisonResponse['runs'][number];
-type ComparableRunListItem = RunDashboardListItem | ComparableRunMetric;
+type ComparableRunListItem = RunDashboardListItem | ComparableRunMetric | SweepComparableVariantItem;
+type SelectedComparableResult = RunDashboardListItem | SweepComparableVariantItem;
 
 type ParsedRunIdsParam = {
   runIds: string[];
   exceedsLimit: boolean;
 };
 
+type ParsedResultsParam = {
+  resultRefs: string[];
+  exceedsLimit: boolean;
+};
+
 type CompareLocationState = {
   compareResetKey?: number;
 } | null;
+
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+    >
+      {expanded ? <path d="m6 8 4 4 4-4" /> : <path d="m8 6 4 4-4 4" />}
+    </svg>
+  );
+}
+
+function runResultRef(runId: string): string {
+  return `run:${runId}`;
+}
+
+function sweepVariantResultRef(sweepRunId: string, variantId: string): string {
+  return `sweep_variant:${sweepRunId}:${variantId}`;
+}
+
+function parseSweepVariantRef(value: string): { sweepRunId: string; variantId: string } | null {
+  const parts = value.split(':');
+  if (parts.length !== 3 || parts[0] !== 'sweep_variant' || !parts[1] || !parts[2]) return null;
+  return { sweepRunId: parts[1], variantId: parts[2] };
+}
 
 function parseRunIdsParam(value: string | null): ParsedRunIdsParam {
   if (!value) return { runIds: [], exceedsLimit: false };
@@ -46,6 +84,24 @@ function parseRunIdsParam(value: string | null): ParsedRunIdsParam {
   return {
     runIds: runIds.length > MAX_COMPARE_RUNS ? [] : runIds,
     exceedsLimit: runIds.length > MAX_COMPARE_RUNS
+  };
+}
+
+function parseResultsParam(value: string | null): ParsedResultsParam {
+  if (!value) return { resultRefs: [], exceedsLimit: false };
+
+  const resultRefs = Array.from(
+    new Set(
+      value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  );
+
+  return {
+    resultRefs: resultRefs.length > MAX_COMPARE_RUNS ? [] : resultRefs,
+    exceedsLimit: resultRefs.length > MAX_COMPARE_RUNS
   };
 }
 
@@ -80,23 +136,60 @@ function buildComparisonLabelMap(runs: ComparableRunMetric[]) {
 
   runs.forEach((run) => {
     const label = formatComparableRunLabel(run);
-    baseLabels.set(run.run_id, label);
+    baseLabels.set(comparableResultRef(run), label);
     labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
   });
 
   return new Map(
     runs.map((run) => {
-      const label = baseLabels.get(run.run_id) ?? shortRunId(run.run_id);
+      const ref = comparableResultRef(run);
+      const label = baseLabels.get(ref) ?? shortComparableRef(ref);
       const uniqueLabel =
-        (labelCounts.get(label) ?? 0) > 1 ? `${label} · ${shortRunId(run.run_id)}` : label;
-      return [run.run_id, uniqueLabel];
+        (labelCounts.get(label) ?? 0) > 1 ? `${label} · ${shortComparableRef(ref)}` : label;
+      return [ref, uniqueLabel];
     })
   );
 }
 
 function formatComparableRunLabel(run: ComparableRunListItem): string {
+  if ('label' in run && run.label && ('result_type' in run || 'sweep_run_id' in run)) {
+    return run.label;
+  }
+  if ('sweep_run_id' in run) {
+    return run.label;
+  }
   const baseLabel = formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
   return isSavedSweepVariantResult(run) ? `Saved sweep variant · ${baseLabel}` : baseLabel;
+}
+
+function comparableResultRef(result: ComparableRunListItem): string {
+  if ('comparable_result_ref' in result && result.comparable_result_ref) return result.comparable_result_ref;
+  if ('result_ref' in result && result.result_ref) return result.result_ref;
+  if ('sweep_run_id' in result) return sweepVariantResultRef(result.sweep_run_id, result.variant_id);
+  return runResultRef(result.run_id);
+}
+
+function shortComparableRef(ref: string): string {
+  const parsed = parseSweepVariantRef(ref);
+  if (parsed) return `${shortRunId(parsed.sweepRunId)}:${shortRunId(parsed.variantId)}`;
+  return shortRunId(ref.replace(/^run:/, ''));
+}
+
+function isParameterSweepGroup(run: RunDashboardListItem): boolean {
+  return run.run_type === 'PARAMETER_SWEEP' || run.result_type === 'PARAMETER_SWEEP_GROUP';
+}
+
+function formatSweepVariantSelectionLabel(run: RunDashboardListItem, variant: Record<string, unknown>, rank: number | null): string {
+  const rankLabel = rank ? `Rank #${rank}` : 'Variant';
+  return `${formatComparableRunLabel(run)} · ${rankLabel} · ${formatParameterSummary(variant.parameters)}`;
+}
+
+function runResponseLabel(run: RunResponse): string {
+  const draftConfig = isRecord(run.request_payload?.draft_config) ? run.request_payload.draft_config : null;
+  const baseConfig = isRecord(run.request_payload?.base_config) ? run.request_payload.base_config : null;
+  const configName = toStringValue(draftConfig?.name) ?? toStringValue(baseConfig?.name);
+  if (configName) return configName;
+  return formatRunLabel(run.strategy_name, run.strategy_version_number, run.id);
 }
 
 function runResponseToDashboardItem(run: RunResponse): RunDashboardListItem {
@@ -114,6 +207,9 @@ function runResponseToDashboardItem(run: RunResponse): RunDashboardListItem {
     source_variant_rank: run.source_variant_rank,
     source_ranking_metric: run.source_ranking_metric,
     status: run.status,
+    comparable_result_ref: runResultRef(run.id),
+    result_type: run.run_type === 'PARAMETER_SWEEP' ? 'PARAMETER_SWEEP_GROUP' : 'RUN',
+    label: runResponseLabel(run),
     run_type: run.run_type,
     executor_type: run.executor_type,
     created_at: run.created_at,
@@ -129,7 +225,9 @@ function runResponseToDashboardItem(run: RunResponse): RunDashboardListItem {
     sharpe_ratio: typeof summary.sharpe_ratio === 'number' ? summary.sharpe_ratio : null,
     max_drawdown_pct: typeof summary.max_drawdown_pct === 'number' ? summary.max_drawdown_pct : null,
     trade_count: typeof summary.trade_count === 'number' ? summary.trade_count : null,
-    win_rate_pct: typeof summary.win_rate_pct === 'number' ? summary.win_rate_pct : null
+    win_rate_pct: typeof summary.win_rate_pct === 'number' ? summary.win_rate_pct : null,
+    sweep_variant_count: null,
+    sweep_variants: []
   };
 }
 
@@ -140,11 +238,11 @@ function relabelComparisonChart(
   const relabelCurves = (curves: RunComparisonChartResponse['strategy_curves']) =>
     curves.map((curve) => ({
       ...curve,
-      label: labelByRunId.get(curve.run_id) ?? curve.label
+      label: labelByRunId.get(curve.result_ref ?? curve.run_id) ?? curve.label
     }));
   const relabelBenchmarkCurves = (curves: RunComparisonChartResponse['benchmark_curves']) =>
     curves.map((curve) => {
-      const runLabel = labelByRunId.get(curve.run_id) ?? curve.label;
+      const runLabel = labelByRunId.get(curve.result_ref ?? curve.run_id) ?? curve.label;
       return {
         ...curve,
         label: curve.benchmark_label ? `${curve.benchmark_label} · ${runLabel}` : runLabel
@@ -256,7 +354,9 @@ function ComparisonDateWindowPanel({
                 key={window.run_id}
                 className="flex flex-col gap-1 rounded-xl border border-current/20 bg-black/5 px-3 py-2 dark:bg-white/5 sm:flex-row sm:items-center sm:justify-between"
               >
-                <dt className="font-medium app-title">{labelByRunId.get(window.run_id) ?? shortRunId(window.run_id)}</dt>
+                <dt className="font-medium app-title">
+                  {labelByRunId.get(window.result_ref ?? window.run_id) ?? shortComparableRef(window.result_ref ?? window.run_id)}
+                </dt>
                 <dd className="font-mono text-xs">
                   {formatDateOnly(window.start_date)} to {formatDateOnly(window.end_date)}
                 </dd>
@@ -278,6 +378,8 @@ function NextComparisonSteps({
 }) {
   const bestReturnRun = pickBestRun(comparison.runs, (run) => run.total_return_pct);
   const bestSharpeRun = pickBestRun(comparison.runs, (run) => run.sharpe_ratio);
+  const bestReturnUrl = bestReturnRun?.result_type === 'SWEEP_VARIANT' ? null : bestReturnRun ? `/runs/${bestReturnRun.run_id}` : null;
+  const bestSharpeUrl = bestSharpeRun?.result_type === 'SWEEP_VARIANT' ? null : bestSharpeRun ? `/runs/${bestSharpeRun.run_id}` : null;
 
   return (
     <section className="app-card app-shadow-soft rounded-3xl border p-5">
@@ -291,17 +393,17 @@ function NextComparisonSteps({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {bestReturnRun ? (
+          {bestReturnUrl ? (
             <Link
-              to={`/runs/${bestReturnRun.run_id}`}
+              to={bestReturnUrl}
               className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition"
             >
               Open best return result
             </Link>
           ) : null}
-          {bestSharpeRun ? (
+          {bestSharpeUrl ? (
             <Link
-              to={`/runs/${bestSharpeRun.run_id}`}
+              to={bestSharpeUrl}
               className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
             >
               Open best Sharpe result
@@ -371,11 +473,11 @@ const ComparisonResults = memo(function ComparisonResults({
             </thead>
             <tbody className="divide-y app-divider">
               {comparison.runs.map((run) => (
-                <tr key={run.run_id} className="app-row-hover">
+                <tr key={run.result_ref ?? run.run_id} className="app-row-hover">
                   <td className="px-4 py-3 font-medium app-title">
                     <div>{formatComparableRunLabel(run)}</div>
                     <div className="mt-1 font-mono text-xs font-normal app-text-soft">
-                      {shortRunId(run.run_id)}
+                      {shortComparableRef(run.result_ref ?? run.run_id)}
                     </div>
                   </td>
                   <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
@@ -452,16 +554,21 @@ export function ComparePage() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const runIdsParam = searchParams.get('runIds');
+  const resultsParam = searchParams.get('results');
   const compareResetKey = (location.state as CompareLocationState)?.compareResetKey;
   const parsedRunIdsParam = useMemo(() => parseRunIdsParam(runIdsParam), [runIdsParam]);
-  const initialSelectedRunIds = parsedRunIdsParam.runIds;
-  const urlRunIdLimitExceeded = parsedRunIdsParam.exceedsLimit;
-  const autoCompareKeyRef = useRef<string | null>(null);
+  const parsedResultsParam = useMemo(() => parseResultsParam(resultsParam), [resultsParam]);
+  const initialSelectedResultRefs = useMemo(
+    () => (resultsParam ? parsedResultsParam.resultRefs : parsedRunIdsParam.runIds.map(runResultRef)),
+    [parsedResultsParam.resultRefs, parsedRunIdsParam.runIds, resultsParam]
+  );
+  const urlSelectionLimitExceeded = resultsParam ? parsedResultsParam.exceedsLimit : parsedRunIdsParam.exceedsLimit;
   const compareRequestIdRef = useRef(0);
 
   const [availableRuns, setAvailableRuns] = useState<RunDashboardListItem[]>([]);
-  const [hydratedSelectedRuns, setHydratedSelectedRuns] = useState<Record<string, RunDashboardListItem>>({});
-  const [selectedRunIds, setSelectedRunIds] = useState<string[]>(initialSelectedRunIds);
+  const [expandedSweepRunIds, setExpandedSweepRunIds] = useState<Set<string>>(new Set());
+  const [hydratedSelectedResults, setHydratedSelectedResults] = useState<Record<string, SelectedComparableResult>>({});
+  const [selectedResultRefs, setSelectedResultRefs] = useState<string[]>(initialSelectedResultRefs);
   const [comparison, setComparison] = useState<RunComparisonResponse | null>(null);
   const [comparisonChart, setComparisonChart] = useState<RunComparisonChartResponse | null>(null);
   const [loadingRuns, setLoadingRuns] = useState(true);
@@ -469,23 +576,16 @@ export function ComparePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!runIdsParam) {
-      autoCompareKeyRef.current = null;
-      compareRequestIdRef.current += 1;
-      setSelectedRunIds([]);
-      setHydratedSelectedRuns({});
-      setComparison(null);
-      setComparisonChart(null);
-      setErrorMessage(null);
-      setLoadingComparison(false);
+    if (!runIdsParam && !resultsParam) {
+      setSelectedResultRefs([]);
+      setHydratedSelectedResults({});
+      clearComparisonOutput();
       return;
     }
 
-    if (urlRunIdLimitExceeded) {
-      autoCompareKeyRef.current = null;
-      compareRequestIdRef.current += 1;
-      setSelectedRunIds([]);
-      setHydratedSelectedRuns({});
+    if (urlSelectionLimitExceeded) {
+      setSelectedResultRefs([]);
+      setHydratedSelectedResults({});
       setComparison(null);
       setComparisonChart(null);
       setErrorMessage(`Comparison limit reached for your plan. Select up to ${MAX_COMPARE_RUNS} results.`);
@@ -493,8 +593,9 @@ export function ComparePage() {
       return;
     }
 
-    setSelectedRunIds(initialSelectedRunIds);
-  }, [initialSelectedRunIds, runIdsParam, urlRunIdLimitExceeded]);
+    setSelectedResultRefs(initialSelectedResultRefs);
+    clearComparisonOutput();
+  }, [initialSelectedResultRefs, resultsParam, runIdsParam, urlSelectionLimitExceeded]);
 
   useEffect(() => {
     if (!compareResetKey) return;
@@ -530,24 +631,58 @@ export function ComparePage() {
 
   useEffect(() => {
     let ignore = false;
-    const availableIds = new Set(availableRuns.map((run) => run.run_id));
-    const missingRunIds = selectedRunIds.filter(
-      (runId) => !availableIds.has(runId) && !hydratedSelectedRuns[runId]
+    const availableByRef = new Map<string, SelectedComparableResult>();
+    availableRuns.forEach((run) => {
+      if (!isParameterSweepGroup(run)) {
+        availableByRef.set(comparableResultRef(run), run);
+      }
+      run.sweep_variants.forEach((variant) => {
+        availableByRef.set(variant.comparable_result_ref, variant);
+      });
+    });
+    const missingResultRefs = selectedResultRefs.filter(
+      (resultRef) => !availableByRef.has(resultRef) && !hydratedSelectedResults[resultRef]
     );
 
-    if (missingRunIds.length === 0) return;
+    if (missingResultRefs.length === 0) return;
 
-    async function hydrateSelectedRuns() {
+    async function hydrateSelectedResults() {
       try {
         const hydrated = await Promise.all(
-          missingRunIds.map(async (runId) => runResponseToDashboardItem(await fetchRun(runId)))
+          missingResultRefs.map(async (resultRef) => {
+            const parsedSweepVariant = parseSweepVariantRef(resultRef);
+            if (parsedSweepVariant) {
+              const detail = await fetchSweepVariantDetail(parsedSweepVariant.sweepRunId, parsedSweepVariant.variantId);
+              const run = runResponseToDashboardItem(detail.run);
+              const variant = detail.variant;
+              return {
+                comparable_result_ref: resultRef,
+                sweep_run_id: parsedSweepVariant.sweepRunId,
+                variant_id: parsedSweepVariant.variantId,
+                label: formatSweepVariantSelectionLabel(run, variant, detail.rank || null),
+                rank: detail.rank || null,
+                parameters: isRecord(variant.parameters) ? variant.parameters : null,
+                total_return_pct: toNumber(variant.total_return_pct),
+                benchmark_return_pct: toNumber(variant.benchmark_return_pct),
+                alpha_vs_benchmark_pct: toNumber(variant.alpha_vs_benchmark_pct),
+                cagr_pct: toNumber(variant.cagr_pct),
+                sharpe_ratio: toNumber(variant.sharpe_ratio),
+                max_drawdown_pct: toNumber(variant.max_drawdown_pct),
+                trade_count: toNumber(variant.trade_count),
+                status: toStringValue(variant.status)
+              } satisfies SweepComparableVariantItem;
+            }
+
+            const runId = resultRef.replace(/^run:/, '');
+            return runResponseToDashboardItem(await fetchRun(runId));
+          })
         );
         if (ignore) return;
 
-        setHydratedSelectedRuns((current) => {
+        setHydratedSelectedResults((current) => {
           const next = { ...current };
-          hydrated.forEach((run) => {
-            next[run.run_id] = run;
+          hydrated.forEach((result) => {
+            next[comparableResultRef(result)] = result;
           });
           return next;
         });
@@ -558,23 +693,31 @@ export function ComparePage() {
       }
     }
 
-    void hydrateSelectedRuns();
+    void hydrateSelectedResults();
     return () => {
       ignore = true;
     };
-  }, [availableRuns, hydratedSelectedRuns, selectedRunIds]);
+  }, [availableRuns, hydratedSelectedResults, selectedResultRefs]);
 
-  const selectedRuns = useMemo(() => {
-    const availableById = new Map(availableRuns.map((run) => [run.run_id, run]));
+  const selectedResults = useMemo(() => {
+    const availableByRef = new Map<string, SelectedComparableResult>();
+    availableRuns.forEach((run) => {
+      if (!isParameterSweepGroup(run)) {
+        availableByRef.set(comparableResultRef(run), run);
+      }
+      run.sweep_variants.forEach((variant) => {
+        availableByRef.set(variant.comparable_result_ref, variant);
+      });
+    });
 
-    return selectedRunIds
-      .map((runId) => availableById.get(runId) ?? hydratedSelectedRuns[runId] ?? null)
-      .filter((run): run is RunDashboardListItem => run !== null);
-  }, [availableRuns, hydratedSelectedRuns, selectedRunIds]);
+    return selectedResultRefs
+      .map((resultRef) => availableByRef.get(resultRef) ?? hydratedSelectedResults[resultRef] ?? null)
+      .filter((result): result is SelectedComparableResult => result !== null);
+  }, [availableRuns, hydratedSelectedResults, selectedResultRefs]);
 
-  const selectionLimitReached = selectedRunIds.length >= MAX_COMPARE_RUNS;
+  const selectionLimitReached = selectedResultRefs.length >= MAX_COMPARE_RUNS;
   const selectedRunsSubtitle =
-    selectedRunIds.length === 1
+    selectedResultRefs.length === 1
       ? 'Choose one more result to compare.'
       : selectionLimitReached
         ? 'Comparison limit reached. Remove one selected result before adding another.'
@@ -583,10 +726,10 @@ export function ComparePage() {
     comparisonChart && comparison?.metadata.has_common_overlap !== false
   );
 
-  async function handleCompare(runIdsOverride?: string[]) {
-    const runIds = runIdsOverride ?? selectedRunIds;
+  async function handleCompare(resultRefsOverride?: string[]) {
+    const resultRefs = resultRefsOverride ?? selectedResultRefs;
 
-    if (runIds.length < 2) {
+    if (resultRefs.length < 2) {
       setErrorMessage('Select at least two succeeded results to compare.');
       return;
     }
@@ -599,8 +742,8 @@ export function ComparePage() {
 
     try {
       const [summary, chart] = await Promise.all([
-        fetchRunComparison(runIds),
-        fetchRunComparisonChart(runIds)
+        fetchRunComparison(resultRefs),
+        fetchRunComparisonChart(resultRefs)
       ]);
       if (requestId !== compareRequestIdRef.current) return;
       const labelByRunId = buildComparisonLabelMap(summary.runs);
@@ -618,26 +761,18 @@ export function ComparePage() {
     }
   }
 
-  useEffect(() => {
-    if (urlRunIdLimitExceeded) return;
-    if (initialSelectedRunIds.length < 2) return;
-
-    const compareKey = initialSelectedRunIds.join(',');
-    if (autoCompareKeyRef.current === compareKey) return;
-
-    autoCompareKeyRef.current = compareKey;
-    void handleCompare(initialSelectedRunIds);
-  }, [initialSelectedRunIds, urlRunIdLimitExceeded]);
-
-  function clearComparisonWorkspace() {
-    autoCompareKeyRef.current = null;
+  function clearComparisonOutput() {
     compareRequestIdRef.current += 1;
-    setSelectedRunIds([]);
-    setHydratedSelectedRuns({});
     setComparison(null);
     setComparisonChart(null);
     setErrorMessage(null);
     setLoadingComparison(false);
+  }
+
+  function clearComparisonWorkspace() {
+    setSelectedResultRefs([]);
+    setHydratedSelectedResults({});
+    clearComparisonOutput();
   }
 
   const resetComparison = useCallback(function resetComparison() {
@@ -645,17 +780,37 @@ export function ComparePage() {
     clearComparisonWorkspace();
   }, [setSearchParams]);
 
-  const toggleRun = useCallback(function toggleRun(runId: string) {
-    setSelectedRunIds((current) => {
-      if (current.includes(runId)) {
-        return current.filter((value) => value !== runId);
-      }
+  const toggleResult = useCallback(function toggleResult(resultRef: string) {
+    let next: string[];
+    if (selectedResultRefs.includes(resultRef)) {
+      next = selectedResultRefs.filter((value) => value !== resultRef);
+    } else if (selectedResultRefs.length >= MAX_COMPARE_RUNS) {
+      return;
+    } else {
+      next = [...selectedResultRefs, resultRef];
+    }
 
-      if (current.length >= MAX_COMPARE_RUNS) {
-        return current;
-      }
+    setSelectedResultRefs(next);
+    clearComparisonOutput();
+    const params = new URLSearchParams(searchParams);
+    params.delete('runIds');
+    if (next.length > 0) {
+      params.set('results', next.join(','));
+    } else {
+      params.delete('results');
+    }
+    setSearchParams(params, { replace: true });
+  }, [searchParams, selectedResultRefs, setSearchParams]);
 
-      return [...current, runId];
+  const toggleSweepExpanded = useCallback(function toggleSweepExpanded(runId: string) {
+    setExpandedSweepRunIds((current) => {
+      const next = new Set(current);
+      if (next.has(runId)) {
+        next.delete(runId);
+      } else {
+        next.add(runId);
+      }
+      return next;
     });
   }, []);
 
@@ -671,7 +826,7 @@ export function ComparePage() {
             onClick={() => {
               void handleCompare();
             }}
-            disabled={loadingComparison || selectedRunIds.length < 2}
+            disabled={loadingComparison || selectedResultRefs.length < 2}
             className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
           >
             {loadingComparison ? 'Comparing…' : 'Compare selected results'}
@@ -684,7 +839,7 @@ export function ComparePage() {
       {loadingComparison ? (
         <StateCard
           title="Comparing selected results"
-          description="Loading comparison metrics and chart overlays. This may take a few seconds for larger run artifacts."
+          description="Loading comparison metrics and chart overlays. This may take a few seconds for larger result artifacts."
         />
       ) : null}
 
@@ -693,23 +848,24 @@ export function ComparePage() {
       {shouldShowComparisonCharts && comparisonChart ? <ComparisonCharts chart={comparisonChart} /> : null}
 
       <SectionCard
-        title={`Selected Results (${selectedRunIds.length} / ${MAX_COMPARE_RUNS})`}
+        title={`Selected Results (${selectedResultRefs.length} / ${MAX_COMPARE_RUNS})`}
         subtitle={selectedRunsSubtitle}
       >
-        {selectedRunIds.length > 0 && selectedRuns.length === 0 ? (
+        {selectedResultRefs.length > 0 && selectedResults.length === 0 ? (
           <p className="text-sm app-text-muted">Loading selected result…</p>
-        ) : selectedRuns.length === 0 ? (
+        ) : selectedResults.length === 0 ? (
           <p className="text-sm app-text-muted">No results selected yet.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {selectedRuns.map((run) => {
+            {selectedResults.map((run) => {
+              const ref = comparableResultRef(run);
               const label = formatComparableRunLabel(run);
-              const idLabel = shortRunId(run.run_id);
+              const idLabel = shortComparableRef(ref);
               return (
                 <button
-                  key={run.run_id}
+                  key={ref}
                   type="button"
-                  onClick={() => toggleRun(run.run_id)}
+                  onClick={() => toggleResult(ref)}
                   className="app-badge rounded-full px-3 py-1.5 text-xs font-medium"
                 >
                   <span>{label}</span>
@@ -731,7 +887,7 @@ export function ComparePage() {
           <table className="min-w-full divide-y app-divider text-sm">
             <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
               <tr>
-                <th className="px-4 py-3">Pick</th>
+                <th className="w-16 px-4 py-3">Pick</th>
                 <th className="px-4 py-3">Result</th>
                 <th className="px-4 py-3">Return</th>
                 <th className="px-4 py-3">Sharpe</th>
@@ -747,30 +903,99 @@ export function ComparePage() {
                 </tr>
               ) : (
                 availableRuns.map((run) => {
-                  const checked = selectedRunIds.includes(run.run_id);
+                  const isSweepGroup = isParameterSweepGroup(run);
+                  const resultRef = comparableResultRef(run);
+                  const checked = selectedResultRefs.includes(resultRef);
+                  const isExpanded = expandedSweepRunIds.has(run.run_id);
+                  const variantCount = run.sweep_variant_count ?? run.sweep_variants.length;
                   return (
-                    <tr key={run.run_id} className="app-row-hover">
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={!checked && selectionLimitReached}
-                          onChange={() => toggleRun(run.run_id)}
-                          className="app-checkbox h-4 w-4 rounded disabled:cursor-not-allowed disabled:opacity-40"
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium app-title">
-                          {formatComparableRunLabel(run)}
-                        </div>
-                        <div className="mt-1 text-xs app-text-soft">
-                          {isSavedSweepVariantResult(run) ? formatSavedSweepVariantSource(run) : run.run_id}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
-                      <td className="px-4 py-3 app-text-muted">{formatNumber(run.sharpe_ratio)}</td>
-                      <td className="px-4 py-3 app-text-muted">{formatPct(run.max_drawdown_pct)}</td>
-                    </tr>
+                    <Fragment key={run.run_id}>
+                      <tr className={isSweepGroup ? 'app-surface-soft border-y app-divider' : 'app-row-hover'}>
+                        <td className="px-4 py-3">
+                          {isSweepGroup ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleSweepExpanded(run.run_id)}
+                              className="app-button-secondary inline-flex h-8 w-8 items-center justify-center rounded-lg p-0 transition"
+                              aria-expanded={isExpanded}
+                              aria-label={isExpanded ? 'Collapse sweep variants' : 'Expand sweep variants'}
+                              title={isExpanded ? 'Collapse sweep variants' : 'Expand sweep variants'}
+                            >
+                              <ChevronIcon expanded={isExpanded} />
+                            </button>
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!checked && selectionLimitReached}
+                              onChange={() => toggleResult(resultRef)}
+                              className="app-checkbox h-4 w-4 rounded disabled:cursor-not-allowed disabled:opacity-40"
+                            />
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold app-title">
+                              {formatComparableRunLabel(run)}
+                            </span>
+                            {isSweepGroup ? (
+                              <span className="app-badge rounded-full px-2 py-0.5 text-[11px] font-semibold">
+                                Parameter sweep · {variantCount} variants
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 text-xs app-text-soft">
+                            {isSweepGroup
+                              ? 'Expand to select variants'
+                              : isSavedSweepVariantResult(run)
+                                ? formatSavedSweepVariantSource(run)
+                                : run.run_id}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 app-text-muted">{isSweepGroup ? '—' : formatPct(run.total_return_pct)}</td>
+                        <td className="px-4 py-3 app-text-muted">{isSweepGroup ? '—' : formatNumber(run.sharpe_ratio)}</td>
+                        <td className="px-4 py-3 app-text-muted">{isSweepGroup ? '—' : formatPct(run.max_drawdown_pct)}</td>
+                      </tr>
+                      {isSweepGroup && isExpanded
+                        ? run.sweep_variants.map((variant) => {
+                            const variantChecked = selectedResultRefs.includes(variant.comparable_result_ref);
+                            const rankLabel = variant.rank ? `Rank #${variant.rank}` : 'Variant';
+                            const parameterLabel = formatParameterSummary(variant.parameters);
+                            return (
+                              <tr key={variant.comparable_result_ref} className="app-row-hover bg-black/[0.025] dark:bg-white/[0.035]">
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-3 pl-5">
+                                    <span className="h-8 w-1 rounded-full bg-cyan-500/70" aria-hidden="true" />
+                                    <input
+                                      type="checkbox"
+                                      checked={variantChecked}
+                                      disabled={!variantChecked && selectionLimitReached}
+                                      onChange={() => toggleResult(variant.comparable_result_ref)}
+                                      className="app-checkbox h-4 w-4 rounded disabled:cursor-not-allowed disabled:opacity-40"
+                                    />
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 pl-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="app-badge rounded-full px-2 py-0.5 text-[11px] font-semibold">
+                                      {rankLabel}
+                                    </span>
+                                    <span className="font-medium app-title">
+                                      {variant.label}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 text-xs app-text-soft">
+                                    Variant · {parameterLabel}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 app-text-muted">{formatPct(variant.total_return_pct)}</td>
+                                <td className="px-4 py-3 app-text-muted">{formatNumber(variant.sharpe_ratio)}</td>
+                                <td className="px-4 py-3 app-text-muted">{formatPct(variant.max_drawdown_pct)}</td>
+                              </tr>
+                            );
+                          })
+                        : null}
+                    </Fragment>
                   );
                 })
               )}

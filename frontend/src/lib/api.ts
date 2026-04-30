@@ -174,15 +174,15 @@ export async function restoreStrategy(strategyId: string): Promise<StrategyListI
   });
 }
 
-export async function fetchRunComparison(runIds: string[]): Promise<RunComparisonResponse> {
+export async function fetchRunComparison(resultRefs: string[]): Promise<RunComparisonResponse> {
   return request<RunComparisonResponse>(
-    `/api/runs/compare${buildQueryString({ run_ids: runIds.join(',') })}`
+    `/api/runs/compare${buildQueryString({ results: resultRefs.join(',') })}`
   );
 }
 
-export async function fetchRunComparisonChart(runIds: string[]): Promise<RunComparisonChartResponse> {
+export async function fetchRunComparisonChart(resultRefs: string[]): Promise<RunComparisonChartResponse> {
   return request<RunComparisonChartResponse>(
-    `/api/runs/compare/chart${buildQueryString({ run_ids: runIds.join(',') })}`
+    `/api/runs/compare/chart${buildQueryString({ results: resultRefs.join(',') })}`
   );
 }
 
