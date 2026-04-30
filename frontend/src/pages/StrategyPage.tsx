@@ -14,6 +14,7 @@ import {
   formatSavedSweepVariantSource,
   isSavedSweepVariantResult
 } from '../lib/formatters';
+import { summarizeRule as summarizeStrategyRule } from '../lib/ruleSummaries';
 import type { StrategyDashboardResponse, StrategyVersionSummary } from '../types/api';
 
 function formatStrategyType(value: string | null | undefined) {
@@ -58,46 +59,6 @@ function formatConfigPct(value: unknown): string | null {
   return `${(value * 100).toFixed(1).replace(/\.0$/, '')}%`;
 }
 
-function summarizeAtomicRule(rule: Record<string, unknown>): string {
-  const type = String(rule.type ?? 'rule').replace(/_/g, ' ');
-  const symbol = formatConfigValue(rule.symbol ?? 'asset');
-  const lookback = rule.lookback ?? 14;
-  const threshold = formatConfigValue(rule.threshold);
-  const fastWindow = rule.fast_window;
-  const slowWindow = rule.slow_window;
-
-  if (rule.type === 'rsi_below') return `${symbol} RSI(${lookback}) below ${threshold}`;
-  if (rule.type === 'rsi_above') return `${symbol} RSI(${lookback}) above ${threshold}`;
-  if (rule.type === 'sma_above') return `${symbol} ${formatConfigValue(fastWindow)}-day SMA above ${formatConfigValue(slowWindow)}-day SMA`;
-  if (rule.type === 'sma_cross_above') return `${symbol} SMA crosses above ${formatConfigValue(slowWindow)}-day SMA`;
-  if (rule.type === 'sma_cross_below') return `${symbol} SMA crosses below ${formatConfigValue(slowWindow)}-day SMA`;
-  if (rule.type === 'relative_return_above') {
-    return `${symbol} beats ${formatConfigValue(rule.reference_symbol ?? 'reference')} over ${formatConfigValue(rule.lookback)} bars`;
-  }
-
-  return type;
-}
-
-function summarizeRule(value: unknown): string {
-  const rule = getRecord(value);
-  if (!rule) return '—';
-
-  if (rule.kind === 'atomic') return summarizeAtomicRule(rule);
-  if (rule.kind === 'not') return `Not: ${summarizeRule(rule.rule)}`;
-  if (rule.kind === 'window') return `${formatConfigValue(rule.mode ?? 'Any')} within ${formatConfigValue(rule.window_bars)} bars: ${summarizeRule(rule.rule)}`;
-  if (rule.kind === 'sequence') {
-    const steps = Array.isArray(rule.steps) ? rule.steps.map(summarizeRule).filter((item) => item !== '—') : [];
-    return steps.length ? `${steps.join(' then ')} within ${formatConfigValue(rule.window_bars)} bars` : 'Sequence rule';
-  }
-  if (rule.kind === 'group') {
-    const joiner = String(rule.operator ?? 'AND').toUpperCase() === 'OR' ? ' or ' : ' and ';
-    const rules = Array.isArray(rule.rules) ? rule.rules.map(summarizeRule).filter((item) => item !== '—') : [];
-    return rules.length ? rules.join(joiner) : `${formatConfigValue(rule.operator ?? 'Group')} rule`;
-  }
-
-  return String(rule.type ?? rule.kind ?? 'Rule').replace(/_/g, ' ');
-}
-
 function selectedVersionLabel(version: StrategyVersionSummary | null): string {
   if (!version) return 'No version selected';
   return `v${version.version_number}${version.is_current ? ' · Current' : ''}${version.reference_run_id ? ' · Reference result' : ' · No reference result yet'}`;
@@ -127,8 +88,8 @@ function configSummaryRows(config: Record<string, unknown> | null | undefined) {
     { label: 'Tradable symbol', value: formatConfigValue(config.tradable_symbol) },
     { label: 'Benchmark', value: formatConfigValue(config.benchmark_symbol ?? config.benchmark) },
     { label: 'Date range', value: dateRange || '—' },
-    { label: 'Entry rule', value: summarizeRule(config.entry_rule) },
-    { label: 'Exit rule', value: summarizeRule(config.exit_rule) },
+    { label: 'Entry rule', value: summarizeStrategyRule(config.entry_rule, { tradableSymbol: config.tradable_symbol }).text },
+    { label: 'Exit rule', value: summarizeStrategyRule(config.exit_rule, { tradableSymbol: config.tradable_symbol }).text },
     { label: 'Risk controls', value: riskParts.length ? riskParts.join(' · ') : '—' },
     { label: 'Core / overlay', value: coreOverlayText ?? '—' }
   ];

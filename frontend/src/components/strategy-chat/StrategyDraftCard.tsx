@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 
+import { explainRule } from '../../lib/ruleSummaries';
 import type { StrategyBuilderGenerateResponse } from '../../types/api';
-
-type RuleNode = Record<string, unknown>;
 
 function prettifyJson(value: unknown): string {
   try {
@@ -29,139 +28,6 @@ function formatCurrency(value: unknown): string {
 function formatBps(value: unknown): string {
   if (typeof value !== 'number' || Number.isNaN(value)) return '—';
   return `${value} bps`;
-}
-
-function titleCase(value: string): string {
-  return value
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function compactRuleLabel(type: unknown): string {
-  if (typeof type !== 'string' || !type.trim()) return 'Unknown rule';
-  return titleCase(type);
-}
-
-function explainAtomicRule(rule: RuleNode): string {
-  const type = typeof rule.type === 'string' ? rule.type : 'unknown_rule';
-  const symbol = typeof rule.symbol === 'string' ? rule.symbol : null;
-  const lookback = typeof rule.lookback === 'number' ? rule.lookback : null;
-  const threshold = typeof rule.threshold === 'number' ? rule.threshold : null;
-  const fastWindow = typeof rule.fast_window === 'number' ? rule.fast_window : null;
-  const slowWindow = typeof rule.slow_window === 'number' ? rule.slow_window : null;
-  const monthValues = Array.isArray(rule.month_values)
-    ? rule.month_values.filter((value): value is number => typeof value === 'number')
-    : [];
-
-  switch (type) {
-    case 'rsi_below':
-      return `${symbol ?? 'Asset'} RSI${lookback ? `(${lookback})` : ''} falls below ${threshold ?? '—'}`;
-
-    case 'rsi_above':
-      return `${symbol ?? 'Asset'} RSI${lookback ? `(${lookback})` : ''} rises above ${threshold ?? '—'}`;
-
-    case 'sma_cross_above':
-      if (fastWindow === 1) return `${symbol ?? 'Asset'} crosses above its ${slowWindow ?? 'slow'}-day SMA`;
-      return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA crosses above ${slowWindow ?? 'slow'}-day SMA`;
-
-    case 'sma_cross_below':
-      if (fastWindow === 1) return `${symbol ?? 'Asset'} crosses below its ${slowWindow ?? 'slow'}-day SMA`;
-      return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA crosses below ${slowWindow ?? 'slow'}-day SMA`;
-
-    case 'sma_above':
-      if (fastWindow === 1) return `${symbol ?? 'Asset'} is above its ${slowWindow ?? 'slow'}-day SMA`;
-      return `${symbol ?? 'Asset'} ${fastWindow ?? 'fast'}-day SMA stays above ${slowWindow ?? 'slow'}-day SMA`;
-
-    case 'macd_bullish_cross':
-      return `${symbol ?? 'Asset'} MACD turns bullish`;
-
-    case 'macd_bearish_cross':
-      return `${symbol ?? 'Asset'} MACD turns bearish`;
-
-    case 'kd_golden_cross':
-      return `${symbol ?? 'Asset'} KD / stochastic turns bullish`;
-
-    case 'kd_dead_cross':
-      return `${symbol ?? 'Asset'} KD / stochastic turns bearish`;
-
-    case 'relative_strength_above':
-      return `${symbol ?? 'Asset'} outperforms reference strength threshold${lookback ? ` over ${lookback} bars` : ''}${threshold !== null ? ` by ${threshold}` : ''}`;
-
-    case 'relative_strength_below':
-      return `${symbol ?? 'Asset'} underperforms reference strength threshold${lookback ? ` over ${lookback} bars` : ''}${threshold !== null ? ` by ${threshold}` : ''}`;
-
-    case 'month_in':
-      return monthValues.length > 0
-        ? `Only trade during months ${monthValues.join(', ')}`
-        : 'Month filter is applied';
-
-    default:
-      return `${compactRuleLabel(type)}${symbol ? ` on ${symbol}` : ''}`;
-  }
-}
-
-export function explainRule(rule: unknown): string {
-  if (!rule || typeof rule !== 'object') return 'No rule defined';
-
-  const node = rule as RuleNode;
-  const kind = typeof node.kind === 'string' ? node.kind : 'atomic';
-
-  if (kind === 'atomic') return explainAtomicRule(node);
-
-  if (kind === 'not') {
-    const nestedRule = 'rule' in node && node.rule && typeof node.rule === 'object' ? (node.rule as RuleNode) : null;
-    if (
-      nestedRule &&
-      nestedRule.kind === 'atomic' &&
-      nestedRule.type === 'sma_above' &&
-      nestedRule.fast_window === 1
-    ) {
-      const symbol = typeof nestedRule.symbol === 'string' ? nestedRule.symbol : 'Asset';
-      const slowWindow = typeof nestedRule.slow_window === 'number' ? nestedRule.slow_window : 'slow';
-      return `${symbol} is below its ${slowWindow}-day SMA`;
-    }
-
-    const innerRule = nestedRule ? explainRule(nestedRule) : 'the inner rule';
-    return `NOT: ${innerRule}`;
-  }
-
-  if (kind === 'window') {
-    const windowBars = typeof node.window_bars === 'number' ? node.window_bars : null;
-    const mode = typeof node.mode === 'string' ? node.mode : null;
-    const innerRule = 'rule' in node ? explainRule(node.rule) : 'the inner rule';
-
-    if (windowBars && mode) {
-      return `${titleCase(mode)} the following within ${windowBars} bars: ${innerRule}`;
-    }
-
-    if (windowBars) {
-      return `Within ${windowBars} bars: ${innerRule}`;
-    }
-
-    return `Window rule: ${innerRule}`;
-  }
-
-  if (kind === 'sequence') {
-    const steps = Array.isArray(node.steps) ? node.steps : [];
-    const windowBars = typeof node.window_bars === 'number' ? node.window_bars : null;
-    const explainedSteps = steps.map((step) => explainRule(step));
-
-    return explainedSteps.length > 0
-      ? `Sequence${windowBars ? ` within ${windowBars} bars` : ''}: ${explainedSteps.join(' → ')}`
-      : 'Sequence rule';
-  }
-
-  if (kind === 'group') {
-    const operator = typeof node.operator === 'string' ? node.operator.toUpperCase() : 'AND';
-    const rules = Array.isArray(node.rules) ? node.rules : [];
-    const explainedRules = rules.map((child) => explainRule(child));
-
-    return explainedRules.length > 0
-      ? explainedRules.join(` ${operator} `)
-      : `${operator} group`;
-  }
-
-  return compactRuleLabel(typeof node.type === 'string' ? node.type : 'Unknown');
 }
 
 function InfoPill({ label, value }: { label: string; value: string | number | null | undefined }) {
@@ -288,8 +154,8 @@ export function StrategyDraftCard({
       coreOverlayEnabled,
       coreAllocationValue,
       overlayAllocationValue,
-      entryRuleLabel: explainRule(config.entry_rule),
-      exitRuleLabel: explainRule(config.exit_rule),
+      entryRuleLabel: explainRule(config.entry_rule, { tradableSymbol: config.tradable_symbol }),
+      exitRuleLabel: explainRule(config.exit_rule, { tradableSymbol: config.tradable_symbol }),
       stopLoss,
       takeProfit,
       cooldown,
@@ -299,8 +165,8 @@ export function StrategyDraftCard({
         typeof config.benchmark_symbol === 'string'
           ? `Compare performance against ${config.benchmark_symbol}.`
           : null,
-        `Enter when ${explainRule(config.entry_rule)}.`,
-        `Exit when ${explainRule(config.exit_rule)}.`,
+        `Enter when ${explainRule(config.entry_rule, { tradableSymbol: config.tradable_symbol })}.`,
+        `Exit when ${explainRule(config.exit_rule, { tradableSymbol: config.tradable_symbol })}.`,
         !coreOverlayEnabled && typeof allocation.entry_value === 'number'
           ? `Use ${(allocation.entry_value * 100).toFixed(1)}% of equity per entry.`
           : null,

@@ -1466,6 +1466,18 @@ def test_generate_strategy_builder_draft_parses_relative_strength_strategy(clien
     assert config["exit_rule"]["rule"]["reference_symbol"] == "SPY"
     assert config["exit_rule"]["rule"]["lookback"] == 20
     assert config["exit_rule"]["rule"]["threshold"] == 0.03
+    assert (
+        "Enter when QQQ outperforms SPY by more than 3.0% over 20 trading days."
+        in body["summary"]
+    )
+    assert (
+        "Exit when QQQ no longer outperforms SPY by more than 3.0% over 20 trading days."
+        in body["summary"]
+    )
+    assert (
+        "Interpreted relative strength language as QQQ outperforming SPY over 20 trading days."
+        in body["assumptions"]
+    )
 
     dates = pd.date_range("2021-01-04", periods=21, freq="B")
 

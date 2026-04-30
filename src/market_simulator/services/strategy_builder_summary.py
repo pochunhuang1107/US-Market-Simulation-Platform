@@ -45,13 +45,29 @@ def _rule_label(rule: dict) -> str:
     return "rule"
 
 
-def _format_rule_symbol(rule: dict[str, Any]) -> str:
-    return str(rule.get("symbol") or "asset")
+def _format_rule_symbol(rule: dict[str, Any], tradable_symbol: str | None = None) -> str:
+    return str(rule.get("symbol") or tradable_symbol or "asset")
 
 
-def _describe_atomic_rule(rule: dict[str, Any]) -> str:
+def _describe_relative_return_above(
+    rule: dict[str, Any],
+    *,
+    no_longer: bool = False,
+    tradable_symbol: str | None = None,
+) -> str:
+    symbol = _format_rule_symbol(rule, tradable_symbol)
+    reference_symbol = rule.get("reference_symbol") or "reference"
+    lookback = rule.get("lookback") or "the lookback"
+    verb = "no longer outperforms" if no_longer else "outperforms"
+    return (
+        f"{symbol} {verb} {reference_symbol} by more than "
+        f"{_format_pct(rule.get('threshold'))} over {lookback} trading days"
+    )
+
+
+def _describe_atomic_rule(rule: dict[str, Any], tradable_symbol: str | None = None) -> str:
     rule_type = str(rule.get("type") or "rule")
-    symbol = _format_rule_symbol(rule)
+    symbol = _format_rule_symbol(rule, tradable_symbol)
     lookback = rule.get("lookback")
     threshold = rule.get("threshold")
     fast_window = rule.get("fast_window")
@@ -91,11 +107,7 @@ def _describe_atomic_rule(rule: dict[str, Any]) -> str:
         return f"{symbol} KD/stochastic turns bearish"
 
     if rule_type == "relative_return_above":
-        reference_symbol = rule.get("reference_symbol") or "reference"
-        return (
-            f"{symbol} beats {reference_symbol} by {_format_pct(threshold)} "
-            f"over {lookback or 'the lookback'} bars"
-        )
+        return _describe_relative_return_above(rule, tradable_symbol=tradable_symbol)
 
     if rule_type == "month_in":
         return f"month is one of {_format_month_values(rule.get('month_values'))}"
@@ -103,32 +115,42 @@ def _describe_atomic_rule(rule: dict[str, Any]) -> str:
     return rule_type.replace("_", " ")
 
 
-def _describe_rule(rule: dict | None) -> str:
+def _describe_rule(rule: dict | None, tradable_symbol: str | None = None) -> str:
     if not isinstance(rule, dict):
         return "a rule"
 
     kind = rule.get("kind")
 
     if kind == "atomic":
-        return _describe_atomic_rule(rule)
+        return _describe_atomic_rule(rule, tradable_symbol)
 
     if kind == "not":
         nested_rule = rule.get("rule")
         if (
             isinstance(nested_rule, dict)
             and nested_rule.get("kind") == "atomic"
+            and nested_rule.get("type") == "relative_return_above"
+        ):
+            return _describe_relative_return_above(
+                nested_rule,
+                no_longer=True,
+                tradable_symbol=tradable_symbol,
+            )
+        if (
+            isinstance(nested_rule, dict)
+            and nested_rule.get("kind") == "atomic"
             and nested_rule.get("type") == "sma_above"
             and nested_rule.get("fast_window") == 1
         ):
-            symbol = _format_rule_symbol(nested_rule)
+            symbol = _format_rule_symbol(nested_rule, tradable_symbol)
             return f"{symbol} price is below its {nested_rule.get('slow_window')}-day SMA"
-        return f"not ({_describe_rule(nested_rule)})"
+        return f"not ({_describe_rule(nested_rule, tradable_symbol)})"
 
     if kind == "group":
         operator = str(rule.get("operator", "AND")).upper()
         joiner = " and " if operator == "AND" else " or "
         child_descriptions = [
-            _describe_rule(child_rule)
+            _describe_rule(child_rule, tradable_symbol)
             for child_rule in rule.get("rules", [])
             if isinstance(child_rule, dict)
         ]
@@ -139,13 +161,13 @@ def _describe_rule(rule: dict | None) -> str:
     if kind == "window":
         mode = str(rule.get("mode", "ANY")).lower()
         return (
-            f"{mode} of ({_describe_rule(rule.get('rule'))}) within "
+            f"{mode} of ({_describe_rule(rule.get('rule'), tradable_symbol)}) within "
             f"{rule.get('window_bars')} bars"
         )
 
     if kind == "sequence":
         steps = [
-            _describe_rule(step)
+            _describe_rule(step, tradable_symbol)
             for step in rule.get("steps", [])
             if isinstance(step, dict)
         ]
@@ -688,8 +710,8 @@ def _build_strategy_summary(
             end_date_str=summary_end_date,
             assumptions=assumptions,
         ),
-        f"Enter when {_describe_rule(effective_entry)}.",
-        f"Exit when {_describe_rule(effective_exit)}.",
+        f"Enter when {_describe_rule(effective_entry, effective_symbol)}.",
+        f"Exit when {_describe_rule(effective_exit, effective_symbol)}.",
     ]
 
     if effective_benchmark != effective_symbol:

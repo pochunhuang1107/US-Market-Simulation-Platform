@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 
+import { explainRule } from '../../lib/ruleSummaries';
 import type { StrategyBuilderGenerateResponse } from '../../types/api';
-import { explainRule } from './StrategyDraftCard';
 
 function prettifyJson(value: unknown): string {
   try {
@@ -96,8 +96,8 @@ export function ParameterSweepDraftCard({
       rankingMetric: sweep?.ranking_metric ? formatMetric(sweep.ranking_metric) : '-',
       variantCount: sweep?.variant_count ?? '-',
       maxVariants: sweep?.max_variants ?? '-',
-      entryRule: explainRule(baseConfig.entry_rule),
-      exitRule: explainRule(baseConfig.exit_rule),
+      entryRule: explainRule(baseConfig.entry_rule, { tradableSymbol: baseConfig.tradable_symbol }),
+      exitRule: explainRule(baseConfig.exit_rule, { tradableSymbol: baseConfig.tradable_symbol }),
       gridRows,
       json: {
         base_config: baseConfig,

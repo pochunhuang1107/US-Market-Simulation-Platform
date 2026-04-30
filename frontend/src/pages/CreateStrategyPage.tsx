@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { createStrategy } from '../lib/api';
+import { summarizeRule } from '../lib/ruleSummaries';
 import type { CreateStrategyRequest } from '../types/api';
 
 const DEFAULT_CONFIG = `{
@@ -137,148 +138,6 @@ function formatDateRange(config: JsonRecord): string {
   if (startDate) return `From ${startDate}`;
   if (endDate) return `Through ${endDate}`;
   return '—';
-}
-
-function formatRule(rule: unknown): string {
-  return summarizeRule(rule).text;
-}
-
-function summarizeRule(
-  rule: unknown,
-  depth = 0
-): { text: string; kind: 'empty' | 'simple' | 'complex' | 'custom' } {
-  if (!isRecord(rule)) return { text: '—', kind: 'empty' };
-
-  if ((rule.kind === 'group' || rule.type === 'group') && Array.isArray(rule.rules)) {
-    if (depth > 0 || rule.rules.length > 3) {
-      return { text: 'Complex rule group · review JSON', kind: 'complex' };
-    }
-
-    const operator =
-      typeof rule.operator === 'string' && ['AND', 'OR'].includes(rule.operator.toUpperCase())
-        ? rule.operator.toUpperCase()
-        : 'AND';
-    const summaries = rule.rules.map((childRule) => summarizeRule(childRule, depth + 1));
-    const usableSummaries = summaries.filter((summary) => summary.kind === 'simple');
-
-    if (usableSummaries.length !== rule.rules.length || usableSummaries.length === 0) {
-      return { text: 'Complex rule group · review JSON', kind: 'complex' };
-    }
-
-    return {
-      text: usableSummaries.map((summary) => summary.text).join(` ${operator} `),
-      kind: 'simple'
-    };
-  }
-
-  if (rule.kind === 'not' && isRecord(rule.rule)) {
-    const nestedRule = rule.rule;
-    if (
-      nestedRule.kind === 'atomic' &&
-      nestedRule.type === 'sma_above' &&
-      nestedRule.fast_window === 1
-    ) {
-      const symbol = formatSymbol(nestedRule.symbol);
-      const slowWindow = typeof nestedRule.slow_window === 'number' ? nestedRule.slow_window : 'slow';
-      return {
-        text: `${symbol} below SMA ${slowWindow}`,
-        kind: 'simple'
-      };
-    }
-    return { text: 'Complex rule group · review JSON', kind: 'complex' };
-  }
-
-  if (
-    rule.kind === 'window' ||
-    rule.kind === 'sequence' ||
-    rule.type === 'window' ||
-    rule.type === 'sequence'
-  ) {
-    return { text: 'Complex rule group · review JSON', kind: 'complex' };
-  }
-
-  const atomicSummary = summarizeAtomicRule(rule);
-  if (atomicSummary) {
-    return { text: atomicSummary, kind: 'simple' };
-  }
-
-  return { text: 'Custom rule · review JSON', kind: 'custom' };
-}
-
-function summarizeAtomicRule(rule: JsonRecord): string | null {
-  const type = typeof rule.type === 'string' ? rule.type : '';
-  const symbol = formatSymbol(rule.symbol);
-  const lookback = typeof rule.lookback === 'number' ? rule.lookback : null;
-  const threshold = typeof rule.threshold === 'number' ? rule.threshold : null;
-  const fastWindow = typeof rule.fast_window === 'number' ? rule.fast_window : 'fast';
-  const slowWindow = typeof rule.slow_window === 'number' ? rule.slow_window : 'slow';
-
-  switch (type) {
-    case 'rsi_below':
-      return `${symbol} RSI${lookback ? ` ${lookback}` : ''} below ${threshold ?? 'threshold'}`;
-    case 'rsi_above':
-      return `${symbol} RSI${lookback ? ` ${lookback}` : ''} above ${threshold ?? 'threshold'}`;
-    case 'sma_cross_above':
-      if (fastWindow === 1) return `${symbol} crosses above SMA ${slowWindow}`;
-      return `${symbol} SMA ${fastWindow} crosses above SMA ${slowWindow}`;
-    case 'sma_cross_below':
-      if (fastWindow === 1) return `${symbol} crosses below SMA ${slowWindow}`;
-      return `${symbol} SMA ${fastWindow} crosses below SMA ${slowWindow}`;
-    case 'sma_above':
-      if (fastWindow === 1) return `${symbol} above SMA ${slowWindow}`;
-      return `${symbol} SMA ${fastWindow} above SMA ${slowWindow}`;
-    case 'macd_bullish_cross':
-      return `${symbol} MACD bullish cross`;
-    case 'kd_golden_cross':
-      return `${symbol} stochastic KD golden cross`;
-    case 'relative_return_above':
-      return `${symbol} beats ${formatSymbol(rule.reference_symbol)} by ${formatPercent(rule.threshold)} over ${lookback ?? 'lookback'} bars`;
-    case 'month_in':
-      return Array.isArray(rule.month_values)
-        ? `Month is ${rule.month_values.join(', ')}`
-        : 'Month filter';
-    default:
-      return summarizeThresholdRule(rule, type);
-  }
-}
-
-function summarizeThresholdRule(rule: JsonRecord, type: string): string | null {
-  const value =
-    typeof rule.threshold === 'number'
-      ? rule.threshold
-      : typeof rule.value === 'number'
-        ? rule.value
-        : null;
-
-  if (value === null) return null;
-
-  const operatorFromType = type.endsWith('_above')
-    ? 'above'
-    : type.endsWith('_below')
-      ? 'below'
-      : null;
-  const operator =
-    operatorFromType ??
-    (typeof rule.operator === 'string' &&
-    ['above', 'below'].includes(rule.operator.toLowerCase())
-      ? rule.operator.toLowerCase()
-      : null);
-
-  if (!operator) return null;
-
-  const rawSubject =
-    typeof rule.symbol === 'string'
-      ? rule.symbol
-      : typeof rule.indicator === 'string'
-        ? rule.indicator
-        : type.startsWith('vix_')
-          ? 'VIX'
-          : '';
-  const subject = formatSymbol(rawSubject);
-
-  if (subject === '—') return null;
-
-  return `${subject} ${operator} ${value}`;
 }
 
 function Field({
@@ -550,8 +409,22 @@ function ConfigSummary({ config }: { config: JsonRecord | null }) {
         label="Capital"
         value={`${formatCurrency(config.initial_capital)} · ${formatBps(config.transaction_cost_bps)}`}
       />
-      <SummaryRow label="Entry" value={formatRule(config.entry_rule)} />
-      <SummaryRow label="Exit" value={formatRule(config.exit_rule)} />
+      <SummaryRow
+        label="Entry"
+        value={summarizeRule(config.entry_rule, {
+          tradableSymbol: config.tradable_symbol,
+          complexText: 'Complex rule group · review JSON',
+          reviewJsonForComplex: true
+        }).text}
+      />
+      <SummaryRow
+        label="Exit"
+        value={summarizeRule(config.exit_rule, {
+          tradableSymbol: config.tradable_symbol,
+          complexText: 'Complex rule group · review JSON',
+          reviewJsonForComplex: true
+        }).text}
+      />
       <SummaryRow label="Risk" value={formatRiskSummary(risk)} />
       <SummaryRow label="Core / Overlay" value={formatCoreOverlaySummary(coreOverlay)} />
     </div>
