@@ -678,6 +678,78 @@ class RunComparisonService:
             "chart_overlap_end": overlap_end if has_common_overlap else None,
         }
 
+    def _benchmark_curve_identity(self, curve: dict[str, Any]) -> str:
+        benchmark_label = self._clean_benchmark_value(curve.get("benchmark_label"))
+        if benchmark_label is not None:
+            return benchmark_label.upper()
+
+        return str(curve.get("result_ref") or curve.get("run_id") or "Benchmark")
+
+    def _curve_date_window(self, curve: dict[str, Any]) -> tuple[str | None, str | None]:
+        points = curve.get("points")
+        if not isinstance(points, list) or not points:
+            return (None, None)
+
+        first_date = points[0].get("date") if isinstance(points[0], dict) else None
+        last_date = points[-1].get("date") if isinstance(points[-1], dict) else None
+        return (
+            str(first_date) if first_date is not None else None,
+            str(last_date) if last_date is not None else None,
+        )
+
+    def _curve_points_signature(self, curve: dict[str, Any]) -> tuple[tuple[str, float], ...]:
+        signature = []
+        for point in curve.get("points") or []:
+            if not isinstance(point, dict):
+                continue
+            value = point.get("value")
+            if not isinstance(value, (int, float)):
+                continue
+            signature.append((str(point.get("date")), round(float(value), 8)))
+        return tuple(signature)
+
+    def _dedupe_benchmark_curves(self, curves: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        deduped: list[dict[str, Any]] = []
+        seen_by_identity_window: dict[tuple[str, str | None, str | None], int] = {}
+        conflict_counts: dict[tuple[str, str | None, str | None], int] = {}
+
+        for curve in curves:
+            identity = self._benchmark_curve_identity(curve)
+            start_date, end_date = self._curve_date_window(curve)
+            key = (identity.upper(), start_date, end_date)
+            clean_curve = {
+                **curve,
+                "label": f"Benchmark: {identity}" if curve.get("benchmark_label") else "Benchmark",
+                "benchmark_label": identity if curve.get("benchmark_label") else None,
+            }
+
+            existing_index = seen_by_identity_window.get(key)
+            if existing_index is None:
+                seen_by_identity_window[key] = len(deduped)
+                conflict_counts[key] = 1
+                deduped.append(clean_curve)
+                continue
+
+            existing_curve = deduped[existing_index]
+            if self._curve_points_signature(existing_curve) == self._curve_points_signature(clean_curve):
+                continue
+
+            conflict_counts[key] += 1
+            if conflict_counts[key] == 2:
+                deduped[existing_index] = {
+                    **existing_curve,
+                    "label": f"{clean_curve['label']} (1)",
+                }
+
+            deduped.append(
+                {
+                    **clean_curve,
+                    "label": f"{clean_curve['label']} ({conflict_counts[key]})",
+                }
+            )
+
+        return deduped
+
     def build_comparison(self, runs: list[Any]) -> dict[str, Any]:
         chart_data_by_run_id = self._load_chart_data_by_run_id(runs)
         metadata = self._build_window_metadata(runs, chart_data_by_run_id)
@@ -818,7 +890,7 @@ class RunComparisonService:
                 {
                     "run_id": str(run.id),
                     "result_ref": getattr(run, "result_ref", str(run.id)),
-                    "label": f"{benchmark_label} · {label}" if benchmark_label else label,
+                    "label": f"Benchmark: {benchmark_label}" if benchmark_label else "Benchmark",
                     "benchmark_label": benchmark_label,
                     "points": benchmark_points,
                 }
@@ -835,7 +907,7 @@ class RunComparisonService:
                 {
                     "run_id": str(run.id),
                     "result_ref": getattr(run, "result_ref", str(run.id)),
-                    "label": f"{benchmark_label} · {label}" if benchmark_label else label,
+                    "label": f"Benchmark: {benchmark_label}" if benchmark_label else "Benchmark",
                     "benchmark_label": benchmark_label,
                     "points": benchmark_drawdown_points,
                 }
@@ -843,9 +915,9 @@ class RunComparisonService:
 
         return {
             "strategy_curves": strategy_curves,
-            "benchmark_curves": benchmark_curves,
+            "benchmark_curves": self._dedupe_benchmark_curves(benchmark_curves),
             "strategy_drawdown_curves": strategy_drawdown_curves,
-            "benchmark_drawdown_curves": benchmark_drawdown_curves,
+            "benchmark_drawdown_curves": self._dedupe_benchmark_curves(benchmark_drawdown_curves),
             "chart_window_mode": chart_window["chart_window_mode"],
             "chart_overlap_start": chart_window["chart_overlap_start"],
             "chart_overlap_end": chart_window["chart_overlap_end"],

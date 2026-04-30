@@ -89,3 +89,43 @@ def test_compare_page_sweep_children_are_nested_and_selectable():
     assert "pl-5" in source
     assert "checked={variantChecked}" in source
     assert "onChange={() => toggleResult(variant.comparable_result_ref)}" in source
+
+
+def test_compare_page_uses_two_unified_chart_sections():
+    source = (ROOT / "frontend/src/pages/ComparePage.tsx").read_text()
+
+    assert 'title="Performance Comparison"' in source
+    assert 'title="Drawdown Comparison"' in source
+    assert 'title="Strategy Performance"' not in source
+    assert 'title="Benchmark / Buy-and-Hold Reference"' not in source
+    assert 'title="Strategy Drawdowns"' not in source
+    assert 'title="Benchmark Drawdowns"' not in source
+    assert "[...chart.strategy_curves, ...chart.benchmark_curves]" in source
+    assert "[...chart.strategy_drawdown_curves, ...chart.benchmark_drawdown_curves]" in source
+
+
+def test_compare_page_dedupes_shared_benchmark_chart_curves():
+    source = (ROOT / "frontend/src/pages/ComparePage.tsx").read_text()
+    chart_source = (ROOT / "frontend/src/components/compare/CurveChart.tsx").read_text()
+
+    assert "function dedupeBenchmarkCurves" in source
+    assert "benchmarkIdentity(curve)" in source
+    assert "curveDateWindow(curve)" in source
+    assert "curvePointsSignature(curve)" in source
+    assert "Benchmark: ${identity}" in source
+    assert "Benchmarks shown:" in source
+    assert "strokeDasharray={isBenchmark" not in chart_source
+
+
+def test_compare_chart_tooltip_uses_compact_labels_and_solid_benchmark_lines():
+    chart_source = (ROOT / "frontend/src/components/compare/CurveChart.tsx").read_text()
+
+    assert "function CurveTooltip" in chart_source
+    assert "export function getCurveTooltipLabel" in chart_source
+    assert "Benchmark: ${benchmarkLabel}" in chart_source
+    assert "parameterValues.join('/')" in chart_source
+    assert "className=\"truncate\"" in chart_source
+    assert "w-64" in chart_source
+    assert "grid-cols-[minmax(0,1fr)_auto]" in chart_source
+    assert "strokeWidth={isBenchmark ? 1.75 : 2.35}" in chart_source
+    assert "opacity={isBenchmark ? 0.72 : 1}" in chart_source

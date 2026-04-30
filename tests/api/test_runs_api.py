@@ -1734,8 +1734,8 @@ def test_compare_runs_chart_returns_normalized_strategy_benchmark_and_drawdown_c
     assert body["strategy_curves"][0]["benchmark_label"] is None
     assert body["benchmark_curves"][0]["benchmark_label"] == "QQQ"
     assert body["benchmark_curves"][1]["benchmark_label"] == "SPY"
-    assert body["benchmark_curves"][0]["label"].startswith("QQQ · ")
-    assert body["benchmark_drawdown_curves"][1]["label"].startswith("SPY · ")
+    assert body["benchmark_curves"][0]["label"] == "Benchmark: QQQ"
+    assert body["benchmark_drawdown_curves"][1]["label"] == "Benchmark: SPY"
 
     assert body["strategy_curves"][0]["points"][0]["value"] == 100.0
     assert body["strategy_curves"][0]["points"][1]["value"] == 110.0
@@ -1751,6 +1751,79 @@ def test_compare_runs_chart_returns_normalized_strategy_benchmark_and_drawdown_c
     assert body["benchmark_drawdown_curves"][0]["points"][1]["value"] == -1.0
     assert body["strategy_drawdown_curves"][1]["points"][1]["value"] == -3.0
     assert body["benchmark_drawdown_curves"][1]["points"][1]["value"] == -1.5
+
+
+def test_compare_runs_chart_dedupes_matching_benchmark_references(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="compare-dedupe-benchmarks@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+
+    runs = []
+    for index in range(3):
+        run = create_run(
+            db_session,
+            current_user_ctx["id"],
+            str(strategy.id),
+            str(version.id),
+            "SIMULATION",
+            "SIMULATION_EXECUTOR",
+            {"note": f"compare duplicate benchmark {index}", "benchmark_symbol": "QQQ"},
+            max_attempts=3,
+        )
+        run.status = RunStatus.RUNNING
+        db_session.commit()
+        db_session.refresh(run)
+        runs.append(
+            mark_run_succeeded(
+                db_session,
+                run,
+                summary_json={"total_return_pct": 10.0 + index},
+                artifact_dir=f"data/local_artifacts/runs/test-compare-duplicate-{index}",
+                artifact_manifest_json={"summary": f"dummy-duplicate-{index}"},
+            )
+        )
+
+    def fake_load_chart_data(manifest):
+        index = int(manifest["summary"].rsplit("-", 1)[1])
+        return {
+            "equity_curve": [
+                {"date": "2024-01-01", "strategy_equity": 100.0, "benchmark_equity": 100.0},
+                {"date": "2024-01-02", "strategy_equity": 100.0 + index + 10.0, "benchmark_equity": 105.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2024-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-01-02", "strategy_drawdown_pct": -1.0 - index, "benchmark_drawdown_pct": -0.5},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        fake_load_chart_data,
+    )
+
+    response = client.get("/runs/compare/chart?run_ids=" + ",".join(str(run.id) for run in runs))
+    assert response.status_code == 200
+
+    body = response.json()
+    assert len(body["strategy_curves"]) == 3
+    assert len(body["benchmark_curves"]) == 1
+    assert len(body["benchmark_drawdown_curves"]) == 1
+    assert body["benchmark_curves"][0]["label"] == "Benchmark: QQQ"
+    assert body["benchmark_curves"][0]["benchmark_label"] == "QQQ"
+    assert body["benchmark_curves"][0]["points"] == [
+        {"date": "2024-01-01", "value": 100.0},
+        {"date": "2024-01-02", "value": 105.0},
+    ]
 
 
 def test_compare_runs_chart_skips_unreadable_run_artifacts(
