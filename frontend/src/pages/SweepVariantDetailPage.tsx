@@ -148,7 +148,7 @@ export function SweepVariantDetailPage() {
 
     const rankingMetric = searchParams.get('rankingMetric') || data.ranking_metric || 'sharpe_ratio';
     const rank = rankForMetric(data, variantId, rankingMetric);
-    const changeNote = `Promoted from parameter sweep run ${shortRunId(runId)}, rank #${rank} by ${formatRankingMetricName(rankingMetric)}.`;
+    const changeNote = `Promoted from parameter sweep result ${shortRunId(runId)}, rank #${rank} by ${formatRankingMetricName(rankingMetric)}.`;
     const query = new URLSearchParams({
       sweepRunId: runId,
       variantId,
@@ -175,7 +175,7 @@ export function SweepVariantDetailPage() {
 
     const rankingMetric = searchParams.get('rankingMetric') || data.ranking_metric || 'sharpe_ratio';
     const rank = rankForMetric(data, variantId, rankingMetric);
-    const changeNote = `Saved from parameter sweep run ${shortRunId(runId)}, rank #${rank} by ${formatRankingMetricName(rankingMetric)}.`;
+    const changeNote = `Saved from parameter sweep result ${shortRunId(runId)}, rank #${rank} by ${formatRankingMetricName(rankingMetric)}.`;
 
     setSaveStrategyError(null);
     setIsSavingStrategy(true);
@@ -183,7 +183,7 @@ export function SweepVariantDetailPage() {
     try {
       const response = await promoteSweepVariant(runId, variantId, {
         name: payload.name,
-        description: payload.description || `Saved from sweep run ${runId}`,
+        description: payload.description || `Saved from sweep result ${runId}`,
         change_note: changeNote
       });
 
@@ -235,7 +235,7 @@ export function SweepVariantDetailPage() {
     <>
       <div className="space-y-6">
       <PageHeader
-        eyebrow={`Sweep run ${shortRunId(data.run.id)}`}
+        eyebrow={`Sweep result ${shortRunId(data.run.id)}`}
         title="Sweep Variant"
         description={`Rank #${displayRank || '?'} by ${formatRankingMetricName(rankingMetric)}.`}
         actions={

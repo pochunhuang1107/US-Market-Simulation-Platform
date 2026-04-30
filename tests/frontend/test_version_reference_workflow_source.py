@@ -9,7 +9,26 @@ def test_run_detail_header_does_not_expose_new_version_action():
 
     assert "New version" not in source
     assert "Back to results" in source
+    assert "Result ID:" in source
+    assert "Simulation Result" in source
+    assert "Parameter Sweep Result" in source
     assert "Open strategy" in source
+
+
+def test_navigation_and_results_page_use_research_results_language():
+    nav_source = (ROOT / "frontend/src/components/layout/AppShell.tsx").read_text()
+    page_source = (ROOT / "frontend/src/pages/RunsPage.tsx").read_text()
+    table_source = (ROOT / "frontend/src/components/runs/RunsTable.tsx").read_text()
+
+    assert "label: 'Research Results'" in nav_source
+    assert 'title="Research Results"' in page_source
+    assert 'eyebrow="Results"' in page_source
+    assert 'label="Visible results"' in page_source
+    assert 'label="Completed results"' in page_source
+    assert "No results match these filters." in table_source
+    assert "Loading results…" in table_source
+    assert "Open result" in table_source
+    assert "Open run" not in table_source
 
 
 def test_strategy_detail_still_exposes_new_version_and_run_this_version():
@@ -47,7 +66,11 @@ def test_strategy_detail_shows_selected_version_config_and_run_history():
     assert "Version Config Summary" in source
     assert "summarizeRule(config.entry_rule)" in source
     assert "summarizeRule(config.exit_rule)" in source
-    assert "`Runs for v${selectedVersion.version_number}`" in source
+    assert "`Results for v${selectedVersion.version_number}`" in source
+    assert "`No results recorded for v${selectedVersion.version_number}.`" in source
+    assert "Reference Total Return" in source
+    assert "Open reference result" in source
+    assert "Compare reference result" in source
     assert "run.strategy_version_id === selectedVersion.id" in source
     assert "selectedVersionId" in table_source
     assert "aria-selected={isSelected}" in table_source
@@ -85,6 +108,8 @@ def test_new_version_editable_config_removes_name_field():
 def test_compare_page_uses_typed_result_refs_and_sweep_variant_groups():
     source = (ROOT / "frontend/src/pages/ComparePage.tsx").read_text()
 
+    assert "Selected Results" in source
+    assert "Comparable Results" in source
     assert "searchParams.get('results')" in source
     assert "runResultRef" in source
     assert "sweepVariantResultRef" in source

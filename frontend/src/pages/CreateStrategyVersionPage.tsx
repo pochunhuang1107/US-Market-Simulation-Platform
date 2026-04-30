@@ -224,7 +224,7 @@ export function CreateStrategyVersionPage() {
           const rankingMetric = sweepRankingMetric || variantResponse.ranking_metric || 'sharpe_ratio';
           const rank = rankForMetric(variantResponse, sweepVariantId, rankingMetric);
           setChangeNote(
-            `Promoted from parameter sweep run ${shortRunId(sweepRunId)}, rank #${rank} by ${formatRankingMetricName(rankingMetric)}.`
+            `Promoted from parameter sweep result ${shortRunId(sweepRunId)}, rank #${rank} by ${formatRankingMetricName(rankingMetric)}.`
           );
           return;
         }

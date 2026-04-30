@@ -295,7 +295,7 @@ export function StrategyPage() {
     if (!strategyId || !data) return;
 
     if (isActive) {
-      const confirmed = window.confirm('Archive this strategy? It will leave the active library, but versions and runs stay available.');
+      const confirmed = window.confirm('Archive this strategy? It will leave the active library, but versions and results stay available.');
       if (!confirmed) return;
     }
 
@@ -353,7 +353,7 @@ export function StrategyPage() {
   }
 
   if (loading) {
-    return <StateCard title="Loading strategy dashboard" description="Fetching strategy metadata, versions, and associated runs." />;
+    return <StateCard title="Loading strategy dashboard" description="Fetching strategy metadata, versions, and associated results." />;
   }
 
   if (errorMessage || !data) {
@@ -508,7 +508,7 @@ export function StrategyPage() {
                 disabled={!selectedVersion || runVersionLoading}
                 className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {runVersionLoading ? 'Creating run...' : 'Run this version'}
+                {runVersionLoading ? 'Creating result...' : 'Run this version'}
               </button>
             ) : null}
           </div>
@@ -521,7 +521,7 @@ export function StrategyPage() {
             <Row label="Type" value={formatStrategyType(data.strategy.strategy_type)} />
             <Row label="Created" value={formatDateTime(data.strategy.created_at)} />
             <Row label="Updated" value={formatDateTime(data.strategy.updated_at)} />
-            <Row label="Total runs" value={String(data.total_runs)} />
+            <Row label="Total results" value={String(data.total_runs)} />
             <Row label="Selected version" value={selectedVersion ? `v${selectedVersion.version_number}` : '—'} />
             <Row label="Reference finished at" value={formatDateTime(referenceFinishedAt)} />
             <div className="flex flex-wrap gap-2 pt-1">
@@ -563,7 +563,7 @@ export function StrategyPage() {
                 disabled={!selectedVersion || runVersionLoading}
                 className="app-button-primary mt-4 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {runVersionLoading ? 'Creating run...' : 'Run this version'}
+                {runVersionLoading ? 'Creating result...' : 'Run this version'}
               </button>
             </div>
           )}
@@ -586,7 +586,7 @@ export function StrategyPage() {
       </SectionCard>
 
       <SectionCard
-        title={selectedVersion ? `Runs for v${selectedVersion.version_number}` : 'Run History'}
+        title={selectedVersion ? `Results for v${selectedVersion.version_number}` : 'Result History'}
         subtitle="Recent simulations created from the selected saved strategy version."
       >
         <RunsTable
@@ -594,7 +594,7 @@ export function StrategyPage() {
           loading={false}
           compact
           referenceRunId={referenceRunId}
-          emptyTitle={selectedVersion ? `No runs recorded for v${selectedVersion.version_number}.` : undefined}
+          emptyTitle={selectedVersion ? `No results recorded for v${selectedVersion.version_number}.` : undefined}
           emptyDescription="Run this version to create its first research result."
         />
       </SectionCard>

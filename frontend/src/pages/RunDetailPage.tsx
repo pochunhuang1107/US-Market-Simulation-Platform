@@ -163,7 +163,7 @@ export function RunDetailPage() {
         if (ignore) return;
         setData(null);
         setIsFinalizing(false);
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to load run');
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to load result');
         setLoading(false);
       }
     }
@@ -196,7 +196,7 @@ export function RunDetailPage() {
     try {
       await saveDraftRunAsStrategy(runId, {
         name: payload.name,
-        description: payload.description || `Saved from run ${runId}`,
+        description: payload.description || `Saved from result ${runId}`,
         strategy_type: 'SINGLE_ASSET'
       });
 
@@ -216,7 +216,7 @@ export function RunDetailPage() {
   }
 
   if (loading) {
-    return <StateCard title="Loading run" description="Fetching run status and dashboard data from the backend." />;
+    return <StateCard title="Loading result" description="Fetching result status and dashboard data from the backend." />;
   }
 
   if (isFinalizing) {
@@ -225,7 +225,7 @@ export function RunDetailPage() {
         {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
         <StateCard
           title="Preparing simulation results"
-          description="Your run has finished. Final charts and metrics are loading."
+          description="Your result has finished. Final charts and metrics are loading."
         />
         {run ? <RunMetaPanel run={run} /> : null}
       </div>
@@ -241,7 +241,7 @@ export function RunDetailPage() {
           description={
             run.progress_message
               ? `${run.progress_message} (${run.progress_pct}%)`
-              : `Run status: ${run.status}. Waiting for completion...`
+              : `Result status: ${run.status}. Waiting for completion...`
           }
         />
         <RunMetaPanel run={run} />
@@ -254,8 +254,8 @@ export function RunDetailPage() {
       <div className="space-y-6">
         {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
         <StateCard
-          title={`Run ${run.status.toLowerCase()}`}
-          description={run.error_message ?? 'This run did not complete successfully.'}
+          title={`Result ${run.status.toLowerCase()}`}
+          description={run.error_message ?? 'This result did not complete successfully.'}
           tone="error"
         />
         <RunMetaPanel run={run} />
@@ -268,8 +268,8 @@ export function RunDetailPage() {
       <div className="space-y-6">
         {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
         <StateCard
-          title="Unable to load run dashboard"
-          description={errorMessage ?? 'Run dashboard was not available.'}
+          title="Unable to load result dashboard"
+          description={errorMessage ?? 'Result dashboard was not available.'}
           tone="error"
         />
       </div>

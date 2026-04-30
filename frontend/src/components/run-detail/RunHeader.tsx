@@ -106,7 +106,7 @@ export function RunHeader({ run }: RunHeaderProps) {
     : 'Unsaved draft run';
   const resultLabel = isSavedSweepVariant
     ? 'Saved Sweep Variant Result'
-    : run.run_type === 'PARAMETER_SWEEP' ? 'Sweep Result' : 'Simulation Result';
+    : run.run_type === 'PARAMETER_SWEEP' ? 'Parameter Sweep Result' : 'Simulation Result';
   const benchmarkLabel = getBenchmarkLabel(run);
   const coreOverlayLabel = getCoreOverlayLabel(run);
   const metadata = isSavedSweepVariant
@@ -140,7 +140,7 @@ export function RunHeader({ run }: RunHeaderProps) {
               {title}
             </h1>
             <p className="mt-3 text-sm app-text-muted" title={run.id}>
-              Run ID: <span className="font-mono">{shortRunId(run.id)}</span>
+              Result ID: <span className="font-mono">{shortRunId(run.id)}</span>
             </p>
           </div>
 
@@ -163,7 +163,7 @@ export function RunHeader({ run }: RunHeaderProps) {
                 to={`/runs/${run.parent_run_id}`}
                 className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
               >
-                Parent run
+                Parent result
               </Link>
             ) : null}
 
@@ -181,7 +181,7 @@ export function RunHeader({ run }: RunHeaderProps) {
                 to={`/runs/new?strategyId=${run.strategy_id}`}
                 className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
               >
-                Create similar run
+                Create similar result
               </Link>
             ) : null}
 

@@ -62,7 +62,7 @@ export function RunsPage() {
         }
       } catch (error) {
         if (!ignore) {
-          setErrorMessage(error instanceof Error ? error.message : 'Failed to load runs dashboard');
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to load research results');
           setRunsResponse(null);
         }
       } finally {
@@ -81,9 +81,9 @@ export function RunsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Runs"
-        title="Run History"
-        description="Review simulation results, reopen completed runs, and choose candidates for comparison."
+        eyebrow="Results"
+        title="Research Results"
+        description="Review recorded simulation, sweep, and experiment outputs, then choose candidates for comparison."
         actions={
           <Link
             to="/runs/new"
@@ -95,9 +95,9 @@ export function RunsPage() {
       />
 
       {runsResponse ? (
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Run inventory summary">
-          <SummaryCard label="Visible runs" value={summary.total} detail="Current page" />
-          <SummaryCard label="Succeeded" value={summary.succeeded} detail="Ready to reopen" tone="success" />
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Result inventory summary">
+          <SummaryCard label="Visible results" value={summary.total} detail="Current page" />
+          <SummaryCard label="Completed results" value={summary.succeeded} detail="Ready to reopen" tone="success" />
           <SummaryCard label="Active" value={summary.active} detail="In progress" tone="active" />
           <SummaryCard label="Failed / canceled" value={summary.unsuccessful} detail="Needs review" tone="danger" />
         </section>
@@ -127,7 +127,7 @@ export function RunsPage() {
         }}
       />
 
-      {errorMessage ? <StateCard title="Failed to load runs" description={errorMessage} tone="error" /> : null}
+      {errorMessage ? <StateCard title="Failed to load results" description={errorMessage} tone="error" /> : null}
 
       <RunsTable runs={runsResponse?.items ?? []} loading={loading} />
 

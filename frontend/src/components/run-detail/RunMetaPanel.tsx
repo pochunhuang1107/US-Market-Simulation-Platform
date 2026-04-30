@@ -11,7 +11,7 @@ export function RunMetaPanel({ run }: { run: RunResponse }) {
 
   return (
     <SectionCard
-      title="Run details"
+      title="Result details"
       subtitle="Operational metadata is still available, but it stays secondary to the performance story."
     >
       <div className="flex flex-wrap items-center justify-between gap-3">

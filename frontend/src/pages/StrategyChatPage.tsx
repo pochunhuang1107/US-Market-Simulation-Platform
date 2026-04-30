@@ -125,17 +125,17 @@ function buildSeededDraftMessage({
     id: crypto.randomUUID(),
     role: 'assistant',
     text: sourceRunId
-      ? `Loaded ${strategyName} from run ${sourceRunId}.`
+      ? `Loaded ${strategyName} from result ${sourceRunId}.`
       : `Loaded ${strategyName}.`,
     draft: {
       response_type: 'UPDATE_DRAFT',
       message: sourceRunId
-        ? `Loaded ${strategyName} from run ${sourceRunId}.`
+        ? `Loaded ${strategyName} from result ${sourceRunId}.`
         : `Loaded ${strategyName}.`,
       config,
       summary: `Loaded ${strategyName} as the current editing context.`,
       warnings: [],
-      assumptions: ['Imported the previous run configuration as the current builder context.'],
+      assumptions: ['Imported the previous result configuration as the current builder context.'],
       changes: [],
       answer_data: null,
       validation_data: null,
@@ -244,7 +244,7 @@ function extractDuplicateRunId(error: unknown): string | null {
 function formatDuplicateRunMessage(error: unknown): string {
   const existingRunId = extractDuplicateRunId(error);
   if (existingRunId) {
-    return 'This run is already active. Redirecting you to the existing run.';
+    return 'This result is already active. Redirecting you to the existing result.';
   }
   return formatLimitError(error);
 }
@@ -332,7 +332,7 @@ function EntitlementSummary({
         <span className="font-semibold app-title">{usage.builder_prompts_remaining_today}</span>
       </div>
       <div>
-        <span className="app-text-muted">Runs left today</span>{' '}
+        <span className="app-text-muted">Results left today</span>{' '}
         <span className="font-semibold app-title">{usage.daily_runs_remaining}</span>
       </div>
       <div>
@@ -804,7 +804,7 @@ export function StrategyChatPage() {
                     </div>
                     <div className="app-text-muted mt-1 text-xs">
                       {sourceRunId
-                        ? 'Imported from a previous run. New prompts will create variants from that run config.'
+                        ? 'Imported from a previous result. New prompts will create variants from that result config.'
                         : 'New prompts will continue editing this draft until you start a new one.'}
                     </div>
                   </div>
@@ -815,7 +815,7 @@ export function StrategyChatPage() {
                         to={`/runs/${sourceRunId}`}
                         className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
                       >
-                        Back to Source Run
+                        Back to source result
                       </Link>
                     ) : null}
 

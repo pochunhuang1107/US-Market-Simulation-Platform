@@ -80,10 +80,10 @@ export function formatSavedSweepVariantSource(run: RunSourceMetadata): string {
 }
 
 const RUN_TYPE_LABELS: Record<string, string> = {
-  SIMULATION: 'Backtest',
-  PORTFOLIO: 'Portfolio run',
-  COMPARISON: 'Comparison run',
-  PARAMETER_SWEEP: 'Parameter sweep'
+  SIMULATION: 'Simulation result',
+  PORTFOLIO: 'Portfolio result',
+  COMPARISON: 'Comparison result',
+  PARAMETER_SWEEP: 'Parameter sweep result'
 };
 
 const EXECUTOR_TYPE_LABELS: Record<string, string> = {
@@ -142,10 +142,10 @@ export function formatRunLabel(
   }
 
   if (versionNumber !== null && versionNumber !== undefined) {
-    return shortId ? `Run · v${versionNumber} · ${shortId}` : `Run · v${versionNumber}`;
+    return shortId ? `Result · v${versionNumber} · ${shortId}` : `Result · v${versionNumber}`;
   }
 
-  return shortId ? `Draft run · ${shortId}` : 'Draft run';
+  return shortId ? `Draft result · ${shortId}` : 'Draft result';
 }
 
 export function humanizeSeriesName(value: string): string {
