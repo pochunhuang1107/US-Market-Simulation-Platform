@@ -40,25 +40,6 @@ class StrategyResponse(BaseModel):
         return str(value) if value is not None else None
 
 
-class StrategyVersionSummary(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    strategy_id: UUID
-    version_number: int
-    config_json: dict
-    config_hash: str
-    change_note: str | None = None
-    reference_run_id: UUID | None = None
-    created_by_user_id: UUID
-    created_at: datetime
-    is_current: bool = False
-
-    @field_serializer("id", "strategy_id", "reference_run_id", "created_by_user_id")
-    def serialize_uuid(self, value: UUID | None):
-        return str(value) if value is not None else None
-
-
 class StrategyReferencePerformance(BaseModel):
     run_id: str
     source: str | None = None
@@ -79,6 +60,26 @@ class StrategyReferencePerformance(BaseModel):
 
 
 StrategyLatestPerformance = StrategyReferencePerformance
+
+
+class StrategyVersionSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    strategy_id: UUID
+    version_number: int
+    config_json: dict
+    config_hash: str
+    change_note: str | None = None
+    reference_run_id: UUID | None = None
+    reference_performance: StrategyReferencePerformance | None = None
+    created_by_user_id: UUID
+    created_at: datetime
+    is_current: bool = False
+
+    @field_serializer("id", "strategy_id", "reference_run_id", "created_by_user_id")
+    def serialize_uuid(self, value: UUID | None):
+        return str(value) if value is not None else None
 
 
 class StrategyDashboardResponse(BaseModel):

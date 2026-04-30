@@ -131,9 +131,12 @@ def test_get_strategy_dashboard_returns_strategy_versions_runs_and_reference_per
     assert body["versions"][0]["id"] == str(version_2.id)
     assert body["versions"][0]["is_current"] is True
     assert body["versions"][0]["reference_run_id"] == str(run.id)
+    assert body["versions"][0]["reference_performance"]["run_id"] == str(run.id)
+    assert body["versions"][0]["reference_performance"]["total_return_pct"] == 42.5
     assert body["versions"][1]["id"] == str(version_1.id)
     assert body["versions"][1]["is_current"] is False
     assert body["versions"][1]["reference_run_id"] is None
+    assert body["versions"][1]["reference_performance"] is None
 
     assert body["total_runs"] == 1
     assert len(body["associated_runs"]) == 1
@@ -368,9 +371,11 @@ def test_create_strategy_version_api_creates_new_version_and_updates_current_ver
     assert dashboard["versions"][0]["version_number"] == 2
     assert dashboard["versions"][0]["change_note"] == "Adjusted entry thresholds"
     assert dashboard["versions"][0]["reference_run_id"] is None
+    assert dashboard["versions"][0]["reference_performance"] is None
     assert dashboard["versions"][0]["is_current"] is True
     assert dashboard["versions"][1]["id"] == str(version_1.id)
     assert dashboard["versions"][1]["reference_run_id"] == str(reference_run.id)
+    assert dashboard["versions"][1]["reference_performance"]["run_id"] == str(reference_run.id)
     assert dashboard["versions"][1]["is_current"] is False
     assert dashboard["reference_run_id"] is None
     assert dashboard["reference_performance"] is None
@@ -612,6 +617,7 @@ def test_strategy_dashboard_repairs_missing_reference_from_eligible_succeeded_ru
     assert response.status_code == 200
     dashboard = response.json()
     assert dashboard["versions"][0]["reference_run_id"] == str(run.id)
+    assert dashboard["versions"][0]["reference_performance"]["run_id"] == str(run.id)
     assert dashboard["reference_run_id"] == str(run.id)
     assert dashboard["reference_performance"]["run_id"] == str(run.id)
     assert dashboard["reference_performance"]["total_return_pct"] == 18.5

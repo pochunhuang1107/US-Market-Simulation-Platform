@@ -232,7 +232,7 @@ def get_strategy_dashboard_api(
         strategy_id=strategy_id,
         include_derived_results=False,
         offset=0,
-        limit=10,
+        limit=100,
     )
 
     associated_runs = []
@@ -270,28 +270,37 @@ def get_strategy_dashboard_api(
             )
         )
 
+    repaired_any_reference = False
+    for version in versions:
+        if version.reference_run_id is None:
+            repaired_reference_run = set_missing_reference_run_from_eligible_success(
+                db,
+                version_id=version.id,
+                user_id=user["id"],
+            )
+            if repaired_reference_run is not None:
+                repaired_any_reference = True
+
+    if repaired_any_reference:
+        versions = list_strategy_versions(db, strategy_id)
+
+    reference_runs_by_version_id = {}
+    for version in versions:
+        reference_runs_by_version_id[str(version.id)] = get_strategy_version_reference_run(
+            db,
+            version_id=version.id,
+            user_id=user["id"],
+        )
+
     current_version = next(
         (version for version in versions if version.id == strategy.current_version_id),
         versions[0] if versions else None,
     )
     reference_run = (
-        get_strategy_version_reference_run(
-            db,
-            version_id=current_version.id,
-            user_id=user["id"],
-        )
+        reference_runs_by_version_id.get(str(current_version.id))
         if current_version is not None
         else None
     )
-    if reference_run is None and current_version is not None:
-        repaired_reference_run = set_missing_reference_run_from_eligible_success(
-            db,
-            version_id=current_version.id,
-            user_id=user["id"],
-        )
-        if repaired_reference_run is not None:
-            reference_run = repaired_reference_run
-            versions = list_strategy_versions(db, strategy_id)
 
     reference_run_id = str(reference_run.id) if reference_run is not None else None
     reference_finished_at = reference_run.finished_at if reference_run is not None else None
@@ -301,7 +310,14 @@ def get_strategy_dashboard_api(
         strategy=StrategyResponse.model_validate(strategy),
         versions=[
             StrategyVersionSummary.model_validate(version).model_copy(
-                update={"is_current": version.id == strategy.current_version_id}
+                update={
+                    "is_current": version.id == strategy.current_version_id,
+                    "reference_performance": (
+                        _performance_from_run(reference_runs_by_version_id[str(version.id)])
+                        if reference_runs_by_version_id[str(version.id)] is not None
+                        else None
+                    ),
+                }
             )
             for version in versions
         ],

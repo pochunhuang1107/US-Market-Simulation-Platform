@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { VersionsTable } from '../components/strategy/VersionsTable';
 import { RunsTable } from '../components/runs/RunsTable';
@@ -14,7 +14,7 @@ import {
   formatSavedSweepVariantSource,
   isSavedSweepVariantResult
 } from '../lib/formatters';
-import type { StrategyDashboardResponse } from '../types/api';
+import type { StrategyDashboardResponse, StrategyVersionSummary } from '../types/api';
 
 function formatStrategyType(value: string | null | undefined) {
   if (!value) return 'Strategy';
@@ -41,6 +41,99 @@ function hasConfig(value: Record<string, unknown> | null | undefined) {
   return Boolean(value && Object.keys(value).length > 0);
 }
 
+function getRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function formatConfigValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/\.?0+$/, '');
+  if (typeof value === 'boolean') return value ? 'Enabled' : 'Disabled';
+  if (Array.isArray(value)) return value.map(formatConfigValue).join(', ');
+  return String(value);
+}
+
+function formatConfigPct(value: unknown): string | null {
+  if (typeof value !== 'number') return null;
+  return `${(value * 100).toFixed(1).replace(/\.0$/, '')}%`;
+}
+
+function summarizeAtomicRule(rule: Record<string, unknown>): string {
+  const type = String(rule.type ?? 'rule').replace(/_/g, ' ');
+  const symbol = formatConfigValue(rule.symbol ?? 'asset');
+  const lookback = rule.lookback ?? 14;
+  const threshold = formatConfigValue(rule.threshold);
+  const fastWindow = rule.fast_window;
+  const slowWindow = rule.slow_window;
+
+  if (rule.type === 'rsi_below') return `${symbol} RSI(${lookback}) below ${threshold}`;
+  if (rule.type === 'rsi_above') return `${symbol} RSI(${lookback}) above ${threshold}`;
+  if (rule.type === 'sma_above') return `${symbol} ${formatConfigValue(fastWindow)}-day SMA above ${formatConfigValue(slowWindow)}-day SMA`;
+  if (rule.type === 'sma_cross_above') return `${symbol} SMA crosses above ${formatConfigValue(slowWindow)}-day SMA`;
+  if (rule.type === 'sma_cross_below') return `${symbol} SMA crosses below ${formatConfigValue(slowWindow)}-day SMA`;
+  if (rule.type === 'relative_return_above') {
+    return `${symbol} beats ${formatConfigValue(rule.reference_symbol ?? 'reference')} over ${formatConfigValue(rule.lookback)} bars`;
+  }
+
+  return type;
+}
+
+function summarizeRule(value: unknown): string {
+  const rule = getRecord(value);
+  if (!rule) return '—';
+
+  if (rule.kind === 'atomic') return summarizeAtomicRule(rule);
+  if (rule.kind === 'not') return `Not: ${summarizeRule(rule.rule)}`;
+  if (rule.kind === 'window') return `${formatConfigValue(rule.mode ?? 'Any')} within ${formatConfigValue(rule.window_bars)} bars: ${summarizeRule(rule.rule)}`;
+  if (rule.kind === 'sequence') {
+    const steps = Array.isArray(rule.steps) ? rule.steps.map(summarizeRule).filter((item) => item !== '—') : [];
+    return steps.length ? `${steps.join(' then ')} within ${formatConfigValue(rule.window_bars)} bars` : 'Sequence rule';
+  }
+  if (rule.kind === 'group') {
+    const joiner = String(rule.operator ?? 'AND').toUpperCase() === 'OR' ? ' or ' : ' and ';
+    const rules = Array.isArray(rule.rules) ? rule.rules.map(summarizeRule).filter((item) => item !== '—') : [];
+    return rules.length ? rules.join(joiner) : `${formatConfigValue(rule.operator ?? 'Group')} rule`;
+  }
+
+  return String(rule.type ?? rule.kind ?? 'Rule').replace(/_/g, ' ');
+}
+
+function selectedVersionLabel(version: StrategyVersionSummary | null): string {
+  if (!version) return 'No version selected';
+  return `v${version.version_number}${version.is_current ? ' · Current' : ''}${version.reference_run_id ? ' · Reference result' : ' · No reference result yet'}`;
+}
+
+function configSummaryRows(config: Record<string, unknown> | null | undefined) {
+  if (!config) return [];
+
+  const risk = getRecord(config.risk);
+  const allocation = getRecord(config.allocation);
+  const coreOverlay = getRecord(config.core_overlay);
+  const dateRange = [config.start_date, config.end_date].filter(Boolean).map(formatConfigValue).join(' to ');
+  const riskParts = [
+    risk?.stop_loss_pct !== undefined ? `Stop ${formatConfigPct(risk.stop_loss_pct) ?? formatConfigValue(risk.stop_loss_pct)}` : null,
+    risk?.take_profit_pct !== undefined ? `Take profit ${formatConfigPct(risk.take_profit_pct) ?? formatConfigValue(risk.take_profit_pct)}` : null,
+    risk?.cooldown_bars !== undefined ? `Cooldown ${formatConfigValue(risk.cooldown_bars)} bars` : null,
+    allocation?.entry_value !== undefined ? `Position ${formatConfigPct(allocation.entry_value) ?? formatConfigValue(allocation.entry_value)}` : null
+  ].filter(Boolean);
+  const coreOverlayText = coreOverlay
+    ? [
+        `Core ${coreOverlay.enabled ? 'enabled' : 'disabled'}`,
+        coreOverlay.core_allocation_pct !== undefined ? formatConfigPct(coreOverlay.core_allocation_pct) : null
+      ].filter(Boolean).join(' · ')
+    : null;
+
+  return [
+    { label: 'Tradable symbol', value: formatConfigValue(config.tradable_symbol) },
+    { label: 'Benchmark', value: formatConfigValue(config.benchmark_symbol ?? config.benchmark) },
+    { label: 'Date range', value: dateRange || '—' },
+    { label: 'Entry rule', value: summarizeRule(config.entry_rule) },
+    { label: 'Exit rule', value: summarizeRule(config.exit_rule) },
+    { label: 'Risk controls', value: riskParts.length ? riskParts.join(' · ') : '—' },
+    { label: 'Core / overlay', value: coreOverlayText ?? '—' }
+  ];
+}
+
 type PageNotice = {
   tone: 'success' | 'info' | 'error';
   message: string;
@@ -50,6 +143,7 @@ export function StrategyPage() {
   const { strategyId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<StrategyDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusActionLoading, setStatusActionLoading] = useState(false);
@@ -105,12 +199,49 @@ export function StrategyPage() {
     return data.versions.find((version) => version.is_current) ?? data.versions[0] ?? null;
   }, [data]);
 
-  const referencePerformance = data?.reference_performance ?? null;
-  const referenceRunId = data?.reference_run_id ?? currentVersion?.reference_run_id ?? null;
-  const referenceFinishedAt = data?.reference_finished_at ?? referencePerformance?.finished_at ?? null;
+  const selectedVersion = useMemo(() => {
+    if (!data) return null;
+
+    const versionId = searchParams.get('versionId');
+    if (versionId) {
+      const version = data.versions.find((item) => item.id === versionId);
+      return version ?? currentVersion;
+    }
+
+    const versionNumberParam = searchParams.get('version');
+    if (versionNumberParam) {
+      const versionNumber = Number(versionNumberParam);
+      if (Number.isInteger(versionNumber)) {
+        const version = data.versions.find((item) => item.version_number === versionNumber);
+        if (version) return version;
+      }
+    }
+
+    return currentVersion;
+  }, [currentVersion, data, searchParams]);
+
+  useEffect(() => {
+    if (!selectedVersion) return;
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('versionId', selectedVersion.id);
+    nextParams.delete('version');
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [searchParams, selectedVersion, setSearchParams]);
+
+  const referencePerformance =
+    selectedVersion?.reference_performance ??
+    (selectedVersion?.id === currentVersion?.id ? data?.reference_performance ?? null : null);
+  const referenceRunId = selectedVersion?.reference_run_id ?? referencePerformance?.run_id ?? null;
+  const referenceFinishedAt =
+    referencePerformance?.finished_at ??
+    (selectedVersion?.id === currentVersion?.id ? data?.reference_finished_at ?? null : null);
 
   const referenceMetrics = useMemo(() => {
-    const reference = data?.reference_performance;
+    const reference = referencePerformance;
     if (!reference) return [];
 
     return [
@@ -123,18 +254,26 @@ export function StrategyPage() {
       },
       { label: 'Reference CAGR', value: formatPct(reference.cagr_pct) }
     ];
-  }, [data]);
+  }, [referencePerformance]);
 
-  const currentConfig = currentVersion?.config_json ?? null;
+  const selectedConfig = selectedVersion?.config_json ?? null;
+  const selectedVersionRuns = useMemo(
+    () =>
+      selectedVersion
+        ? data?.associated_runs.filter((run) => run.strategy_version_id === selectedVersion.id) ?? []
+        : [],
+    [data, selectedVersion]
+  );
+  const selectedConfigRows = useMemo(() => configSummaryRows(selectedConfig), [selectedConfig]);
   const strategyStatus = data?.strategy.status?.toUpperCase();
   const isArchived = strategyStatus === 'ARCHIVED';
   const isActive = strategyStatus === 'ACTIVE';
-  const canContinueInChat = hasConfig(currentConfig);
+  const canContinueInChat = hasConfig(selectedConfig);
   const chatState = canContinueInChat
     ? {
         source: 'strategy',
-        sourceDraftConfig: currentConfig,
-        prefillPrompt: `Create a draft variant of ${data?.strategy.name ?? 'this strategy'}.`
+        sourceDraftConfig: selectedConfig,
+        prefillPrompt: `Create a draft variant of ${data?.strategy.name ?? 'this strategy'} v${selectedVersion?.version_number ?? ''}.`
       }
     : undefined;
   const noticeClass =
@@ -144,6 +283,13 @@ export function StrategyPage() {
         ? 'app-note'
         : 'app-alert-success';
   const referenceIsSavedSweepVariant = referencePerformance ? isSavedSweepVariantResult(referencePerformance) : false;
+
+  function handleSelectVersion(version: StrategyVersionSummary) {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('versionId', version.id);
+    nextParams.delete('version');
+    setSearchParams(nextParams);
+  }
 
   async function handleStatusAction() {
     if (!strategyId || !data) return;
@@ -170,8 +316,8 @@ export function StrategyPage() {
     }
   }
 
-  async function handleRunCurrentVersion() {
-    if (!strategyId || !currentVersion) return;
+  async function handleRunSelectedVersion() {
+    if (!strategyId || !selectedVersion) return;
 
     setRunVersionLoading(true);
     setRunVersionError(null);
@@ -180,18 +326,18 @@ export function StrategyPage() {
       const requestPayload: Record<string, unknown> = {
         source: 'strategy_version_reference_run',
         set_as_reference_on_success: true,
-        reference_strategy_version_id: currentVersion.id
+        reference_strategy_version_id: selectedVersion.id
       };
-      if (typeof currentVersion.config_json.start_date === 'string') {
-        requestPayload.start_date = currentVersion.config_json.start_date;
+      if (typeof selectedVersion.config_json.start_date === 'string') {
+        requestPayload.start_date = selectedVersion.config_json.start_date;
       }
-      if (typeof currentVersion.config_json.end_date === 'string') {
-        requestPayload.end_date = currentVersion.config_json.end_date;
+      if (typeof selectedVersion.config_json.end_date === 'string') {
+        requestPayload.end_date = selectedVersion.config_json.end_date;
       }
 
       const run = await createRun({
         strategy_id: strategyId,
-        strategy_version_id: currentVersion.id,
+        strategy_version_id: selectedVersion.id,
         run_type: 'SIMULATION',
         executor_type: 'SIMULATION_EXECUTOR',
         request_payload: requestPayload,
@@ -264,10 +410,50 @@ export function StrategyPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
+              Selected Version
+            </div>
+            <h2 className="app-title mt-2 text-2xl font-semibold">
+              {selectedVersion ? `v${selectedVersion.version_number}` : 'No version'}
+            </h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {selectedVersion?.is_current ? (
+                <span className="app-chip-info rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]">
+                  Current
+                </span>
+              ) : null}
+              <span className={`${referenceRunId ? 'app-chip-success' : 'app-surface-soft app-text-muted'} rounded-full border px-3 py-1 text-xs font-semibold`}>
+                {referenceRunId ? `Reference ${referenceRunId.split('-')[0]}` : 'No reference result yet'}
+              </span>
+            </div>
+          </div>
+          <label className="flex min-w-[240px] flex-col gap-2">
+            <span className="app-label text-xs font-semibold uppercase tracking-[0.18em]">Version selector</span>
+            <select
+              value={selectedVersion?.id ?? ''}
+              onChange={(event) => {
+                const version = data.versions.find((item) => item.id === event.target.value);
+                if (version) handleSelectVersion(version);
+              }}
+              className="app-version-input rounded-2xl px-4 py-3 text-sm font-semibold outline-none"
+            >
+              {data.versions.map((version) => (
+                <option key={version.id} value={version.id}>
+                  {selectedVersionLabel(version)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="app-card app-shadow-soft rounded-3xl border p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
               Continue Research
             </div>
             <p className="app-text-muted mt-2 text-sm leading-6">
-              Open the current version's reference result, compare reference performance, or continue from the saved version in chat.
+              Open the selected version's reference result, compare reference performance, or continue from that saved config in chat.
             </p>
             {referenceIsSavedSweepVariant && referencePerformance ? (
               <div className="app-note mt-3 inline-flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2 text-xs">
@@ -310,11 +496,21 @@ export function StrategyPage() {
               </Link>
             ) : null}
             <Link
-              to={`/strategies/${data.strategy.id}/versions/new`}
+              to={`/strategies/${data.strategy.id}/versions/new${selectedVersion ? `?fromVersionId=${selectedVersion.id}` : ''}`}
               className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
             >
               New Version
             </Link>
+            {!referenceRunId ? (
+              <button
+                type="button"
+                onClick={() => void handleRunSelectedVersion()}
+                disabled={!selectedVersion || runVersionLoading}
+                className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {runVersionLoading ? 'Creating run...' : 'Run this version'}
+              </button>
+            ) : null}
           </div>
         </div>
       </section>
@@ -326,6 +522,7 @@ export function StrategyPage() {
             <Row label="Created" value={formatDateTime(data.strategy.created_at)} />
             <Row label="Updated" value={formatDateTime(data.strategy.updated_at)} />
             <Row label="Total runs" value={String(data.total_runs)} />
+            <Row label="Selected version" value={selectedVersion ? `v${selectedVersion.version_number}` : '—'} />
             <Row label="Reference finished at" value={formatDateTime(referenceFinishedAt)} />
             <div className="flex flex-wrap gap-2 pt-1">
               <span className="app-surface-soft app-text-muted rounded-full border px-3 py-1 text-xs">
@@ -343,7 +540,9 @@ export function StrategyPage() {
             <div>
               <p className="app-label text-xs font-semibold uppercase tracking-[0.22em]">Key Insight</p>
               <h3 className="app-title mt-2 text-xl font-semibold">Reference Performance</h3>
-              <p className="app-text-muted mt-1 text-sm">Pinned result for the current saved strategy version.</p>
+              <p className="app-text-muted mt-1 text-sm">
+                Pinned result for {selectedVersion ? `v${selectedVersion.version_number}` : 'the selected version'}.
+              </p>
             </div>
           </div>
           {referencePerformance ? (
@@ -360,8 +559,8 @@ export function StrategyPage() {
               <p className="app-text-muted mt-2 text-sm">Run this version to create a reference result.</p>
               <button
                 type="button"
-                onClick={() => void handleRunCurrentVersion()}
-                disabled={!currentVersion || runVersionLoading}
+                onClick={() => void handleRunSelectedVersion()}
+                disabled={!selectedVersion || runVersionLoading}
                 className="app-button-primary mt-4 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {runVersionLoading ? 'Creating run...' : 'Run this version'}
@@ -371,12 +570,33 @@ export function StrategyPage() {
         </section>
       </div>
 
-      <SectionCard title="Versions" subtitle="Saved versions for this strategy. The current version is used for continuation and manual runs.">
-        <VersionsTable versions={data.versions} />
+      <SectionCard
+        title="Version Config Summary"
+        subtitle={selectedVersion ? `Read-only summary for v${selectedVersion.version_number}.` : 'Read-only summary for the selected version.'}
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          {selectedConfigRows.map((row) => (
+            <Row key={row.label} label={row.label} value={row.value} />
+          ))}
+        </div>
       </SectionCard>
 
-      <SectionCard title="Run History" subtitle="Recent simulations created from this saved strategy.">
-        <RunsTable runs={data.associated_runs} loading={false} compact />
+      <SectionCard title="Versions" subtitle="Select any saved version. The current version remains marked for orientation.">
+        <VersionsTable versions={data.versions} selectedVersionId={selectedVersion?.id ?? null} onSelectVersion={handleSelectVersion} />
+      </SectionCard>
+
+      <SectionCard
+        title={selectedVersion ? `Runs for v${selectedVersion.version_number}` : 'Run History'}
+        subtitle="Recent simulations created from the selected saved strategy version."
+      >
+        <RunsTable
+          runs={selectedVersionRuns}
+          loading={false}
+          compact
+          referenceRunId={referenceRunId}
+          emptyTitle={selectedVersion ? `No runs recorded for v${selectedVersion.version_number}.` : undefined}
+          emptyDescription="Run this version to create its first research result."
+        />
       </SectionCard>
     </div>
   );

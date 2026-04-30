@@ -291,6 +291,7 @@ export interface StrategyVersionSummary {
   config_hash: string;
   change_note: Nullable<string>;
   reference_run_id: Nullable<string>;
+  reference_performance: Nullable<StrategyReferencePerformance>;
   created_by_user_id: string;
   created_at: string;
   is_current: boolean;

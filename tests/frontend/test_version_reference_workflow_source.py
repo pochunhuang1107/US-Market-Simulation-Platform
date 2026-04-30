@@ -17,9 +17,54 @@ def test_strategy_detail_still_exposes_new_version_and_run_this_version():
 
     assert "New Version" in source
     assert "Run this version" in source
-    assert "reference_strategy_version_id: currentVersion.id" in source
+    assert "reference_strategy_version_id: selectedVersion.id" in source
     assert "to={`/runs/${referenceRunId}`}" in source
     assert "to={`/compare?runIds=${referenceRunId}`}" in source
+    assert "Version selector" in source
+    assert "selectedVersion?.reference_performance" in source
+    assert "handleRunSelectedVersion" in source
+    assert "selectedVersionRuns" in source
+    assert "?fromVersionId=${selectedVersion.id}" in source
+
+
+def test_strategy_detail_preserves_and_restores_selected_version_from_url():
+    source = (ROOT / "frontend/src/pages/StrategyPage.tsx").read_text()
+
+    assert "searchParams.get('versionId')" in source
+    assert "searchParams.get('version')" in source
+    assert "nextParams.set('versionId', selectedVersion.id)" in source
+    assert "setSearchParams(nextParams, { replace: true })" in source
+    assert "handleSelectVersion(version)" in source
+    assert "selectedVersionLabel(version)" in source
+
+
+def test_strategy_detail_shows_selected_version_config_and_run_history():
+    source = (ROOT / "frontend/src/pages/StrategyPage.tsx").read_text()
+    table_source = (ROOT / "frontend/src/components/strategy/VersionsTable.tsx").read_text()
+    runs_source = (ROOT / "frontend/src/components/runs/RunsTable.tsx").read_text()
+
+    assert "function configSummaryRows" in source
+    assert "Version Config Summary" in source
+    assert "summarizeRule(config.entry_rule)" in source
+    assert "summarizeRule(config.exit_rule)" in source
+    assert "`Runs for v${selectedVersion.version_number}`" in source
+    assert "run.strategy_version_id === selectedVersion.id" in source
+    assert "selectedVersionId" in table_source
+    assert "aria-selected={isSelected}" in table_source
+    assert "Selected" in table_source
+    assert "Reference" in runs_source
+    assert "referenceRunId === run.run_id" in runs_source
+
+
+def test_new_version_page_can_prefill_from_selected_strategy_version():
+    source = (ROOT / "frontend/src/pages/CreateStrategyVersionPage.tsx").read_text()
+
+    assert "fromVersionId" in source
+    assert "findRequestedVersion" in source
+    assert "sourceVersion?.config_json" in source
+    assert "Starting Version" in source
+    assert "Reset to Starting Version" in source
+    assert "navigate(`/strategies/${strategyId}?versionId=${response.version_id}`" in source
 
 
 def test_advanced_manual_run_does_not_expose_internal_s3_path():
