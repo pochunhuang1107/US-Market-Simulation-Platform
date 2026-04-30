@@ -241,13 +241,16 @@ function relabelComparisonChart(
       label: labelByRunId.get(curve.result_ref ?? curve.run_id) ?? curve.label
     }));
   const relabelBenchmarkCurves = (curves: RunComparisonChartResponse['benchmark_curves']) =>
-    curves.map((curve) => {
-      const runLabel = labelByRunId.get(curve.result_ref ?? curve.run_id) ?? curve.label;
-      return {
-        ...curve,
-        label: curve.benchmark_label ? `${curve.benchmark_label} · ${runLabel}` : runLabel
-      };
-    });
+    dedupeBenchmarkCurves(
+      curves.map((curve) => {
+        const identity = benchmarkIdentity(curve);
+        return {
+          ...curve,
+          label: identity ? `Benchmark: ${identity}` : 'Benchmark',
+          benchmark_label: identity ?? curve.benchmark_label
+        };
+      })
+    );
 
   return {
     strategy_curves: relabelCurves(chart.strategy_curves),
@@ -260,16 +263,79 @@ function relabelComparisonChart(
   };
 }
 
-function getSharedBenchmarkNote(curves: RunComparisonChartResponse['benchmark_curves']): string | undefined {
+function benchmarkIdentity(curve: RunComparisonChartResponse['benchmark_curves'][number]): string | null {
+  const benchmarkLabel = curve.benchmark_label?.trim();
+  if (benchmarkLabel) return benchmarkLabel;
+
+  const label = curve.label?.replace(/^Benchmark:\s*/i, '').split('·')[0]?.trim();
+  if (!label || label.toLowerCase() === 'benchmark') return null;
+  return label || null;
+}
+
+function curveDateWindow(curve: RunComparisonChartResponse['benchmark_curves'][number]): string {
+  if (curve.points.length === 0) return 'no-points';
+  return `${curve.points[0].date}:${curve.points[curve.points.length - 1].date}`;
+}
+
+function curvePointsSignature(curve: RunComparisonChartResponse['benchmark_curves'][number]): string {
+  return curve.points.map((point) => `${point.date}:${Number(point.value).toFixed(8)}`).join('|');
+}
+
+function disambiguateBenchmarkLabels(curves: RunComparisonChartResponse['benchmark_curves']) {
+  const labelCounts = new Map<string, number>();
+  curves.forEach((curve) => {
+    labelCounts.set(curve.label, (labelCounts.get(curve.label) ?? 0) + 1);
+  });
+
+  const seenLabels = new Map<string, number>();
+  return curves.map((curve) => {
+    const count = labelCounts.get(curve.label) ?? 0;
+    if (count <= 1) return curve;
+
+    const nextIndex = (seenLabels.get(curve.label) ?? 0) + 1;
+    seenLabels.set(curve.label, nextIndex);
+    return {
+      ...curve,
+      label: `${curve.label} (${nextIndex})`
+    };
+  });
+}
+
+function dedupeBenchmarkCurves(curves: RunComparisonChartResponse['benchmark_curves']) {
+  const deduped: RunComparisonChartResponse['benchmark_curves'] = [];
+  const seen = new Map<string, string>();
+
+  curves.forEach((curve) => {
+    const identity = benchmarkIdentity(curve) ?? curve.result_ref ?? curve.run_id;
+    const key = `${identity.toLowerCase()}|${curveDateWindow(curve)}`;
+    const pointsSignature = curvePointsSignature(curve);
+    const existingPointsSignature = seen.get(key);
+
+    if (!existingPointsSignature) {
+      seen.set(key, pointsSignature);
+      deduped.push(curve);
+      return;
+    }
+
+    if (existingPointsSignature === pointsSignature) return;
+
+    deduped.push(curve);
+  });
+
+  return disambiguateBenchmarkLabels(deduped);
+}
+
+function getBenchmarksShownNote(curves: RunComparisonChartResponse['benchmark_curves']): string | undefined {
   if (curves.length === 0) return undefined;
 
-  const benchmarkLabels = curves.map((curve) => curve.benchmark_label).filter(Boolean);
-  if (benchmarkLabels.length !== curves.length) return undefined;
+  const benchmarkLabels = curves
+    .map((curve) => benchmarkIdentity(curve))
+    .filter((label): label is string => Boolean(label));
+  if (benchmarkLabels.length === 0) return undefined;
 
-  const uniqueLabels = new Set(benchmarkLabels);
-  if (uniqueLabels.size !== 1) return undefined;
+  const uniqueLabels = Array.from(new Set(benchmarkLabels));
 
-  return `Benchmark: ${benchmarkLabels[0]}`;
+  return `Benchmarks shown: ${uniqueLabels.join(', ')}`;
 }
 
 function formatDateOnly(value: string | null): string {
@@ -496,53 +562,37 @@ const ComparisonResults = memo(function ComparisonResults({
 });
 
 const ComparisonCharts = memo(function ComparisonCharts({ chart }: { chart: RunComparisonChartResponse }) {
-  const strategySubtitle = useMemo(
-    () => getComparisonChartSubtitle(chart, 'How each selected strategy result grew over the comparison window.'),
+  const performanceSubtitle = useMemo(
+    () => getComparisonChartSubtitle(chart, 'Selected strategy results with benchmark references over the comparison window.'),
     [chart]
   );
-  const benchmarkSubtitle = useMemo(
-    () => getComparisonChartSubtitle(chart, "How each result's benchmark performed over the same window."),
+  const drawdownSubtitle = useMemo(
+    () => getComparisonChartSubtitle(chart, 'Strategy and benchmark drawdowns over the comparison window.'),
     [chart]
   );
-  const strategyDrawdownSubtitle = useMemo(
-    () => getComparisonChartSubtitle(chart, 'How far each strategy fell from its previous high.'),
-    [chart]
+  const benchmarksShownNote = useMemo(() => getBenchmarksShownNote(chart.benchmark_curves), [chart.benchmark_curves]);
+  const performanceCurves = useMemo(
+    () => [...chart.strategy_curves, ...chart.benchmark_curves],
+    [chart.benchmark_curves, chart.strategy_curves]
   );
-  const benchmarkDrawdownSubtitle = useMemo(
-    () => getComparisonChartSubtitle(chart, 'How far each benchmark fell from its previous high.'),
-    [chart]
-  );
-  const sharedBenchmarkNote = useMemo(() => getSharedBenchmarkNote(chart.benchmark_curves), [chart.benchmark_curves]);
-  const sharedDrawdownBenchmarkNote = useMemo(
-    () => getSharedBenchmarkNote(chart.benchmark_drawdown_curves),
-    [chart.benchmark_drawdown_curves]
+  const drawdownCurves = useMemo(
+    () => [...chart.strategy_drawdown_curves, ...chart.benchmark_drawdown_curves],
+    [chart.benchmark_drawdown_curves, chart.strategy_drawdown_curves]
   );
 
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
+    <div className="grid gap-6">
       <CurveChart
-        title="Strategy Performance"
-        subtitle={strategySubtitle}
-        curves={chart.strategy_curves}
+        title="Performance Comparison"
+        subtitle={performanceSubtitle}
+        note={benchmarksShownNote}
+        curves={performanceCurves}
       />
       <CurveChart
-        title="Benchmark / Buy-and-Hold Reference"
-        subtitle={benchmarkSubtitle}
-        note={sharedBenchmarkNote}
-        curves={chart.benchmark_curves}
-      />
-      <CurveChart
-        title="Strategy Drawdowns"
-        subtitle={strategyDrawdownSubtitle}
-        curves={chart.strategy_drawdown_curves}
-        yFormatter={pctFormatter}
-        zeroLine
-      />
-      <CurveChart
-        title="Benchmark Drawdowns"
-        subtitle={benchmarkDrawdownSubtitle}
-        note={sharedDrawdownBenchmarkNote}
-        curves={chart.benchmark_drawdown_curves}
+        title="Drawdown Comparison"
+        subtitle={drawdownSubtitle}
+        note={benchmarksShownNote}
+        curves={drawdownCurves}
         yFormatter={pctFormatter}
         zeroLine
       />
