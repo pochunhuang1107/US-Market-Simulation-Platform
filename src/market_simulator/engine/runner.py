@@ -298,7 +298,11 @@ def run_simulation(bundle, strategy):
         # === ENTRY ===
         if entry_signal and (not in_cooldown) and (action == ""):
 
-            increment_pct = scale_in_fraction
+            increment_pct = (
+                scale_in_fraction
+                if position_management_enabled
+                else strategy.allocation.entry_value
+            )
 
             overlay_base_capital = strategy.initial_capital * (
                 1.0 - strategy.core_overlay.core_allocation_pct
