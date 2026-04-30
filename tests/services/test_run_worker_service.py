@@ -97,6 +97,55 @@ def test_claim_and_execute_next_run_succeeds(
     assert refreshed.artifact_root_uri == f"/tmp/runs/{run.id}"
 
 
+def test_claim_and_execute_reference_run_sets_version_reference(
+    monkeypatch,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+):
+    user = create_user(email="worker-reference-success@example.com")
+    strategy, version = create_strategy_bundle(user_id=str(user.id))
+
+    class FakeSimulationService:
+        def run_from_config(self, config_json, output_dir):
+            return FakeSimulationResult(summary={"name": "reference", "total_return_pct": 21.0})
+
+    monkeypatch.setattr(
+        "market_simulator.platform.services.run_worker_service.SimulationService",
+        FakeSimulationService,
+    )
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {
+            "source": "strategy_version_reference_run",
+            "set_as_reference_on_success": True,
+            "reference_strategy_version_id": str(version.id),
+        },
+        max_attempts=1,
+    )
+    enqueue_run(db_session, run)
+
+    service = RunWorkerService(artifact_store=FakeArtifactStore())
+    result = service.claim_and_execute_next_run(
+        db_session,
+        worker_id="worker-reference-test",
+        lease_seconds=300,
+    )
+
+    db_session.refresh(version)
+    refreshed = get_run(db_session, run.id)
+
+    assert result is not None
+    assert refreshed.status == RunStatus.SUCCEEDED
+    assert version.reference_run_id == refreshed.id
+
+
 def test_bad_executor_marks_run_failed_non_retryable(
     db_session,
     create_user,

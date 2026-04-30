@@ -83,4 +83,8 @@ class Run(Base):
 
     user = relationship("User", back_populates="runs")
     strategy = relationship("Strategy", back_populates="runs")
-    strategy_version = relationship("StrategyVersion", back_populates="runs")
+    strategy_version = relationship(
+        "StrategyVersion",
+        back_populates="runs",
+        foreign_keys=[strategy_version_id],
+    )

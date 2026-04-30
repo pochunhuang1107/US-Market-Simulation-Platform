@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { VersionsTable } from '../components/strategy/VersionsTable';
 import { RunsTable } from '../components/runs/RunsTable';
@@ -7,7 +7,7 @@ import { MetricCard } from '../components/shared/MetricCard';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
-import { archiveStrategy, fetchStrategyDashboard, restoreStrategy } from '../lib/api';
+import { archiveStrategy, createRun, enqueueRun, fetchStrategyDashboard, restoreStrategy } from '../lib/api';
 import {
   formatDateTime,
   formatPct,
@@ -49,11 +49,14 @@ type PageNotice = {
 export function StrategyPage() {
   const { strategyId } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const [data, setData] = useState<StrategyDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusActionLoading, setStatusActionLoading] = useState(false);
+  const [runVersionLoading, setRunVersionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusActionError, setStatusActionError] = useState<string | null>(null);
+  const [runVersionError, setRunVersionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<PageNotice | null>(
     (location.state as { notice?: PageNotice } | null)?.notice ?? null
   );
@@ -97,25 +100,29 @@ export function StrategyPage() {
     };
   }, [loadStrategy]);
 
-  const latestMetrics = useMemo(() => {
-    const latest = data?.latest_performance;
-    if (!latest) return [];
-
-    return [
-      { label: 'Latest Total Return', value: formatPct(latest.total_return_pct) },
-      { label: 'Latest Benchmark Return', value: formatPct(latest.benchmark_return_pct) },
-      {
-        label: 'Latest Alpha',
-        value: formatPct(latest.alpha_vs_benchmark_pct),
-        tone: (latest.alpha_vs_benchmark_pct ?? 0) >= 0 ? ('positive' as const) : ('negative' as const)
-      },
-      { label: 'Latest CAGR', value: formatPct(latest.cagr_pct) }
-    ];
-  }, [data]);
-
   const currentVersion = useMemo(() => {
     if (!data) return null;
     return data.versions.find((version) => version.is_current) ?? data.versions[0] ?? null;
+  }, [data]);
+
+  const referencePerformance = data?.reference_performance ?? null;
+  const referenceRunId = data?.reference_run_id ?? currentVersion?.reference_run_id ?? null;
+  const referenceFinishedAt = data?.reference_finished_at ?? referencePerformance?.finished_at ?? null;
+
+  const referenceMetrics = useMemo(() => {
+    const reference = data?.reference_performance;
+    if (!reference) return [];
+
+    return [
+      { label: 'Reference Total Return', value: formatPct(reference.total_return_pct) },
+      { label: 'Reference Benchmark Return', value: formatPct(reference.benchmark_return_pct) },
+      {
+        label: 'Reference Alpha',
+        value: formatPct(reference.alpha_vs_benchmark_pct),
+        tone: (reference.alpha_vs_benchmark_pct ?? 0) >= 0 ? ('positive' as const) : ('negative' as const)
+      },
+      { label: 'Reference CAGR', value: formatPct(reference.cagr_pct) }
+    ];
   }, [data]);
 
   const currentConfig = currentVersion?.config_json ?? null;
@@ -136,7 +143,7 @@ export function StrategyPage() {
       : notice?.tone === 'info'
         ? 'app-note'
         : 'app-alert-success';
-  const latestIsSavedSweepVariant = data?.latest_performance ? isSavedSweepVariantResult(data.latest_performance) : false;
+  const referenceIsSavedSweepVariant = referencePerformance ? isSavedSweepVariantResult(referencePerformance) : false;
 
   async function handleStatusAction() {
     if (!strategyId || !data) return;
@@ -160,6 +167,42 @@ export function StrategyPage() {
       setStatusActionError(error instanceof Error ? error.message : 'Failed to update strategy status');
     } finally {
       setStatusActionLoading(false);
+    }
+  }
+
+  async function handleRunCurrentVersion() {
+    if (!strategyId || !currentVersion) return;
+
+    setRunVersionLoading(true);
+    setRunVersionError(null);
+
+    try {
+      const requestPayload: Record<string, unknown> = {
+        source: 'strategy_version_reference_run',
+        set_as_reference_on_success: true,
+        reference_strategy_version_id: currentVersion.id
+      };
+      if (typeof currentVersion.config_json.start_date === 'string') {
+        requestPayload.start_date = currentVersion.config_json.start_date;
+      }
+      if (typeof currentVersion.config_json.end_date === 'string') {
+        requestPayload.end_date = currentVersion.config_json.end_date;
+      }
+
+      const run = await createRun({
+        strategy_id: strategyId,
+        strategy_version_id: currentVersion.id,
+        run_type: 'SIMULATION',
+        executor_type: 'SIMULATION_EXECUTOR',
+        request_payload: requestPayload,
+        max_attempts: 1
+      });
+      await enqueueRun(run.id);
+      navigate(`/runs/${run.id}`);
+    } catch (error) {
+      setRunVersionError(error instanceof Error ? error.message : 'Failed to run this version');
+    } finally {
+      setRunVersionLoading(false);
     }
   }
 
@@ -215,6 +258,7 @@ export function StrategyPage() {
       />
 
       {statusActionError ? <StateCard title="Could not update strategy status" description={statusActionError} tone="error" /> : null}
+      {runVersionError ? <StateCard title="Could not run version" description={runVersionError} tone="error" /> : null}
 
       <section className="app-card app-shadow-soft rounded-3xl border p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -223,37 +267,37 @@ export function StrategyPage() {
               Continue Research
             </div>
             <p className="app-text-muted mt-2 text-sm leading-6">
-              Open the latest result, compare recent performance, or continue from the saved version in chat.
+              Open the current version's reference result, compare reference performance, or continue from the saved version in chat.
             </p>
-            {latestIsSavedSweepVariant && data?.latest_performance ? (
+            {referenceIsSavedSweepVariant && referencePerformance ? (
               <div className="app-note mt-3 inline-flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2 text-xs">
-                <span>{formatSavedSweepVariantSource(data.latest_performance)}</span>
+                <span>{formatSavedSweepVariantSource(referencePerformance)}</span>
               </div>
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
-            {data.latest_run_id ? (
+            {referenceRunId ? (
               <Link
-                to={`/runs/${data.latest_run_id}`}
+                to={`/runs/${referenceRunId}`}
                 className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition"
               >
-                Open latest result
+                Open reference result
               </Link>
             ) : (
               <span className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold opacity-60">
-                Open latest result
+                Open reference result
               </span>
             )}
-            {data.latest_run_id ? (
+            {referenceRunId ? (
               <Link
-                to={`/compare?runIds=${data.latest_run_id}`}
+                to={`/compare?runIds=${referenceRunId}`}
                 className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
               >
-                Compare latest result
+                Compare reference result
               </Link>
             ) : (
               <span className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold opacity-60">
-                Compare latest result
+                Compare reference result
               </span>
             )}
             {canContinueInChat ? (
@@ -282,7 +326,7 @@ export function StrategyPage() {
             <Row label="Created" value={formatDateTime(data.strategy.created_at)} />
             <Row label="Updated" value={formatDateTime(data.strategy.updated_at)} />
             <Row label="Total runs" value={String(data.total_runs)} />
-            <Row label="Latest finished at" value={formatDateTime(data.latest_finished_at)} />
+            <Row label="Reference finished at" value={formatDateTime(referenceFinishedAt)} />
             <div className="flex flex-wrap gap-2 pt-1">
               <span className="app-surface-soft app-text-muted rounded-full border px-3 py-1 text-xs">
                 {formatStrategyType(data.strategy.status)}
@@ -298,22 +342,30 @@ export function StrategyPage() {
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="app-label text-xs font-semibold uppercase tracking-[0.22em]">Key Insight</p>
-              <h3 className="app-title mt-2 text-xl font-semibold">Latest Performance</h3>
-              <p className="app-text-muted mt-1 text-sm">Most recent completed simulation for this saved strategy.</p>
+              <h3 className="app-title mt-2 text-xl font-semibold">Reference Performance</h3>
+              <p className="app-text-muted mt-1 text-sm">Pinned result for the current saved strategy version.</p>
             </div>
           </div>
-          {data.latest_performance ? (
+          {referencePerformance ? (
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
-                {latestMetrics.map((metric) => (
+                {referenceMetrics.map((metric) => (
                   <MetricCard key={metric.label} label={metric.label} value={metric.value} tone={metric.tone} />
                 ))}
               </div>
             </div>
           ) : (
             <div className="app-surface-soft rounded-2xl border px-4 py-5">
-              <p className="app-title text-sm font-semibold">No completed simulation yet</p>
-              <p className="app-text-muted mt-2 text-sm">Run this strategy to see its latest performance summary.</p>
+              <p className="app-title text-sm font-semibold">No reference result yet</p>
+              <p className="app-text-muted mt-2 text-sm">Run this version to create a reference result.</p>
+              <button
+                type="button"
+                onClick={() => void handleRunCurrentVersion()}
+                disabled={!currentVersion || runVersionLoading}
+                className="app-button-primary mt-4 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {runVersionLoading ? 'Creating run...' : 'Run this version'}
+              </button>
             </div>
           )}
         </section>

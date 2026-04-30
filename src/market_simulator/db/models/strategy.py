@@ -52,10 +52,29 @@ class StrategyVersion(Base):
 
     change_note: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    reference_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "runs.id",
+            use_alter=True,
+            name="fk_strategy_versions_reference_run_id_runs",
+        ),
+        nullable=True,
+    )
+
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
 
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
     strategy = relationship("Strategy", back_populates="versions")
     creator = relationship("User")
-    runs = relationship("Run", back_populates="strategy_version")
+    runs = relationship(
+        "Run",
+        back_populates="strategy_version",
+        foreign_keys="Run.strategy_version_id",
+    )
+    reference_run = relationship(
+        "Run",
+        foreign_keys=[reference_run_id],
+        post_update=True,
+    )

@@ -227,6 +227,238 @@ def test_create_run_returns_pending(
     assert body["progress_message"] == "Run created"
 
 
+def test_create_and_enqueue_version_run_uses_strategy_version_and_payload_dates(
+    client,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="run-version@example.com",
+    )
+    version_config = _strategy_v2_config()
+    strategy, version = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=version_config,
+    )
+
+    response = client.post(
+        "/runs",
+        json={
+            "strategy_id": str(strategy.id),
+            "strategy_version_id": str(version.id),
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {
+                "source": "strategy_version_reference_run",
+                "set_as_reference_on_success": True,
+                "reference_strategy_version_id": str(version.id),
+                "start_date": version_config["start_date"],
+                "end_date": version_config["end_date"],
+            },
+            "max_attempts": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "PENDING"
+    assert body["strategy_id"] == str(strategy.id)
+    assert body["strategy_version_id"] == str(version.id)
+    assert body["request_payload"]["start_date"] == version_config["start_date"]
+    assert body["request_payload"]["end_date"] == version_config["end_date"]
+    assert body["request_payload"]["set_as_reference_on_success"] is True
+    assert body["request_payload"]["reference_strategy_version_id"] == str(version.id)
+
+    enqueue_response = client.post(f"/runs/{body['id']}/enqueue")
+    assert enqueue_response.status_code == 200
+    assert enqueue_response.json()["status"] == "QUEUED"
+
+
+def test_create_strategy_version_run_enforces_backtest_date_plan_limit(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="version-date-limit@example.com",
+    )
+    plan = db_session.query(Plan).filter(Plan.code == "TEST_PRO").one()
+    plan.max_backtest_years = 1
+    db_session.commit()
+
+    long_config = _strategy_v2_config()
+    long_config["start_date"] = "2021-01-01"
+    long_config["end_date"] = "2024-01-01"
+    strategy, version = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=long_config,
+    )
+
+    response = client.post(
+        "/runs",
+        json={
+            "strategy_id": str(strategy.id),
+            "strategy_version_id": str(version.id),
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {},
+            "max_attempts": 1,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "plan limit of 1 years" in response.json()["detail"]
+
+
+def test_reference_on_success_version_run_sets_reference_and_later_runs_do_not_overwrite(
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="auto-reference@example.com",
+    )
+    strategy, version = create_strategy_bundle(
+        user_id=str(user.id),
+        config_json=_strategy_v2_config(),
+    )
+
+    first_run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {
+            "source": "strategy_version_reference_run",
+            "set_as_reference_on_success": True,
+            "reference_strategy_version_id": str(version.id),
+        },
+        max_attempts=1,
+    )
+    first_run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(first_run)
+    first_run = mark_run_succeeded(
+        db_session,
+        first_run,
+        summary_json={"total_return_pct": 10.0},
+        artifact_dir=f"data/local_artifacts/runs/{first_run.id}",
+        artifact_manifest_json={"summary": f"dummy-{first_run.id}"},
+    )
+    db_session.refresh(version)
+    assert version.reference_run_id == first_run.id
+
+    second_run = _create_succeeded_run(
+        db_session,
+        user_id=str(user.id),
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="later run",
+    )
+    db_session.refresh(version)
+    assert version.reference_run_id == first_run.id
+    assert version.reference_run_id != second_run.id
+
+
+def test_strategy_dashboard_shows_reference_after_version_run_succeeds(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="dashboard-reference-after-run@example.com",
+    )
+    strategy, version = create_strategy_bundle(
+        user_id=str(user.id),
+        config_json=_strategy_v2_config(),
+    )
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {
+            "source": "strategy_version_reference_run",
+            "set_as_reference_on_success": True,
+            "reference_strategy_version_id": str(version.id),
+        },
+        max_attempts=1,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    run = mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"total_return_pct": 10.0},
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"summary": f"dummy-{run.id}"},
+    )
+
+    response = client.get(f"/strategies/{strategy.id}/dashboard")
+    assert response.status_code == 200
+    dashboard = response.json()
+    assert dashboard["versions"][0]["reference_run_id"] == str(run.id)
+    assert dashboard["reference_run_id"] == str(run.id)
+    assert dashboard["reference_performance"]["run_id"] == str(run.id)
+    assert dashboard["reference_performance"]["total_return_pct"] == 10.0
+
+
+def test_source_marked_version_run_sets_reference_without_boolean_flag(
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    user = create_user(
+        user_id=current_user_ctx["id"],
+        email="source-reference@example.com",
+    )
+    strategy, version = create_strategy_bundle(
+        user_id=str(user.id),
+        config_json=_strategy_v2_config(),
+    )
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"source": "strategy_version_reference_run"},
+        max_attempts=1,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    run = mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"total_return_pct": 13.0},
+        artifact_dir=f"data/local_artifacts/runs/{run.id}",
+        artifact_manifest_json={"summary": f"dummy-{run.id}"},
+    )
+
+    db_session.refresh(version)
+    assert version.reference_run_id == run.id
+
+
 def test_create_parameter_sweep_rejects_over_limit_grid(
     client,
     create_user,
@@ -324,15 +556,30 @@ def test_promote_sweep_variant_for_saved_strategy_creates_current_version(
     body = response.json()
     assert body["strategy_id"] == str(strategy.id)
     assert body["version_id"] != str(version.id)
+    assert body["derived_run_id"] is not None
 
     dashboard_response = client.get(f"/strategies/{strategy.id}/dashboard")
     assert dashboard_response.status_code == 200
     dashboard = dashboard_response.json()
     assert dashboard["strategy"]["current_version_id"] == body["version_id"]
     assert dashboard["versions"][0]["config_json"]["entry_rule"]["threshold"] == 25
+    assert dashboard["versions"][0]["reference_run_id"] == body["derived_run_id"]
+    assert dashboard["reference_run_id"] == body["derived_run_id"]
+    assert dashboard["reference_performance"]["run_id"] == body["derived_run_id"]
+    assert dashboard["reference_performance"]["source"] == "sweep_variant_save"
+    assert dashboard["reference_performance"]["source_sweep_run_id"] == str(run.id)
+    assert dashboard["reference_performance"]["source_variant_id"] == "variant-best"
     assert dashboard["versions"][0]["change_note"].startswith(
         f"Promoted from parameter sweep run {str(run.id).split('-')[0]}, rank #1."
     )
+
+    derived_run_response = client.get(f"/runs/{body['derived_run_id']}")
+    assert derived_run_response.status_code == 200
+    derived_run = derived_run_response.json()
+    assert derived_run["strategy_id"] == str(strategy.id)
+    assert derived_run["strategy_version_id"] == body["version_id"]
+    assert derived_run["parent_run_id"] == str(run.id)
+    assert derived_run["source"] == "sweep_variant_save"
 
     detail_response = client.get(f"/runs/{run.id}/sweep/variants/variant-best")
     assert detail_response.status_code == 200
@@ -430,7 +677,17 @@ def test_promote_sweep_variant_without_saved_strategy_creates_strategy(
     dashboard = dashboard_response.json()
     assert dashboard["strategy"]["name"] == "qqq-rsi-sweep-001-threshold-20 - Sweep best"
     assert dashboard["versions"][0]["config_json"]["entry_rule"]["threshold"] == 20
-    assert dashboard["total_runs"] == 1
+    assert dashboard["versions"][0]["reference_run_id"] == body["derived_run_id"]
+    assert dashboard["total_runs"] == 0
+    assert dashboard["associated_runs"] == []
+    assert dashboard["reference_run_id"] == body["derived_run_id"]
+    assert dashboard["reference_performance"]["run_id"] == body["derived_run_id"]
+    assert dashboard["reference_performance"]["source"] == "sweep_variant_save"
+    assert dashboard["reference_performance"]["source_sweep_run_id"] == str(run.id)
+    assert dashboard["reference_performance"]["source_variant_id"] == "variant-new"
+    assert dashboard["reference_performance"]["source_variant_rank"] == 1
+    assert dashboard["reference_performance"]["source_ranking_metric"] == "sharpe_ratio"
+    assert dashboard["reference_performance"]["total_return_pct"] == 12.3
     assert dashboard["latest_run_id"] == body["derived_run_id"]
     assert dashboard["latest_performance"]["run_id"] == body["derived_run_id"]
     assert dashboard["latest_performance"]["source"] == "sweep_variant_save"
@@ -439,9 +696,6 @@ def test_promote_sweep_variant_without_saved_strategy_creates_strategy(
     assert dashboard["latest_performance"]["source_variant_rank"] == 1
     assert dashboard["latest_performance"]["source_ranking_metric"] == "sharpe_ratio"
     assert dashboard["latest_performance"]["total_return_pct"] == 12.3
-    assert dashboard["associated_runs"][0]["source"] == "sweep_variant_save"
-    assert dashboard["associated_runs"][0]["source_sweep_run_id"] == str(run.id)
-    assert dashboard["associated_runs"][0]["source_variant_id"] == "variant-new"
 
     derived_run_response = client.get(f"/runs/{body['derived_run_id']}")
     assert derived_run_response.status_code == 200
@@ -518,6 +772,8 @@ def test_promote_sweep_variant_without_saved_strategy_creates_strategy(
     assert sibling_dashboard_response.status_code == 200
     sibling_dashboard = sibling_dashboard_response.json()
     assert sibling_dashboard["versions"][0]["config_json"]["entry_rule"]["threshold"] == 25
+    assert sibling_dashboard["versions"][0]["reference_run_id"] == sibling_body["derived_run_id"]
+    assert sibling_dashboard["reference_run_id"] == sibling_body["derived_run_id"]
     assert sibling_dashboard["latest_run_id"] == sibling_body["derived_run_id"]
     assert count_runs_created_today(db_session, str(user.id)) == 1
 
@@ -2546,6 +2802,15 @@ def test_save_draft_run_as_strategy_creates_strategy_and_links_run(
     assert get_body["strategy_version_id"] == body["version_id"]
     assert get_body["strategy_name"] == "My Saved Draft"
     assert get_body["source"] is None
+
+    dashboard_resp = client.get(f"/strategies/{body['strategy_id']}/dashboard")
+    assert dashboard_resp.status_code == 200
+    dashboard = dashboard_resp.json()
+    assert dashboard["versions"][0]["id"] == body["version_id"]
+    assert dashboard["versions"][0]["reference_run_id"] == run_id
+    assert dashboard["reference_run_id"] == run_id
+    assert dashboard["reference_performance"]["run_id"] == run_id
+    assert dashboard["reference_performance"]["total_return_pct"] == 12.3
 
 
 def test_save_draft_run_as_strategy_requires_succeeded_run(

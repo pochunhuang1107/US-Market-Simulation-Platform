@@ -130,3 +130,29 @@ def validate_draft_config(
             f"That date range exceeds your current plan limit of {max_backtest_years} years. "
             "Please shorten the range and try again."
         )
+
+
+def validate_backtest_window(
+    *,
+    config: dict[str, Any],
+    max_backtest_years: int,
+) -> None:
+    start_date = _parse_iso_date(config.get("start_date"), "start_date")
+    end_date = _parse_iso_date(config.get("end_date"), "end_date")
+
+    if end_date < start_date:
+        raise ValueError("The end date must be on or after the start date.")
+
+    settings = get_settings()
+    if start_date < settings.supported_data_start or end_date > settings.supported_data_end:
+        raise ValueError(
+            "That date range is outside supported ETF data coverage "
+            f"({settings.supported_data_start.isoformat()} to {settings.supported_data_end.isoformat()})."
+        )
+
+    backtest_years = (end_date - start_date).days / 365.25
+    if backtest_years > max_backtest_years:
+        raise ValueError(
+            f"That date range exceeds your current plan limit of {max_backtest_years} years. "
+            "Please shorten the range and try again."
+        )

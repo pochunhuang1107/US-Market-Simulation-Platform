@@ -178,15 +178,6 @@ export function RunHeader({ run }: RunHeaderProps) {
 
             {run.strategy_id ? (
               <Link
-                to={`/strategies/${run.strategy_id}/versions/new`}
-                className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
-              >
-                New version
-              </Link>
-            ) : null}
-
-            {run.strategy_id ? (
-              <Link
                 to={`/runs/new?strategyId=${run.strategy_id}`}
                 className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
               >
