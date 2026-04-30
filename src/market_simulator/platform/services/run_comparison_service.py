@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from statistics import stdev
 from typing import Any
 
@@ -14,6 +16,249 @@ COMMON_OVERLAP_CHART = "COMMON_OVERLAP"
 
 BENCHMARK_SYMBOL_KEYS = ("benchmark_symbol", "benchmark_ticker", "benchmark")
 BENCHMARK_NAME_KEYS = ("benchmark_name", "benchmark_label")
+
+
+@dataclass(frozen=True)
+class ComparableResultRef:
+    result_type: str
+    run_id: str | None = None
+    sweep_run_id: str | None = None
+    variant_id: str | None = None
+
+
+class ComparableResult:
+    def __init__(
+        self,
+        *,
+        id: str,
+        result_ref: str,
+        result_type: str,
+        label: str,
+        source_run: Any,
+        summary_json: dict[str, Any],
+        request_payload: dict[str, Any],
+        artifact_manifest_json: dict[str, str] | None,
+        strategy: Any = None,
+        strategy_version: Any = None,
+    ):
+        self.id = id
+        self.result_ref = result_ref
+        self.result_type = result_type
+        self.label = label
+        self.source_run = source_run
+        self.strategy = strategy
+        self.strategy_version = strategy_version
+        self.strategy_id = getattr(source_run, "strategy_id", None)
+        self.strategy_version_id = getattr(source_run, "strategy_version_id", None)
+        self.status = getattr(source_run, "status", None)
+        self.summary_json = summary_json
+        self.request_payload = request_payload
+        self.artifact_manifest_json = artifact_manifest_json
+
+
+def parse_comparable_result_ref(value: str) -> ComparableResultRef:
+    raw = value.strip()
+    if raw.startswith("run:"):
+        run_id = raw.removeprefix("run:").strip()
+        if not run_id:
+            raise ValueError("Run result reference is missing a run id.")
+        return ComparableResultRef(result_type="RUN", run_id=run_id)
+
+    if raw.startswith("sweep_variant:"):
+        parts = raw.split(":", 2)
+        if len(parts) != 3 or not parts[1].strip() or not parts[2].strip():
+            raise ValueError("Sweep variant result reference must be sweep_variant:<sweep_run_id>:<variant_id>.")
+        return ComparableResultRef(
+            result_type="SWEEP_VARIANT",
+            sweep_run_id=parts[1].strip(),
+            variant_id=parts[2].strip(),
+        )
+
+    raise ValueError(f"Unsupported comparable result reference: {raw}")
+
+
+def run_result_ref(run_id: Any) -> str:
+    return f"run:{run_id}"
+
+
+def sweep_variant_result_ref(sweep_run_id: Any, variant_id: Any) -> str:
+    return f"sweep_variant:{sweep_run_id}:{variant_id}"
+
+
+def _short_run_id(run_id: Any) -> str:
+    return str(run_id).split("-")[0]
+
+
+def _metric_value(source: dict[str, Any], key: str) -> Any:
+    return source.get(key)
+
+
+def _variant_artifact_manifest(variant: dict[str, Any]) -> dict[str, str] | None:
+    artifact_dir = variant.get("artifact_dir")
+    if not isinstance(artifact_dir, str) or not artifact_dir.strip():
+        return None
+
+    variant_dir = Path(artifact_dir)
+    return {
+        "summary": str(variant_dir / "summary.json"),
+        "sleeve_summary": str(variant_dir / "sleeve_summary.json"),
+        "yearly_report": str(variant_dir / "yearly_report.csv"),
+        "trade_log": str(variant_dir / "trade_log.csv"),
+        "timeline": str(variant_dir / "timeline.csv"),
+        "events": str(variant_dir / "events.csv"),
+        "monthly_returns": str(variant_dir / "monthly_returns.csv"),
+        "report_bundle": str(variant_dir / "report_bundle.json"),
+    }
+
+
+def _format_parameter_value(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    return str(value)
+
+
+def _compact_parameter_name(path: str) -> str:
+    compact_names = {
+        "entry_rule.threshold": "entry",
+        "exit_rule.threshold": "exit",
+        "entry_rule.lookback": "entry lookback",
+        "exit_rule.lookback": "exit lookback",
+        "entry_rule.fast_window": "entry fast",
+        "exit_rule.fast_window": "exit fast",
+        "entry_rule.slow_window": "entry slow",
+        "exit_rule.slow_window": "exit slow",
+    }
+    return compact_names.get(path, path.split(".")[-1].replace("_", " "))
+
+
+def format_sweep_variant_parameter_summary(parameters: Any) -> str:
+    if not isinstance(parameters, dict) or not parameters:
+        return "variant"
+
+    entries = list(parameters.items())
+    if len(entries) > 2:
+        return f"{len(entries)} parameter changes"
+
+    return " / ".join(
+        f"{_compact_parameter_name(str(path))} {_format_parameter_value(value)}"
+        for path, value in entries
+    )
+
+
+def find_sweep_variant(run: Any, variant_id: str) -> dict[str, Any] | None:
+    summary_json = run.summary_json or {}
+    results = summary_json.get("results")
+    if isinstance(results, list):
+        for result in results:
+            if isinstance(result, dict) and str(result.get("variant_id")) == str(variant_id):
+                return result
+
+    best_variant = summary_json.get("best_variant")
+    if isinstance(best_variant, dict) and str(best_variant.get("variant_id")) == str(variant_id):
+        return best_variant
+
+    return None
+
+
+def sweep_variant_rank(run: Any, variant_id: str) -> int | None:
+    results = (run.summary_json or {}).get("results")
+    if not isinstance(results, list):
+        return None
+
+    for index, result in enumerate(results, start=1):
+        if isinstance(result, dict) and str(result.get("variant_id")) == str(variant_id):
+            return index
+
+    return None
+
+
+def _run_label(run: Any) -> str:
+    if getattr(run, "strategy", None) is not None and getattr(run.strategy, "name", None):
+        label = run.strategy.name
+        if getattr(run, "strategy_version", None) is not None:
+            version_number = getattr(run.strategy_version, "version_number", None)
+            if version_number is not None:
+                return f"{label} · v{version_number}"
+        return label
+
+    request_payload = run.request_payload or {}
+    draft_config = request_payload.get("draft_config") if isinstance(request_payload, dict) else None
+    base_config = request_payload.get("base_config") if isinstance(request_payload, dict) else None
+    for source in (draft_config, base_config):
+        if isinstance(source, dict) and isinstance(source.get("name"), str) and source["name"].strip():
+            return source["name"].strip()
+
+    return f"Draft run · {_short_run_id(getattr(run, 'id', ''))}"
+
+
+def sweep_variant_label(run: Any, variant: dict[str, Any], rank: int | None) -> str:
+    rank_label = f"Rank #{rank}" if rank is not None else "Variant"
+    parameter_label = format_sweep_variant_parameter_summary(variant.get("parameters"))
+    return f"{_run_label(run)} · {rank_label} · {parameter_label}"
+
+
+def build_run_comparable_result(run: Any) -> ComparableResult:
+    result_ref = run_result_ref(run.id)
+    return ComparableResult(
+        id=str(run.id),
+        result_ref=result_ref,
+        result_type="RUN",
+        label=_run_label(run),
+        source_run=run,
+        strategy=getattr(run, "strategy", None),
+        strategy_version=getattr(run, "strategy_version", None),
+        summary_json=run.summary_json or {},
+        request_payload=run.request_payload or {},
+        artifact_manifest_json=run.artifact_manifest_json,
+    )
+
+
+def build_sweep_variant_comparable_result(
+    run: Any,
+    *,
+    variant_id: str,
+    variant: dict[str, Any],
+    rank: int | None = None,
+) -> ComparableResult:
+    resolved_rank = rank if rank is not None else sweep_variant_rank(run, variant_id)
+    ranking_metric = (run.summary_json or {}).get("ranking_metric")
+    result_ref = sweep_variant_result_ref(run.id, variant_id)
+    summary_json = {
+        "source": "sweep_variant",
+        "variant_id": variant_id,
+        "total_return_pct": _metric_value(variant, "total_return_pct"),
+        "benchmark_return_pct": _metric_value(variant, "benchmark_return_pct"),
+        "alpha_vs_benchmark_pct": _metric_value(variant, "alpha_vs_benchmark_pct"),
+        "cagr_pct": _metric_value(variant, "cagr_pct"),
+        "sharpe_ratio": _metric_value(variant, "sharpe_ratio"),
+        "max_drawdown_pct": _metric_value(variant, "max_drawdown_pct"),
+        "benchmark_max_drawdown_pct": _metric_value(variant, "benchmark_max_drawdown_pct"),
+        "trade_count": _metric_value(variant, "trade_count"),
+        "win_rate_pct": _metric_value(variant, "win_rate_pct"),
+    }
+    return ComparableResult(
+        id=result_ref,
+        result_ref=result_ref,
+        result_type="SWEEP_VARIANT",
+        label=sweep_variant_label(run, variant, resolved_rank),
+        source_run=run,
+        strategy=getattr(run, "strategy", None),
+        strategy_version=getattr(run, "strategy_version", None),
+        summary_json=summary_json,
+        request_payload={
+            "source": "sweep_variant",
+            "source_sweep_run_id": str(run.id),
+            "source_variant_id": variant_id,
+            "source_variant_rank": resolved_rank,
+            "source_ranking_metric": ranking_metric if isinstance(ranking_metric, str) else None,
+            "draft_config": variant.get("config") if isinstance(variant.get("config"), dict) else None,
+        },
+        artifact_manifest_json=_variant_artifact_manifest(variant),
+    )
 
 
 class RunComparisonService:
@@ -74,6 +319,7 @@ class RunComparisonService:
     def _build_run_window(self, run: Any) -> dict[str, str | None]:
         window = {
             "run_id": str(run.id),
+            "result_ref": getattr(run, "result_ref", str(run.id)),
             "start_date": None,
             "end_date": None,
         }
@@ -96,6 +342,7 @@ class RunComparisonService:
 
         return {
             "run_id": str(run.id),
+            "result_ref": getattr(run, "result_ref", str(run.id)),
             "start_date": str(start_date),
             "end_date": str(end_date),
         }
@@ -107,6 +354,7 @@ class RunComparisonService:
     ) -> dict[str, str | None]:
         window = {
             "run_id": str(run.id),
+            "result_ref": getattr(run, "result_ref", str(run.id)),
             "start_date": None,
             "end_date": None,
         }
@@ -124,6 +372,7 @@ class RunComparisonService:
 
         return {
             "run_id": str(run.id),
+            "result_ref": getattr(run, "result_ref", str(run.id)),
             "start_date": str(start_date),
             "end_date": str(end_date),
         }
@@ -214,6 +463,9 @@ class RunComparisonService:
 
         return {
             "run_id": str(run.id),
+            "result_ref": getattr(run, "result_ref", str(run.id)),
+            "result_type": getattr(run, "result_type", "RUN"),
+            "label": getattr(run, "label", None),
             "strategy_id": str(run.strategy_id) if run.strategy_id else None,
             "strategy_version_id": str(run.strategy_version_id) if run.strategy_version_id else None,
             "strategy_name": run.strategy.name if run.strategy else None,
@@ -392,6 +644,7 @@ class RunComparisonService:
                 run_windows.append(
                     {
                         "run_id": run_id,
+                        "result_ref": run_id,
                         "start_date": str(start_date),
                         "end_date": str(end_date),
                     }
@@ -479,7 +732,7 @@ class RunComparisonService:
                         if version_number is not None:
                             label = f"{strategy_name} v{version_number}"
             if label is None:
-                label = str(run.id)
+                label = getattr(run, "label", None) or str(run.id)
 
             equity_rows = chart_data["equity_curve"]
             drawdown_rows = chart_data["drawdown_curve"]
@@ -556,6 +809,7 @@ class RunComparisonService:
             strategy_curves.append(
                 {
                     "run_id": str(run.id),
+                    "result_ref": getattr(run, "result_ref", str(run.id)),
                     "label": label,
                     "points": strategy_points,
                 }
@@ -563,6 +817,7 @@ class RunComparisonService:
             benchmark_curves.append(
                 {
                     "run_id": str(run.id),
+                    "result_ref": getattr(run, "result_ref", str(run.id)),
                     "label": f"{benchmark_label} · {label}" if benchmark_label else label,
                     "benchmark_label": benchmark_label,
                     "points": benchmark_points,
@@ -571,6 +826,7 @@ class RunComparisonService:
             strategy_drawdown_curves.append(
                 {
                     "run_id": str(run.id),
+                    "result_ref": getattr(run, "result_ref", str(run.id)),
                     "label": label,
                     "points": strategy_drawdown_points,
                 }
@@ -578,6 +834,7 @@ class RunComparisonService:
             benchmark_drawdown_curves.append(
                 {
                     "run_id": str(run.id),
+                    "result_ref": getattr(run, "result_ref", str(run.id)),
                     "label": f"{benchmark_label} · {label}" if benchmark_label else label,
                     "benchmark_label": benchmark_label,
                     "points": benchmark_drawdown_points,

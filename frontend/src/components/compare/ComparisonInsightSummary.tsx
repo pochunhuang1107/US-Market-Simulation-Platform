@@ -13,8 +13,13 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function getRunLabel(run: RunComparisonSummary) {
+  if (run.label) return run.label;
   const label = formatRunLabel(run.strategy_name, run.strategy_version_number, run.run_id);
   return isSavedSweepVariantResult(run) ? `Saved sweep variant · ${label}` : label;
+}
+
+function resultKey(run: RunComparisonSummary): string {
+  return run.result_ref ?? run.run_id;
 }
 
 function pickBestRun(
@@ -88,13 +93,13 @@ function buildTakeaway(runs: RunComparisonSummary[]) {
     bestReturn &&
     bestSharpe &&
     smallestDrawdown &&
-    bestReturn.run.run_id === bestSharpe.run.run_id &&
-    bestReturn.run.run_id === smallestDrawdown.run.run_id
+    resultKey(bestReturn.run) === resultKey(bestSharpe.run) &&
+    resultKey(bestReturn.run) === resultKey(smallestDrawdown.run)
   ) {
     return `${getRunLabel(bestReturn.run)} currently looks strongest across return, Sharpe, and drawdown.`;
   }
 
-  if (bestReturn && bestSharpe && bestReturn.run.run_id !== bestSharpe.run.run_id) {
+  if (bestReturn && bestSharpe && resultKey(bestReturn.run) !== resultKey(bestSharpe.run)) {
     return `${getRunLabel(bestReturn.run)} led on return, while ${getRunLabel(
       bestSharpe.run
     )} had better risk-adjusted behavior. Review the drawdown charts before choosing between them.`;
@@ -104,7 +109,7 @@ function buildTakeaway(runs: RunComparisonSummary[]) {
     return `${getRunLabel(bestReturn.run)} led on total return. Use the chart overlays to check whether that came with larger drawdowns.`;
   }
 
-  return 'Review the metric winners and chart overlays to decide which run is more attractive.';
+  return 'Review the metric winners and chart overlays to decide which result is more attractive.';
 }
 
 function WinnerCard({ winner }: { winner: MetricWinner }) {
@@ -133,7 +138,7 @@ export function ComparisonInsightSummary({ comparison }: { comparison: RunCompar
         Comparison insight
       </div>
       <h2 className="app-title mt-2 text-xl font-semibold tracking-tight">
-        Which run looks stronger?
+        Which result looks stronger?
       </h2>
       <p className="app-text-muted mt-2 text-sm leading-6">{takeaway}</p>
       {usesOverlapMetrics ? (
