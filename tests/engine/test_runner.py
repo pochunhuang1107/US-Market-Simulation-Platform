@@ -144,7 +144,7 @@ def test_run_simulation_without_position_management_is_all_in_all_out(monkeypatc
     def fake_enrich_market_data(input_bundle, _strategy):
         return input_bundle
 
-    def fake_evaluate_rule(rule, _bundle, i):
+    def fake_evaluate_rule(rule, _bundle, i, _tradable_symbol=None):
         rule_type = getattr(rule, "type", None)
         if rule_type == "sma_cross_above":
             return i == 0
@@ -171,7 +171,7 @@ def test_run_simulation_without_position_management_does_not_profit_reduce(monke
     def fake_enrich_market_data(input_bundle, _strategy):
         return input_bundle
 
-    def fake_evaluate_rule(rule, _bundle, i):
+    def fake_evaluate_rule(rule, _bundle, i, _tradable_symbol=None):
         rule_type = getattr(rule, "type", None)
         if rule_type == "sma_cross_above":
             return i == 0
@@ -203,7 +203,7 @@ def test_run_simulation_with_position_management_can_scale(monkeypatch: pytest.M
     def fake_enrich_market_data(input_bundle, _strategy):
         return input_bundle
 
-    def fake_evaluate_rule(rule, _bundle, i):
+    def fake_evaluate_rule(rule, _bundle, i, _tradable_symbol=None):
         rule_type = getattr(rule, "type", None)
         if rule_type == "sma_cross_above":
             return i in {0, 1}

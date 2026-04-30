@@ -3,6 +3,7 @@ from __future__ import annotations
 from market_simulator.data.repository import MarketDataBundle
 from market_simulator.indicators import compute_kd, compute_macd, compute_rsi, compute_sma
 from market_simulator.models.strategy_v2 import AtomicRule, GroupRule, NotRule, SequenceRule, WindowRule
+from market_simulator.strategy.dataframe_resolution import resolve_market_data_target
 
 
 def _collect(rule, out):
@@ -58,19 +59,36 @@ def _ensure(df, rule):
 def enrich_market_data(bundle: MarketDataBundle, strategy):
     tradable = bundle.tradable.copy()
     refs = {k: v.copy() for k, v in bundle.references.items()}
+    working_bundle = MarketDataBundle(tradable=tradable, references=refs)
 
     rules = []
     _collect(strategy.entry_rule, rules)
     _collect(strategy.exit_rule, rules)
 
     for rule in rules:
-        target = rule.symbol or strategy.tradable_symbol
-        if target == strategy.tradable_symbol:
+        target_key, _ = resolve_market_data_target(
+            working_bundle,
+            rule.symbol,
+            strategy.tradable_symbol,
+        )
+        if target_key is None:
             tradable = _ensure(tradable, rule)
-        elif target in refs:
-            refs[target] = _ensure(refs[target], rule)
+            working_bundle.tradable = tradable
+        else:
+            refs[target_key] = _ensure(refs[target_key], rule)
+            working_bundle.references = refs
 
-        if rule.reference_symbol and rule.reference_symbol in refs:
-            refs[rule.reference_symbol] = _ensure(refs[rule.reference_symbol], rule)
+        if rule.type == "relative_return_above":
+            reference_key, _ = resolve_market_data_target(
+                working_bundle,
+                rule.reference_symbol,
+                strategy.tradable_symbol,
+            )
+            if reference_key is None:
+                tradable = _ensure(tradable, rule)
+                working_bundle.tradable = tradable
+            else:
+                refs[reference_key] = _ensure(refs[reference_key], rule)
+                working_bundle.references = refs
 
     return MarketDataBundle(tradable=tradable, references=refs)

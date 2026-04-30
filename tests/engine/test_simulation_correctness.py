@@ -24,10 +24,20 @@ def _bundle(
     closes: list[float],
     extra_columns: dict[str, list[float | int | None]] | None = None,
 ) -> MarketDataBundle:
+    df = _market_df("SPY", dates, closes, extra_columns)
+    return MarketDataBundle(tradable=df, references={})
+
+
+def _market_df(
+    symbol: str,
+    dates: list[str],
+    closes: list[float],
+    extra_columns: dict[str, list[float | int | None]] | None = None,
+) -> pd.DataFrame:
     df = pd.DataFrame(
         {
             "date": pd.to_datetime(dates),
-            "symbol": "SPY",
+            "symbol": symbol,
             "open": closes,
             "high": closes,
             "low": closes,
@@ -39,7 +49,24 @@ def _bundle(
     )
     for name, values in (extra_columns or {}).items():
         df[name] = values
-    return MarketDataBundle(tradable=df, references={})
+    return df
+
+
+def _bundle_with_references(
+    *,
+    tradable_symbol: str,
+    dates: list[str],
+    closes: list[float],
+    references: dict[str, tuple[list[str], list[float], dict[str, list[float | int | None]] | None]],
+    extra_columns: dict[str, list[float | int | None]] | None = None,
+) -> MarketDataBundle:
+    return MarketDataBundle(
+        tradable=_market_df(tradable_symbol, dates, closes, extra_columns),
+        references={
+            symbol: _market_df(symbol, ref_dates, ref_closes, ref_extra)
+            for symbol, (ref_dates, ref_closes, ref_extra) in references.items()
+        },
+    )
 
 
 # Future signal expansion test-plan note: when VIX/regime filters, daily candle
@@ -50,6 +77,9 @@ def _bundle(
 def _strategy_config(
     *,
     name: str = "synthetic-correctness",
+    tradable_symbol: str = "SPY",
+    benchmark_symbol: str = "SPY",
+    reference_symbols: list[str] | None = None,
     initial_capital: float = 1000.0,
     transaction_cost_bps: float = 0.0,
     entry_rule: dict | None = None,
@@ -61,9 +91,9 @@ def _strategy_config(
     return {
         "schema_version": "2.0",
         "name": name,
-        "tradable_symbol": "SPY",
-        "benchmark_symbol": "SPY",
-        "reference_symbols": [],
+        "tradable_symbol": tradable_symbol,
+        "benchmark_symbol": benchmark_symbol,
+        "reference_symbols": reference_symbols or [],
         "start_date": "2021-01-01",
         "end_date": "2021-12-31",
         "initial_capital": initial_capital,
@@ -112,6 +142,10 @@ def _run(bundle: MarketDataBundle, strategy: StrategyV2):
 
 def _full_exits(trades: list[dict]) -> list[dict]:
     return [trade for trade in trades if trade["action"] in FULL_EXIT_ACTIONS]
+
+
+def _business_dates(count: int) -> list[str]:
+    return [str(date.date()) for date in pd.date_range("2021-01-04", periods=count, freq="B")]
 
 
 def test_buy_and_hold_baseline_returns_ten_percent_before_costs() -> None:
@@ -259,7 +293,7 @@ def test_cooldown_prevents_immediate_reentry_until_cooldown_bars_pass(
         [100.0, 100.0, 100.0, 100.0, 100.0],
     )
 
-    def fake_evaluate_rule(rule, _bundle, index):
+    def fake_evaluate_rule(rule, _bundle, index, _tradable_symbol=None):
         if getattr(rule, "type", None) == "month_in" and rule.month_values == [1]:
             return True
         if getattr(rule, "type", None) == "month_in" and rule.month_values == [12]:
@@ -554,6 +588,203 @@ def test_parameter_sweep_rows_match_variant_summaries_and_rank_by_metric(tmp_pat
     assert Path(persisted_summary["best_variant"]["artifact_dir"], "timeline.csv").exists()
 
 
+def test_relative_return_above_compares_primary_excess_return_to_threshold() -> None:
+    dates = _business_dates(21)
+    bundle = _bundle_with_references(
+        tradable_symbol="QQQ",
+        dates=dates,
+        closes=[100.0] * 20 + [108.0],
+        references={
+            "SPY": (["2020-12-31", *dates], [999.0] + [100.0] * 20 + [104.0], None),
+        },
+    )
+    strategy = _strategy(
+        name="qqq-beats-spy",
+        tradable_symbol="QQQ",
+        benchmark_symbol="SPY",
+        reference_symbols=["SPY"],
+        entry_rule={
+            "kind": "atomic",
+            "type": "relative_return_above",
+            "symbol": "QQQ",
+            "reference_symbol": "SPY",
+            "lookback": 20,
+            "threshold": 0.03,
+        },
+    )
+
+    enriched = enrich_market_data(bundle, strategy)
+
+    assert evaluate_rule(strategy.entry_rule, enriched, 20, strategy.tradable_symbol) is True
+
+
+def test_relative_return_above_returns_false_when_excess_return_is_below_threshold() -> None:
+    dates = _business_dates(21)
+    bundle = _bundle_with_references(
+        tradable_symbol="QQQ",
+        dates=dates,
+        closes=[100.0] * 20 + [106.0],
+        references={
+            "SPY": (dates, [100.0] * 20 + [104.0], None),
+        },
+    )
+    strategy = _strategy(
+        name="qqq-does-not-beat-spy-enough",
+        tradable_symbol="QQQ",
+        benchmark_symbol="SPY",
+        reference_symbols=["SPY"],
+        entry_rule={
+            "kind": "atomic",
+            "type": "relative_return_above",
+            "symbol": "QQQ",
+            "reference_symbol": "SPY",
+            "lookback": 20,
+            "threshold": 0.03,
+        },
+    )
+
+    enriched = enrich_market_data(bundle, strategy)
+
+    assert evaluate_rule(strategy.entry_rule, enriched, 20, strategy.tradable_symbol) is False
+
+
+def test_relative_return_above_handles_missing_lookback_and_reference_date_safely() -> None:
+    dates = _business_dates(21)
+    bundle = _bundle_with_references(
+        tradable_symbol="QQQ",
+        dates=dates,
+        closes=[100.0] * 20 + [108.0],
+        references={
+            "SPY": (dates[:-1], [100.0] * 20, None),
+        },
+    )
+    strategy = _strategy(
+        name="qqq-missing-spy-date",
+        tradable_symbol="QQQ",
+        benchmark_symbol="SPY",
+        reference_symbols=["SPY"],
+        entry_rule={
+            "kind": "atomic",
+            "type": "relative_return_above",
+            "symbol": "QQQ",
+            "reference_symbol": "SPY",
+            "lookback": 20,
+            "threshold": 0.03,
+        },
+    )
+
+    enriched = enrich_market_data(bundle, strategy)
+
+    assert evaluate_rule(strategy.entry_rule, enriched, 0, strategy.tradable_symbol) is False
+    assert evaluate_rule(strategy.entry_rule, enriched, 20, strategy.tradable_symbol) is False
+
+
+def test_reference_symbol_sma_rule_evaluates_reference_dataframe() -> None:
+    bundle = _bundle_with_references(
+        tradable_symbol="QQQ",
+        dates=["2021-01-04"],
+        closes=[90.0],
+        extra_columns={"sma_1": [90.0], "sma_200": [100.0]},
+        references={
+            "SPY": (
+                ["2021-01-04"],
+                [110.0],
+                {"sma_1": [110.0], "sma_200": [100.0]},
+            ),
+        },
+    )
+    strategy = _strategy(
+        name="qqq-spy-sma-filter",
+        tradable_symbol="QQQ",
+        benchmark_symbol="SPY",
+        reference_symbols=["SPY"],
+        entry_rule={
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": "SPY",
+            "fast_window": 1,
+            "slow_window": 200,
+        },
+    )
+
+    enriched = enrich_market_data(bundle, strategy)
+
+    assert evaluate_rule(strategy.entry_rule, enriched, 0, strategy.tradable_symbol) is True
+
+
+def test_composite_rule_evaluates_tradable_and_reference_children_against_correct_symbols() -> None:
+    bundle = _bundle_with_references(
+        tradable_symbol="QQQ",
+        dates=["2021-01-04"],
+        closes=[90.0],
+        extra_columns={"rsi_2": [25.0], "sma_1": [90.0], "sma_200": [100.0]},
+        references={
+            "SPY": (
+                ["2021-01-04"],
+                [110.0],
+                {"sma_1": [110.0], "sma_200": [100.0]},
+            ),
+        },
+    )
+    strategy = _strategy(
+        name="qqq-rsi-and-spy-sma",
+        tradable_symbol="QQQ",
+        benchmark_symbol="SPY",
+        reference_symbols=["SPY"],
+        entry_rule={
+            "kind": "group",
+            "operator": "AND",
+            "rules": [
+                {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": "QQQ",
+                    "lookback": 2,
+                    "threshold": 30.0,
+                },
+                {
+                    "kind": "atomic",
+                    "type": "sma_above",
+                    "symbol": "SPY",
+                    "fast_window": 1,
+                    "slow_window": 200,
+                },
+            ],
+        },
+    )
+
+    enriched = enrich_market_data(bundle, strategy)
+
+    assert evaluate_rule(strategy.entry_rule, enriched, 0, strategy.tradable_symbol) is True
+
+
+def test_missing_reference_symbol_data_raises_clear_error() -> None:
+    dates = _business_dates(21)
+    bundle = _bundle_with_references(
+        tradable_symbol="QQQ",
+        dates=dates,
+        closes=[100.0] * 20 + [108.0],
+        references={},
+    )
+    strategy = _strategy(
+        name="missing-spy",
+        tradable_symbol="QQQ",
+        benchmark_symbol="SPY",
+        reference_symbols=["SPY"],
+        entry_rule={
+            "kind": "atomic",
+            "type": "relative_return_above",
+            "symbol": "QQQ",
+            "reference_symbol": "SPY",
+            "lookback": 20,
+            "threshold": 0.03,
+        },
+    )
+
+    with pytest.raises(ValueError, match="Missing market data for reference symbol SPY"):
+        enrich_market_data(bundle, strategy)
+
+
 def test_composite_entry_and_exit_groups_drive_expected_trade_dates() -> None:
     result = _run(
         _bundle(
@@ -579,7 +810,7 @@ def test_composite_entry_and_exit_groups_drive_expected_trade_dates() -> None:
                         "symbol": "SPY",
                         "reference_symbol": "SPY",
                         "lookback": 1,
-                        "threshold": 0.05,
+                        "threshold": -0.01,
                     },
                 ],
             },
