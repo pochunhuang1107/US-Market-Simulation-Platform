@@ -12,11 +12,18 @@ from market_simulator.data.repository import MarketDataBundle
 from market_simulator.engine import runner
 from market_simulator.engine.artifacts import write_artifacts
 from market_simulator.models.strategy_v2 import StrategyV2
+from market_simulator.platform.services.run_chart_service import RunChartService
 from market_simulator.platform.services.parameter_sweep import ParameterSweepService
 from market_simulator.reporting.metrics import FULL_EXIT_ACTIONS
+from market_simulator.strategy.enricher import enrich_market_data
+from market_simulator.strategy.evaluator import evaluate_rule
 
 
-def _bundle(dates: list[str], closes: list[float]) -> MarketDataBundle:
+def _bundle(
+    dates: list[str],
+    closes: list[float],
+    extra_columns: dict[str, list[float | int | None]] | None = None,
+) -> MarketDataBundle:
     df = pd.DataFrame(
         {
             "date": pd.to_datetime(dates),
@@ -30,7 +37,14 @@ def _bundle(dates: list[str], closes: list[float]) -> MarketDataBundle:
             "transactions": [1_000.0] * len(closes),
         }
     )
+    for name, values in (extra_columns or {}).items():
+        df[name] = values
     return MarketDataBundle(tradable=df, references={})
+
+
+# Future signal expansion test-plan note: when VIX/regime filters, daily candle
+# pattern signals, realized-volatility filters, or ETF rotation are added, cover
+# them here with synthetic bars first so Strategy V2 trust stays ahead of UI work.
 
 
 def _strategy_config(
@@ -303,6 +317,113 @@ def test_core_overlay_keeps_core_invested_and_limits_overlay_to_tactical_sleeve(
     assert result.sleeve_summary["overlay_return_pct"] == pytest.approx(10.0)
 
 
+def test_core_overlay_exit_liquidates_only_overlay_and_reconciles_sleeves() -> None:
+    result = _run(
+        _bundle(
+            ["2021-01-04", "2021-02-01", "2021-03-01"],
+            [100.0, 80.0, 120.0],
+        ),
+        _strategy(
+            name="core-overlay-exit-reconciliation",
+            exit_rule={
+                "kind": "atomic",
+                "type": "month_in",
+                "symbol": "SPY",
+                "month_values": [2],
+            },
+            core_overlay={
+                "enabled": True,
+                "core_allocation_pct": 0.60,
+            },
+        ),
+    )
+
+    assert [(trade["action"], trade["sleeve"]) for trade in result.trade_log] == [
+        ("BUY", "overlay"),
+        ("SELL_ALL", "overlay"),
+    ]
+    assert [row["core_shares"] for row in result.timeline] == [6, 6, 6]
+    assert result.timeline[1]["overlay_position_shares"] == 0
+    assert result.timeline[-1]["core_equity"] == pytest.approx(720.0)
+    assert result.timeline[-1]["overlay_equity"] == pytest.approx(320.0)
+    assert result.timeline[-1]["strategy_equity"] == pytest.approx(1040.0)
+    assert result.summary["ending_equity"] == pytest.approx(1040.0)
+    assert (
+        result.sleeve_summary["core_pnl"] + result.sleeve_summary["overlay_pnl"]
+        == pytest.approx(result.summary["ending_equity"] - result.summary["initial_capital"])
+    )
+    for row in result.timeline:
+        assert row["strategy_equity"] == pytest.approx(
+            row["core_equity"] + row["overlay_equity"]
+        )
+
+
+def test_partial_take_profit_sells_fraction_without_closing_position() -> None:
+    result = _run(
+        _bundle(
+            ["2021-01-04", "2021-01-05", "2021-01-06"],
+            [100.0, 110.0, 120.0],
+            extra_columns={
+                "sma_1": [100.0, 90.0, 90.0],
+                "sma_3": [90.0, 120.0, 120.0],
+            },
+        ),
+        _strategy(
+            name="partial-take-profit",
+            entry_rule={
+                "kind": "atomic",
+                "type": "sma_above",
+                "symbol": "SPY",
+                "fast_window": 1,
+                "slow_window": 3,
+            },
+            risk={
+                "partial_take_profit": {
+                    "trigger_profit_pct": 0.05,
+                    "sell_fraction_of_position": 0.5,
+                    "max_triggers": 1,
+                }
+            },
+        ),
+    )
+
+    assert [trade["action"] for trade in result.trade_log] == [
+        "BUY",
+        "SELL_PARTIAL_TAKE_PROFIT",
+    ]
+    assert result.trade_log[1]["shares"] == 5
+    assert result.trade_log[1]["net_pnl"] == pytest.approx(50.0)
+    assert result.timeline[1]["overlay_position_shares"] == 5
+    assert result.timeline[-1]["overlay_position_shares"] == 5
+    assert result.summary["trade_count"] == 0
+    assert result.summary["ending_equity"] == pytest.approx(1150.0)
+
+
+def test_allocation_entry_value_scales_in_until_max_position_cap() -> None:
+    result = _run(
+        _bundle(
+            ["2021-01-04", "2021-01-05", "2021-01-06", "2021-01-07"],
+            [100.0, 100.0, 100.0, 100.0],
+        ),
+        _strategy(
+            name="allocation-entry-value-and-max-position",
+            allocation={
+                "entry_mode": "percent_of_equity",
+                "entry_value": 0.25,
+                "max_position_pct": 0.5,
+            },
+        ),
+    )
+
+    assert [(trade["action"], trade["shares"]) for trade in result.trade_log] == [
+        ("BUY", 2),
+        ("BUY_ADD", 2),
+        ("BUY_ADD", 1),
+    ]
+    assert max(row["overlay_position_shares"] for row in result.timeline) == 5
+    assert result.timeline[-1]["overlay_position_market_value"] == pytest.approx(500.0)
+
+
 def test_written_artifacts_are_consistent_with_completed_simulation(tmp_path: Path) -> None:
     result = _run(
         _bundle(["2021-01-04", "2021-01-05", "2021-02-01"], [100.0, 110.0, 120.0]),
@@ -328,6 +449,46 @@ def test_written_artifacts_are_consistent_with_completed_simulation(tmp_path: Pa
         timeline.iloc[-1]["benchmark_equity"] / summary["initial_capital"] - 1.0
     ) * 100
     assert summary["benchmark_return_pct"] == pytest.approx(expected_benchmark_return)
+
+
+def test_artifact_payloads_reconcile_yearly_report_benchmark_and_chart_data(
+    tmp_path: Path,
+) -> None:
+    result = _run(
+        _bundle(
+            ["2021-01-04", "2021-01-05", "2022-01-04"],
+            [100.0, 110.0, 121.0],
+        ),
+        _strategy(name="artifact-chart-data-consistency"),
+    )
+
+    artifact_dir = write_artifacts(result, tmp_path)
+    summary = json.loads((artifact_dir / "summary.json").read_text(encoding="utf-8"))
+    timeline = pd.read_csv(artifact_dir / "timeline.csv")
+    yearly = pd.read_csv(artifact_dir / "yearly_report.csv")
+
+    expected_total_return = (
+        timeline.iloc[-1]["strategy_equity"] / timeline.iloc[0]["strategy_equity"] - 1.0
+    ) * 100.0
+    assert summary["total_return_pct"] == pytest.approx(expected_total_return)
+    assert "benchmark_equity" in timeline.columns
+    assert timeline["benchmark_equity"].notna().all()
+    assert yearly.iloc[0]["end_equity"] == pytest.approx(timeline.iloc[1]["strategy_equity"])
+    assert yearly.iloc[-1]["end_equity"] == pytest.approx(summary["ending_equity"])
+
+    chart_service = object.__new__(RunChartService)
+    chart_data = chart_service.load_chart_data(
+        {
+            "timeline": str(artifact_dir / "timeline.csv"),
+            "monthly_returns": str(artifact_dir / "monthly_returns.csv"),
+            "trade_log": str(artifact_dir / "trade_log.csv"),
+        }
+    )
+    assert chart_data["equity_curve"][-1]["strategy_equity"] == pytest.approx(
+        summary["ending_equity"]
+    )
+    assert chart_data["drawdown_curve"]
+    assert chart_data["trade_markers"][0]["side"] == "BUY"
 
 
 @dataclass
@@ -384,6 +545,13 @@ def test_parameter_sweep_rows_match_variant_summaries_and_rank_by_metric(tmp_pat
         assert row["benchmark_return_pct"] == variant_summary["benchmark_return_pct"]
         assert row["max_drawdown_pct"] == variant_summary["max_drawdown_pct"]
         assert row["trade_count"] == variant_summary["trade_count"]
+
+    persisted_summary = json.loads((tmp_path / "sweep_summary.json").read_text(encoding="utf-8"))
+    persisted_rows = pd.read_csv(tmp_path / "sweep_results.csv")
+    assert persisted_summary["variant_count"] == 4
+    assert len(persisted_rows) == persisted_summary["variant_count"]
+    assert persisted_summary["best_variant"]["variant_id"] == rows[0]["variant_id"]
+    assert Path(persisted_summary["best_variant"]["artifact_dir"], "timeline.csv").exists()
 
 
 def test_composite_entry_and_exit_groups_drive_expected_trade_dates() -> None:
@@ -447,3 +615,268 @@ def test_composite_entry_and_exit_groups_drive_expected_trade_dates() -> None:
     assert result.timeline[-1]["exit_signal"] is True
     assert result.summary["trade_count"] == 1
     assert result.summary["ending_equity"] == pytest.approx(1070.0)
+
+
+def test_composite_entry_and_exit_groups_support_or_and_nested_not_truth_tables() -> None:
+    result = _run(
+        _bundle(
+            ["2021-01-04", "2021-01-05", "2021-01-06", "2021-01-07"],
+            [100.0, 100.0, 100.0, 100.0],
+            extra_columns={
+                "rsi_2": [50.0, 25.0, 80.0, 80.0],
+                "sma_1": [90.0, 90.0, 120.0, 90.0],
+                "sma_3": [100.0, 100.0, 100.0, 100.0],
+            },
+        ),
+        _strategy(
+            name="composite-or-entry-and-exit",
+            entry_rule={
+                "kind": "group",
+                "operator": "OR",
+                "rules": [
+                    {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "SPY",
+                        "lookback": 2,
+                        "threshold": 30.0,
+                    },
+                    {
+                        "kind": "atomic",
+                        "type": "sma_above",
+                        "symbol": "SPY",
+                        "fast_window": 1,
+                        "slow_window": 3,
+                    },
+                ],
+            },
+            exit_rule={
+                "kind": "group",
+                "operator": "AND",
+                "rules": [
+                    {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "SPY",
+                        "lookback": 2,
+                        "threshold": 70.0,
+                    },
+                    {
+                        "kind": "not",
+                        "rule": {
+                            "kind": "atomic",
+                            "type": "sma_above",
+                            "symbol": "SPY",
+                            "fast_window": 1,
+                            "slow_window": 3,
+                        },
+                    },
+                ],
+            },
+        ),
+    )
+
+    assert [(trade["action"], trade["date"]) for trade in result.trade_log] == [
+        ("BUY", "2021-01-05"),
+        ("SELL_ALL", "2021-01-07"),
+    ]
+    assert [row["entry_signal"] for row in result.timeline] == [False, True, True, False]
+    assert [row["exit_signal"] for row in result.timeline] == [False, False, False, True]
+
+
+def test_mixed_composite_rules_with_nested_not_do_not_trigger_early() -> None:
+    result = _run(
+        _bundle(
+            ["2021-01-04", "2021-01-05", "2021-01-06", "2021-02-01"],
+            [100.0, 100.0, 100.0, 100.0],
+            extra_columns={
+                "rsi_2": [80.0, 40.0, 40.0, 60.0],
+                "sma_1": [120.0, 90.0, 120.0, 90.0],
+                "sma_3": [100.0, 100.0, 100.0, 100.0],
+            },
+        ),
+        _strategy(
+            name="nested-not-composite",
+            entry_rule={
+                "kind": "group",
+                "operator": "AND",
+                "rules": [
+                    {
+                        "kind": "not",
+                        "rule": {
+                            "kind": "group",
+                            "operator": "OR",
+                            "rules": [
+                                {
+                                    "kind": "atomic",
+                                    "type": "rsi_above",
+                                    "symbol": "SPY",
+                                    "lookback": 2,
+                                    "threshold": 70.0,
+                                },
+                                {
+                                    "kind": "atomic",
+                                    "type": "month_in",
+                                    "symbol": "SPY",
+                                    "month_values": [2],
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "kind": "atomic",
+                        "type": "sma_above",
+                        "symbol": "SPY",
+                        "fast_window": 1,
+                        "slow_window": 3,
+                    },
+                ],
+            },
+            exit_rule={
+                "kind": "group",
+                "operator": "OR",
+                "rules": [
+                    {
+                        "kind": "atomic",
+                        "type": "rsi_above",
+                        "symbol": "SPY",
+                        "lookback": 2,
+                        "threshold": 70.0,
+                    },
+                    {
+                        "kind": "group",
+                        "operator": "AND",
+                        "rules": [
+                            {
+                                "kind": "atomic",
+                                "type": "month_in",
+                                "symbol": "SPY",
+                                "month_values": [2],
+                            },
+                            {
+                                "kind": "not",
+                                "rule": {
+                                    "kind": "atomic",
+                                    "type": "sma_above",
+                                    "symbol": "SPY",
+                                    "fast_window": 1,
+                                    "slow_window": 3,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        ),
+    )
+
+    assert [(trade["action"], trade["date"]) for trade in result.trade_log] == [
+        ("BUY", "2021-01-06"),
+        ("SELL_ALL", "2021-02-01"),
+    ]
+    assert [row["entry_signal"] for row in result.timeline] == [False, False, True, False]
+    assert [row["exit_signal"] for row in result.timeline] == [True, False, False, True]
+
+
+def test_composite_rule_evaluation_is_order_independent_for_and_or_groups() -> None:
+    bundle = _bundle(
+        ["2021-01-04", "2021-01-05", "2021-01-06"],
+        [100.0, 100.0, 100.0],
+        extra_columns={
+            "rsi_2": [20.0, 80.0, 20.0],
+            "sma_1": [120.0, 120.0, 90.0],
+            "sma_3": [100.0, 100.0, 100.0],
+        },
+    )
+    rsi_below = {
+        "kind": "atomic",
+        "type": "rsi_below",
+        "symbol": "SPY",
+        "lookback": 2,
+        "threshold": 30.0,
+    }
+    price_above_sma = {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 3,
+    }
+
+    def signals(entry_rule: dict) -> list[bool]:
+        strategy = _strategy(name="order-independent", entry_rule=entry_rule)
+        enriched = enrich_market_data(bundle, strategy)
+        return [
+            evaluate_rule(strategy.entry_rule, enriched, index)
+            for index in range(len(enriched.tradable))
+        ]
+
+    assert signals({"kind": "group", "operator": "AND", "rules": [rsi_below, price_above_sma]}) == [
+        True,
+        False,
+        False,
+    ]
+    assert signals({"kind": "group", "operator": "AND", "rules": [price_above_sma, rsi_below]}) == [
+        True,
+        False,
+        False,
+    ]
+    assert signals({"kind": "group", "operator": "OR", "rules": [rsi_below, price_above_sma]}) == [
+        True,
+        True,
+        True,
+    ]
+    assert signals({"kind": "group", "operator": "OR", "rules": [price_above_sma, rsi_below]}) == [
+        True,
+        True,
+        True,
+    ]
+
+
+def test_price_vs_sma_rule_and_sma_crossover_rule_remain_distinct() -> None:
+    bundle = _bundle(
+        ["2021-01-04", "2021-01-05", "2021-01-06", "2021-01-07"],
+        [100.0, 101.0, 99.0, 99.0],
+        extra_columns={
+            "sma_1": [101.0, 101.0, 99.0, 99.0],
+            "sma_200": [100.0, 100.0, 100.0, 100.0],
+            "sma_20": [90.0, 90.0, 90.0, 110.0],
+            "sma_50": [100.0, 100.0, 100.0, 100.0],
+        },
+    )
+    strategy = _strategy(
+        name="sma-distinction",
+        entry_rule={
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": "SPY",
+            "fast_window": 1,
+            "slow_window": 200,
+        },
+        exit_rule={
+            "kind": "atomic",
+            "type": "sma_cross_above",
+            "symbol": "SPY",
+            "fast_window": 20,
+            "slow_window": 50,
+        },
+    )
+
+    enriched = enrich_market_data(bundle, strategy)
+
+    price_above_sma_signals = [
+        evaluate_rule(strategy.entry_rule, enriched, index)
+        for index in range(len(enriched.tradable))
+    ]
+    crossover_signals = [
+        evaluate_rule(strategy.exit_rule, enriched, index)
+        for index in range(len(enriched.tradable))
+    ]
+    assert price_above_sma_signals == [True, True, False, False]
+    assert crossover_signals == [False, False, False, True]
+
+    result = _run(bundle, strategy)
+    assert [(trade["action"], trade["date"]) for trade in result.trade_log] == [
+        ("BUY", "2021-01-04"),
+        ("SELL_ALL", "2021-01-07"),
+    ]

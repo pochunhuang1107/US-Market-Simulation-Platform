@@ -93,6 +93,50 @@ def test_variant_generation_does_not_mutate_base_config() -> None:
     assert variants[0]["variant_name"].startswith("qqq-rsi-sweep-001-threshold-20")
 
 
+def test_variant_generation_updates_nested_composite_rule_paths_without_mutation() -> None:
+    base_config = _base_rsi_config()
+    base_config["entry_rule"] = {
+        "kind": "group",
+        "operator": "AND",
+        "rules": [
+            {
+                "kind": "atomic",
+                "type": "rsi_below",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 30,
+            },
+            {
+                "kind": "atomic",
+                "type": "sma_above",
+                "symbol": "QQQ",
+                "fast_window": 1,
+                "slow_window": 200,
+            },
+        ],
+    }
+    original = json.loads(json.dumps(base_config))
+
+    variants = generate_variant_configs(
+        base_config,
+        {
+            "entry_rule.rules[0].threshold": [25, 35],
+            "entry_rule.rules[1].slow_window": [150],
+        },
+    )
+
+    assert base_config == original
+    assert variants[0]["parameters"] == {
+        "entry_rule.rules[0].threshold": 25,
+        "entry_rule.rules[1].slow_window": 150,
+    }
+    assert variants[0]["config"]["entry_rule"]["rules"][0]["threshold"] == 25
+    assert variants[0]["config"]["entry_rule"]["rules"][1]["slow_window"] == 150
+    assert variants[1]["config"]["entry_rule"]["rules"][0]["threshold"] == 35
+    assert original["entry_rule"]["rules"][0]["threshold"] == 30
+    assert original["entry_rule"]["rules"][1]["slow_window"] == 200
+
+
 def test_max_variant_limit_returns_clear_error() -> None:
     with pytest.raises(
         ParameterSweepError,
