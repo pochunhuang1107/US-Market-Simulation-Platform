@@ -725,7 +725,7 @@ def _extract_relative_strength_rules(
     }
 
     assumptions.append(
-        "Interpreted relative strength language as entering when the tradable symbol outperforms the reference symbol over the selected lookback window."
+        f"Interpreted relative strength language as {tradable_symbol} outperforming {reference_symbol} over {lookback} trading days."
     )
 
     return entry_rule, exit_rule, assumptions

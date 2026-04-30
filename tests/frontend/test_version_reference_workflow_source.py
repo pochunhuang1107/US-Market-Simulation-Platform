@@ -64,8 +64,8 @@ def test_strategy_detail_shows_selected_version_config_and_run_history():
 
     assert "function configSummaryRows" in source
     assert "Version Config Summary" in source
-    assert "summarizeRule(config.entry_rule)" in source
-    assert "summarizeRule(config.exit_rule)" in source
+    assert "summarizeStrategyRule(config.entry_rule" in source
+    assert "summarizeStrategyRule(config.exit_rule" in source
     assert "`Results for v${selectedVersion.version_number}`" in source
     assert "`No results recorded for v${selectedVersion.version_number}.`" in source
     assert "Reference Total Return" in source
