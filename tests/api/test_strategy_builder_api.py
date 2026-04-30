@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from datetime import date
 
+import pandas as pd
 import pytest
 import market_simulator.services.strategy_builder_service as builder_service
 import market_simulator.services.strategy_builder_parsers as builder_parsers
 import market_simulator.services.strategy_builder_response as builder_response
+from market_simulator.data.repository import MarketDataBundle
+from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.platform.services.parameter_sweep import (
     generate_variant_configs,
     get_nested,
 )
+from market_simulator.strategy.enricher import enrich_market_data
+from market_simulator.strategy.evaluator import evaluate_rule
 from market_simulator.settings import get_settings
 from market_simulator.db.models import Plan
 
@@ -1453,6 +1458,7 @@ def test_generate_strategy_builder_draft_parses_relative_strength_strategy(clien
     assert config["entry_rule"]["reference_symbol"] == "SPY"
     assert config["entry_rule"]["lookback"] == 20
     assert config["entry_rule"]["threshold"] == 0.03
+    assert "SPY" in config["reference_symbols"]
 
     assert config["exit_rule"]["kind"] == "not"
     assert config["exit_rule"]["rule"]["type"] == "relative_return_above"
@@ -1460,6 +1466,32 @@ def test_generate_strategy_builder_draft_parses_relative_strength_strategy(clien
     assert config["exit_rule"]["rule"]["reference_symbol"] == "SPY"
     assert config["exit_rule"]["rule"]["lookback"] == 20
     assert config["exit_rule"]["rule"]["threshold"] == 0.03
+
+    dates = pd.date_range("2021-01-04", periods=21, freq="B")
+
+    def frame(symbol: str, closes: list[float]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "date": dates,
+                "symbol": symbol,
+                "open": closes,
+                "high": closes,
+                "low": closes,
+                "close": closes,
+                "volume": [1_000_000.0] * len(closes),
+                "vwap": closes,
+                "transactions": [1_000.0] * len(closes),
+            }
+        )
+
+    strategy = StrategyV2.model_validate(config)
+    bundle = MarketDataBundle(
+        tradable=frame("QQQ", [100.0] * 20 + [108.0]),
+        references={"SPY": frame("SPY", [100.0] * 20 + [104.0])},
+    )
+    enriched = enrich_market_data(bundle, strategy)
+
+    assert evaluate_rule(strategy.entry_rule, enriched, 20, strategy.tradable_symbol) is True
 
 
 def test_generate_strategy_builder_draft_syncs_reference_symbols_for_relative_strength_strategy(client):

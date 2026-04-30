@@ -80,8 +80,8 @@ def run_simulation(bundle, strategy):
         date = pd.Timestamp(row["date"])
         close = float(row["close"])
 
-        entry_signal = evaluate_rule(strategy.entry_rule, bundle, i)
-        exit_signal = evaluate_rule(strategy.exit_rule, bundle, i)
+        entry_signal = evaluate_rule(strategy.entry_rule, bundle, i, strategy.tradable_symbol)
+        exit_signal = evaluate_rule(strategy.exit_rule, bundle, i, strategy.tradable_symbol)
         action = ""
 
         # === POSITION MANAGEMENT CONFIG (NEW) ===
