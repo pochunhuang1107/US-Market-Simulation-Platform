@@ -10,7 +10,7 @@ from market_simulator.api.schemas.strategies import (
     CreateStrategyRequest,
     CreateStrategyVersionRequest,
     StrategyDashboardResponse,
-    StrategyLatestPerformance,
+    StrategyReferencePerformance,
     StrategyResponse,
     StrategyVersionSummary,
 )
@@ -20,13 +20,21 @@ from market_simulator.repositories.strategies import (
     create_strategy,
     create_strategy_version,
     get_strategy_for_user,
+    get_strategy_version,
+    get_strategy_version_reference_run,
     list_strategies,
     list_strategy_versions,
+    set_missing_reference_run_from_eligible_success,
     update_strategy_status_for_user,
 )
 from market_simulator.services.entitlements import (
     enforce_strategy_create_access,
     enforce_strategy_history_access,
+)
+from market_simulator.services.draft_validation import validate_backtest_window
+from market_simulator.services.strategy_version_identity import (
+    normalize_strategy_version_identity_fields,
+    validate_strategy_version_identity,
 )
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
@@ -57,6 +65,24 @@ def _run_source_metadata(run) -> dict:
         "source_variant_rank": source_variant_rank if isinstance(source_variant_rank, int) else None,
         "source_ranking_metric": payload.get("source_ranking_metric"),
     }
+
+
+def _performance_from_run(run) -> StrategyReferencePerformance:
+    summary_json = run.summary_json or {}
+    return StrategyReferencePerformance(
+        run_id=str(run.id),
+        **_run_source_metadata(run),
+        finished_at=run.finished_at,
+        total_return_pct=summary_json.get("total_return_pct"),
+        benchmark_return_pct=summary_json.get("benchmark_return_pct"),
+        alpha_vs_benchmark_pct=summary_json.get("alpha_vs_benchmark_pct"),
+        cagr_pct=summary_json.get("cagr_pct"),
+        sharpe_ratio=summary_json.get("sharpe_ratio"),
+        max_drawdown_pct=summary_json.get("max_drawdown_pct"),
+        benchmark_max_drawdown_pct=summary_json.get("benchmark_max_drawdown_pct"),
+        trade_count=summary_json.get("trade_count"),
+        win_rate_pct=summary_json.get("win_rate_pct"),
+    )
 
 
 @router.post("")
@@ -94,17 +120,39 @@ def create_strategy_version_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    enforce_strategy_history_access(db, user["id"])
+    entitlements = enforce_strategy_history_access(db, user["id"])
 
     strategy = get_strategy_for_user(db, strategy_id, user["id"])
     if strategy is None:
         raise HTTPException(status_code=404, detail="Strategy not found")
 
+    normalized_config = normalize_strategy_version_identity_fields(
+        strategy_name=strategy.name,
+        config=req.config,
+    )
+    current_version = (
+        get_strategy_version(db, strategy.current_version_id)
+        if strategy.current_version_id is not None
+        else None
+    )
+    if current_version is not None:
+        try:
+            validate_strategy_version_identity(
+                current_config=current_version.config_json,
+                new_config=normalized_config,
+            )
+            validate_backtest_window(
+                config=normalized_config,
+                max_backtest_years=entitlements.max_backtest_years,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     version = create_strategy_version(
         db,
         strategy.id,
-        req.config,
-        hash_config(req.config),
+        normalized_config,
+        hash_config(normalized_config),
         user["id"],
         change_note=req.change_note,
     )
@@ -176,11 +224,13 @@ def get_strategy_dashboard_api(
         db,
         user["id"],
         strategy_id=strategy_id,
+        include_derived_results=False,
     )
     recent_runs = list_runs(
         db,
         user["id"],
         strategy_id=strategy_id,
+        include_derived_results=False,
         offset=0,
         limit=10,
     )
@@ -220,41 +270,32 @@ def get_strategy_dashboard_api(
             )
         )
 
-    latest_succeeded_runs = list_runs(
-        db,
-        user["id"],
-        status="SUCCEEDED",
-        strategy_id=strategy_id,
-        offset=0,
-        limit=1,
+    current_version = next(
+        (version for version in versions if version.id == strategy.current_version_id),
+        versions[0] if versions else None,
     )
-
-    latest_run_id = None
-    latest_finished_at = None
-    latest_performance = None
-
-    if latest_succeeded_runs:
-        latest_run = latest_succeeded_runs[0]
-        summary_json = latest_run.summary_json or {}
-
-        latest_run_id = str(latest_run.id)
-        latest_finished_at = latest_run.finished_at
-        source_metadata = _run_source_metadata(latest_run)
-
-        latest_performance = StrategyLatestPerformance(
-            run_id=latest_run_id,
-            **source_metadata,
-            finished_at=latest_finished_at,
-            total_return_pct=summary_json.get("total_return_pct"),
-            benchmark_return_pct=summary_json.get("benchmark_return_pct"),
-            alpha_vs_benchmark_pct=summary_json.get("alpha_vs_benchmark_pct"),
-            cagr_pct=summary_json.get("cagr_pct"),
-            sharpe_ratio=summary_json.get("sharpe_ratio"),
-            max_drawdown_pct=summary_json.get("max_drawdown_pct"),
-            benchmark_max_drawdown_pct=summary_json.get("benchmark_max_drawdown_pct"),
-            trade_count=summary_json.get("trade_count"),
-            win_rate_pct=summary_json.get("win_rate_pct"),
+    reference_run = (
+        get_strategy_version_reference_run(
+            db,
+            version_id=current_version.id,
+            user_id=user["id"],
         )
+        if current_version is not None
+        else None
+    )
+    if reference_run is None and current_version is not None:
+        repaired_reference_run = set_missing_reference_run_from_eligible_success(
+            db,
+            version_id=current_version.id,
+            user_id=user["id"],
+        )
+        if repaired_reference_run is not None:
+            reference_run = repaired_reference_run
+            versions = list_strategy_versions(db, strategy_id)
+
+    reference_run_id = str(reference_run.id) if reference_run is not None else None
+    reference_finished_at = reference_run.finished_at if reference_run is not None else None
+    reference_performance = _performance_from_run(reference_run) if reference_run is not None else None
 
     return StrategyDashboardResponse(
         strategy=StrategyResponse.model_validate(strategy),
@@ -266,7 +307,10 @@ def get_strategy_dashboard_api(
         ],
         associated_runs=associated_runs,
         total_runs=total_runs,
-        latest_run_id=latest_run_id,
-        latest_finished_at=latest_finished_at,
-        latest_performance=latest_performance,
+        reference_run_id=reference_run_id,
+        reference_finished_at=reference_finished_at,
+        reference_performance=reference_performance,
+        latest_run_id=reference_run_id,
+        latest_finished_at=reference_finished_at,
+        latest_performance=reference_performance,
     )

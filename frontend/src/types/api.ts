@@ -263,12 +263,13 @@ export interface StrategyVersionSummary {
   config_json: Record<string, unknown>;
   config_hash: string;
   change_note: Nullable<string>;
+  reference_run_id: Nullable<string>;
   created_by_user_id: string;
   created_at: string;
   is_current: boolean;
 }
 
-export interface StrategyLatestPerformance {
+export interface StrategyReferencePerformance {
   run_id: string;
   source: Nullable<string>;
   source_sweep_run_id: Nullable<string>;
@@ -287,11 +288,16 @@ export interface StrategyLatestPerformance {
   win_rate_pct: Nullable<number>;
 }
 
+export type StrategyLatestPerformance = StrategyReferencePerformance;
+
 export interface StrategyDashboardResponse {
   strategy: StrategyListItem;
   versions: StrategyVersionSummary[];
   associated_runs: RunDashboardListItem[];
   total_runs: number;
+  reference_run_id: Nullable<string>;
+  reference_finished_at: Nullable<string>;
+  reference_performance: Nullable<StrategyReferencePerformance>;
   latest_run_id: Nullable<string>;
   latest_finished_at: Nullable<string>;
   latest_performance: Nullable<StrategyLatestPerformance>;

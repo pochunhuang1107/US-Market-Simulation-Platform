@@ -47,6 +47,27 @@ function prettifyJson(value: unknown): string {
   }
 }
 
+function removeEditableIdentityFields(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const editable = { ...(value as Record<string, unknown>) };
+  delete editable.name;
+  return editable;
+}
+
+function editableConfigText(value: unknown): string {
+  return prettifyJson(removeEditableIdentityFields(value));
+}
+
+function editableConfigTextFromString(value: string): string {
+  try {
+    return editableConfigText(JSON.parse(value));
+  } catch {
+    return value;
+  }
+}
+
 function shortRunId(runId: string): string {
   return runId.split('-')[0] || runId;
 }
@@ -157,7 +178,7 @@ export function CreateStrategyVersionPage() {
           response.versions.find((version) => version.is_current) ?? response.versions[0] ?? null;
 
         if (builderDraft?.configText) {
-          setConfigText(builderDraft.configText);
+          setConfigText(editableConfigTextFromString(builderDraft.configText));
           if (builderDraft.changeNote) {
             setChangeNote(builderDraft.changeNote);
           }
@@ -173,7 +194,7 @@ export function CreateStrategyVersionPage() {
             return;
           }
 
-          setConfigText(prettifyJson(variantResponse.variant.config ?? {}));
+          setConfigText(editableConfigText(variantResponse.variant.config ?? {}));
           const rankingMetric = sweepRankingMetric || variantResponse.ranking_metric || 'sharpe_ratio';
           const rank = rankForMetric(variantResponse, sweepVariantId, rankingMetric);
           setChangeNote(
@@ -182,7 +203,7 @@ export function CreateStrategyVersionPage() {
           return;
         }
 
-        setConfigText(prettifyJson(currentVersion?.config_json ?? {}));
+        setConfigText(editableConfigText(currentVersion?.config_json ?? {}));
       } catch (error) {
         if (!active) return;
         setLoadError(normalizeError(error));
@@ -227,7 +248,7 @@ export function CreateStrategyVersionPage() {
         return;
       }
 
-      parsedConfig = parsed as Record<string, unknown>;
+      parsedConfig = removeEditableIdentityFields(parsed);
     } catch {
       setSubmitError('Config must be valid JSON.');
       return;
@@ -242,7 +263,14 @@ export function CreateStrategyVersionPage() {
 
     try {
       await createStrategyVersion(strategyId, payload);
-      navigate(`/strategies/${strategyId}`);
+      navigate(`/strategies/${strategyId}`, {
+        state: {
+          notice: {
+            tone: 'success',
+            message: 'New version saved. Run this version to create its reference result.'
+          }
+        }
+      });
     } catch (error) {
       setSubmitError(normalizeError(error));
     } finally {
@@ -365,7 +393,9 @@ export function CreateStrategyVersionPage() {
               type="button"
               onClick={() =>
                 setConfigText(
-                  builderDraft?.configText ?? prettifyJson(currentVersion?.config_json ?? {})
+                  builderDraft?.configText
+                    ? editableConfigTextFromString(builderDraft.configText)
+                    : editableConfigText(currentVersion?.config_json ?? {})
                 )
               }
               className="app-button-secondary rounded-2xl px-4 py-3 text-sm font-medium transition"

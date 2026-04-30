@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from market_simulator.db.enums import ArtifactStorageType, RunStatus
 from market_simulator.db.models.run import Run
+from market_simulator.db.models.strategy import Strategy, StrategyVersion
 
 
 TERMINAL_RUN_STATUSES = {
@@ -364,6 +365,30 @@ def mark_run_succeeded(
     run.leased_until = None
     run.finished_at = now
     run.error_message = None
+    if run.strategy_version_id is not None and run.run_type == "SIMULATION":
+        request_payload = run.request_payload or {}
+        reference_strategy_version_id = request_payload.get("reference_strategy_version_id")
+        target_version_id = reference_strategy_version_id or run.strategy_version_id
+        should_set_reference = (
+            request_payload.get("set_as_reference_on_success") is True
+            or request_payload.get("source") == "strategy_version_reference_run"
+            or str(reference_strategy_version_id) == str(run.strategy_version_id)
+        )
+        version = None
+        if should_set_reference and str(target_version_id) == str(run.strategy_version_id):
+            version = (
+                db.query(StrategyVersion)
+                .join(Strategy, Strategy.id == StrategyVersion.strategy_id)
+                .filter(
+                    StrategyVersion.id == target_version_id,
+                    StrategyVersion.reference_run_id.is_(None),
+                    StrategyVersion.strategy_id == run.strategy_id,
+                    Strategy.user_id == run.user_id,
+                )
+                .first()
+            )
+        if version is not None:
+            version.reference_run_id = run.id
     db.commit()
     db.refresh(run)
     return run

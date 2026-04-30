@@ -50,8 +50,13 @@ from market_simulator.repositories.strategies import (
     create_strategy_version,
     get_strategy_for_user,
     get_strategy_version,
+    set_strategy_version_reference_run,
 )
-from market_simulator.services.draft_validation import validate_draft_config
+from market_simulator.services.draft_validation import validate_backtest_window, validate_draft_config
+from market_simulator.services.strategy_version_identity import (
+    normalize_strategy_version_identity_fields,
+    validate_strategy_version_identity,
+)
 from market_simulator.services.entitlements import (
     enforce_comparison_run_limit,
     enforce_run_create_access,
@@ -343,6 +348,16 @@ def create_run_api(
             strategy_id=req.strategy_id,
             strategy_version_id=req.strategy_version_id,
         )
+        if req.strategy_version_id is not None and req.run_type in {"SIMULATION", "PARAMETER_SWEEP"}:
+            version = get_strategy_version(db, req.strategy_version_id)
+            if version is not None:
+                try:
+                    validate_backtest_window(
+                        config=version.config_json,
+                        max_backtest_years=entitlements.max_backtest_years,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     parent_run_id = None
     if req.parent_run_id is not None:
@@ -680,6 +695,12 @@ def save_draft_run_as_strategy_api(
         strategy_id=strategy.id,
         strategy_version_id=version.id,
     )
+    set_strategy_version_reference_run(
+        db,
+        version_id=version.id,
+        run_id=run.id,
+        user_id=user["id"],
+    )
 
     return SaveDraftRunAsStrategyResponse(
         run_id=str(run.id),
@@ -727,7 +748,7 @@ def promote_sweep_variant_api(
     sweep_origin = _sweep_origin(run)
 
     if sweep_origin == "SAVED_STRATEGY":
-        enforce_strategy_history_access(db, user["id"])
+        entitlements = enforce_strategy_history_access(db, user["id"])
         origin_strategy_id = _sweep_origin_strategy_id(run)
         if origin_strategy_id is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
@@ -735,6 +756,22 @@ def promote_sweep_variant_api(
         strategy = get_strategy_for_user(db, origin_strategy_id, user["id"])
         if strategy is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
+        if run.strategy_version is not None:
+            config = normalize_strategy_version_identity_fields(
+                strategy_name=strategy.name,
+                config=config,
+            )
+            try:
+                validate_strategy_version_identity(
+                    current_config=run.strategy_version.config_json,
+                    new_config=config,
+                )
+                validate_backtest_window(
+                    config=config,
+                    max_backtest_years=entitlements.max_backtest_years,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         derived_run = None
     else:
         existing_saved_run = find_saved_sweep_variant_run(
@@ -744,6 +781,12 @@ def promote_sweep_variant_api(
             variant_id=variant_id,
         )
         if existing_saved_run is not None:
+            set_strategy_version_reference_run(
+                db,
+                version_id=existing_saved_run.strategy_version_id,
+                run_id=existing_saved_run.id,
+                user_id=user["id"],
+            )
             return PromoteSweepVariantResponse(
                 run_id=str(run.id),
                 variant_id=variant_id,
@@ -784,6 +827,37 @@ def promote_sweep_variant_api(
             strategy_version_id=version.id,
             config=config,
         )
+        set_strategy_version_reference_run(
+            db,
+            version_id=version.id,
+            run_id=derived_run.id,
+            user_id=user["id"],
+        )
+    else:
+        ranking_metric = (run.summary_json or {}).get("ranking_metric")
+        variant_config = normalize_strategy_version_identity_fields(
+            strategy_name=strategy.name,
+            config=_get_sweep_variant_config(run, variant, variant_id),
+        )
+        if _hash_config(config) == _hash_config(variant_config):
+            derived_run = _create_sweep_variant_result_run(
+                db,
+                user_id=user["id"],
+                sweep_run=run,
+                variant_id=variant_id,
+                variant=variant,
+                rank=rank,
+                ranking_metric=ranking_metric if isinstance(ranking_metric, str) else None,
+                strategy_id=strategy.id,
+                strategy_version_id=version.id,
+                config=config,
+            )
+            set_strategy_version_reference_run(
+                db,
+                version_id=version.id,
+                run_id=derived_run.id,
+                user_id=user["id"],
+            )
 
     return PromoteSweepVariantResponse(
         run_id=str(run.id),

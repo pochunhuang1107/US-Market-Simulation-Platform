@@ -10,6 +10,7 @@ export function VersionsTable({ versions }: { versions: StrategyVersionSummary[]
             <tr>
               <th className="px-5 py-4">Version</th>
               <th className="px-5 py-4">Created</th>
+              <th className="px-5 py-4">Reference result</th>
               <th className="px-5 py-4">Change note</th>
             </tr>
           </thead>
@@ -27,6 +28,13 @@ export function VersionsTable({ versions }: { versions: StrategyVersionSummary[]
                   </div>
                 </td>
                 <td className="app-text-muted px-5 py-4">{formatDateTime(version.created_at)}</td>
+                <td className="app-text-muted px-5 py-4">
+                  {version.reference_run_id ? (
+                    <span className="font-mono text-xs">{version.reference_run_id.split('-')[0]}</span>
+                  ) : (
+                    'No reference result yet'
+                  )}
+                </td>
                 <td className="app-text-muted px-5 py-4">{version.change_note || '—'}</td>
               </tr>
             ))}

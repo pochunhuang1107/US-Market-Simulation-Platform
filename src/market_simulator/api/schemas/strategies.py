@@ -49,16 +49,17 @@ class StrategyVersionSummary(BaseModel):
     config_json: dict
     config_hash: str
     change_note: str | None = None
+    reference_run_id: UUID | None = None
     created_by_user_id: UUID
     created_at: datetime
     is_current: bool = False
 
-    @field_serializer("id", "strategy_id", "created_by_user_id")
-    def serialize_uuid(self, value: UUID):
-        return str(value)
+    @field_serializer("id", "strategy_id", "reference_run_id", "created_by_user_id")
+    def serialize_uuid(self, value: UUID | None):
+        return str(value) if value is not None else None
 
 
-class StrategyLatestPerformance(BaseModel):
+class StrategyReferencePerformance(BaseModel):
     run_id: str
     source: str | None = None
     source_sweep_run_id: str | None = None
@@ -77,11 +78,17 @@ class StrategyLatestPerformance(BaseModel):
     win_rate_pct: float | None = None
 
 
+StrategyLatestPerformance = StrategyReferencePerformance
+
+
 class StrategyDashboardResponse(BaseModel):
     strategy: StrategyResponse
     versions: list[StrategyVersionSummary]
     associated_runs: list[RunDashboardListItem]
     total_runs: int
+    reference_run_id: str | None = None
+    reference_finished_at: datetime | None = None
+    reference_performance: StrategyReferencePerformance | None = None
     latest_run_id: str | None = None
     latest_finished_at: datetime | None = None
     latest_performance: StrategyLatestPerformance | None = None

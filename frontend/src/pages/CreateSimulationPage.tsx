@@ -37,7 +37,42 @@ function getExecutorTypeForRunType(runType: RunType): string {
   }
 }
 
-const DEFAULT_REQUEST_PAYLOAD = '{\n  "data_path": "s3://us-market-data-casper/curated/etf_daily_prices/**/*.parquet",\n  "start_date": "2018-01-02",\n  "end_date": "2024-12-31",\n  "initial_capital": 100000\n}';
+function buildDefaultRequestPayload(config: Record<string, unknown> | null | undefined): string {
+  const payload: Record<string, unknown> = {};
+  if (typeof config?.start_date === 'string') {
+    payload.start_date = config.start_date;
+  }
+  if (typeof config?.end_date === 'string') {
+    payload.end_date = config.end_date;
+  }
+  if (typeof config?.initial_capital === 'number') {
+    payload.initial_capital = config.initial_capital;
+  }
+  return JSON.stringify(payload, null, 2);
+}
+
+function sanitizeInternalValues(value: unknown): unknown {
+  const cloudPrefix = ['s3', '://'].join('');
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeInternalValues(item));
+  }
+
+  if (!value || typeof value !== 'object') {
+    if (typeof value === 'string' && (value.startsWith(cloudPrefix) || value.includes('local_artifacts'))) {
+      return '[managed by platform]';
+    }
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => {
+        const normalized = key.toLowerCase();
+        return !normalized.includes('artifact') && !normalized.includes('path') && !normalized.includes('uri');
+      })
+      .map(([key, nestedValue]) => [key, sanitizeInternalValues(nestedValue)])
+  );
+}
 
 export function CreateSimulationPage() {
   const navigate = useNavigate();
@@ -56,7 +91,7 @@ export function CreateSimulationPage() {
   const [runType, setRunType] = useState<RunType>('SIMULATION');
   const [maxAttempts, setMaxAttempts] = useState(3);
   const [enqueueImmediately, setEnqueueImmediately] = useState(true);
-  const [requestPayloadText, setRequestPayloadText] = useState(DEFAULT_REQUEST_PAYLOAD);
+  const [requestPayloadText, setRequestPayloadText] = useState(buildDefaultRequestPayload(null));
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -148,6 +183,10 @@ export function CreateSimulationPage() {
     () => strategyDashboard?.versions.find((version) => version.id === selectedVersionId) ?? null,
     [strategyDashboard, selectedVersionId]
   );
+
+  useEffect(() => {
+    setRequestPayloadText(buildDefaultRequestPayload(selectedVersion?.config_json));
+  }, [selectedVersion?.id]);
 
   const executorType = useMemo(() => getExecutorTypeForRunType(runType), [runType]);
 
@@ -370,7 +409,7 @@ export function CreateSimulationPage() {
           <SectionCard title="Version Config Snapshot" subtitle="Read-only preview of the selected strategy version.">
             {selectedVersion ? (
               <pre className="app-form-code max-h-[420px] overflow-auto rounded-2xl p-4 font-mono text-xs leading-6">
-                {prettyJson(selectedVersion.config_json)}
+                {prettyJson(sanitizeInternalValues(selectedVersion.config_json) as Record<string, unknown>)}
               </pre>
             ) : (
               <p className="text-sm app-text-muted">Choose a strategy version to inspect its config.</p>
