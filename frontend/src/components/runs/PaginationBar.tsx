@@ -14,7 +14,7 @@ export function PaginationBar({ page, pageSize, total, hasNext, onPageChange }: 
     <div className="app-card app-shadow flex flex-col gap-4 rounded-3xl border px-5 py-4 text-sm app-text-muted sm:flex-row sm:items-center sm:justify-between">
       <p>
         Showing <span className="font-semibold app-title">{start}</span> to <span className="font-semibold app-title">{end}</span> of{' '}
-        <span className="font-semibold app-title">{total}</span> runs
+        <span className="font-semibold app-title">{total}</span> results
       </p>
       <div className="flex items-center gap-3">
         <button

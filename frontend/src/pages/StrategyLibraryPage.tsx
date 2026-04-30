@@ -161,7 +161,7 @@ export function StrategyLibraryPage() {
 
       <SectionCard
         title="Strategy Library"
-        subtitle="Open a saved strategy to review versions, recent runs, and next research actions."
+        subtitle="Open a saved strategy to review versions, recent results, and next research actions."
         actions={
           <div className="space-y-1">
             <label className="inline-flex items-center gap-2 text-sm font-medium app-text-muted">
@@ -186,7 +186,7 @@ export function StrategyLibraryPage() {
             <div>
               <h4 className="app-title text-base font-semibold">No saved strategies yet</h4>
               <p className="mt-2 max-w-2xl text-sm leading-6 app-text-muted">
-                Save a successful run to keep it here as a durable strategy.
+                Save a successful result to keep it here as a durable strategy.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -200,7 +200,7 @@ export function StrategyLibraryPage() {
                 to="/runs"
                 className="app-button-secondary inline-flex rounded-xl px-4 py-2 text-sm font-medium transition"
               >
-                View runs
+                View results
               </Link>
             </div>
           </div>

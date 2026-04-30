@@ -197,12 +197,12 @@ export function CreateSimulationPage() {
     setCreatedRunId(null);
 
     if (!selectedStrategyId) {
-      setSubmitError('Choose a strategy before creating a run.');
+      setSubmitError('Choose a strategy before creating a result.');
       return;
     }
 
     if (!selectedVersionId) {
-      setSubmitError('Choose a strategy version before creating a run.');
+      setSubmitError('Choose a strategy version before creating a result.');
       return;
     }
 
@@ -235,12 +235,12 @@ export function CreateSimulationPage() {
 
       if (enqueueImmediately) {
         const action = await enqueueRun(run.id);
-        setSuccessMessage(`Run created and queued. ${action.message}`);
+        setSuccessMessage(`Result created and queued. ${action.message}`);
       } else {
-        setSuccessMessage('Run created successfully. It is still pending until you enqueue it.');
+        setSuccessMessage('Result created successfully. It is still pending until you enqueue it.');
       }
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : 'Failed to create simulation run');
+      setSubmitError(error instanceof Error ? error.message : 'Failed to create simulation result');
     } finally {
       setSubmitting(false);
     }
@@ -255,7 +255,7 @@ export function CreateSimulationPage() {
         actions={
           <>
             <Link to="/runs" className="app-button-secondary rounded-xl px-4 py-2 text-sm transition">
-              Back to runs
+              Back to results
             </Link>
             {createdRunId ? (
               <button
@@ -263,7 +263,7 @@ export function CreateSimulationPage() {
                 onClick={() => navigate(`/runs/${createdRunId}`)}
                 className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
               >
-                Open created run
+                Open created result
               </button>
             ) : null}
           </>
@@ -272,8 +272,8 @@ export function CreateSimulationPage() {
 
       {strategyError ? <StateCard title="Failed to load strategies" description={strategyError} tone="error" /> : null}
       {versionsError ? <StateCard title="Failed to load strategy versions" description={versionsError} tone="error" /> : null}
-      {submitError ? <StateCard title="Run creation failed" description={submitError} tone="error" /> : null}
-      {successMessage ? <StateCard title="Run request accepted" description={successMessage} /> : null}
+      {submitError ? <StateCard title="Result creation failed" description={submitError} tone="error" /> : null}
+      {successMessage ? <StateCard title="Result request accepted" description={successMessage} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <SectionCard title="Manual Run Request" subtitle="Choose a strategy and version, then submit a manual run request payload.">
@@ -358,7 +358,7 @@ export function CreateSimulationPage() {
                     onChange={(event) => setEnqueueImmediately(event.target.checked)}
                     className="app-checkbox h-4 w-4 rounded"
                   />
-                  Enqueue immediately after the run is created
+                  Enqueue immediately after the result is created
                 </label>
               </Field>
             </div>
@@ -386,7 +386,7 @@ export function CreateSimulationPage() {
                   to={`/runs/${createdRunId}`}
                   className="app-button-secondary rounded-xl px-4 py-2 text-sm transition"
                 >
-                  View created run
+                  View created result
                 </Link>
               ) : null}
             </div>
@@ -394,7 +394,7 @@ export function CreateSimulationPage() {
         </SectionCard>
 
         <div className="space-y-6">
-          <SectionCard title="Selection Preview" subtitle="Confirm the strategy and version that will back this run.">
+          <SectionCard title="Selection Preview" subtitle="Confirm the strategy and version that will back this result.">
             <dl className="space-y-4 text-sm">
               <Row label="Strategy name" value={selectedStrategy?.name} />
               <Row label="Strategy type" value={selectedStrategy ? formatStrategyType(selectedStrategy.strategy_type) : '—'} />
@@ -418,8 +418,8 @@ export function CreateSimulationPage() {
 
           <SectionCard title="What this advanced page supports" subtitle="Manual controls for experienced workflows.">
             <ul className="app-list space-y-2 text-sm">
-              <li>• Create a run from an existing strategy and version.</li>
-              <li>• Optionally enqueue the run immediately after creation.</li>
+              <li>• Create a result from an existing strategy and version.</li>
+              <li>• Optionally enqueue the result immediately after creation.</li>
               <li>• Reuse the selected strategy version config as a read-only reference.</li>
               <li>• Keep request payloads explicit for advanced workflows.</li>
             </ul>

@@ -180,7 +180,7 @@ export function ParameterSweepResults({ run }: { run: RunResponse }) {
 
         {shouldShowArtifactNote ? (
           <div className="app-note rounded-2xl px-4 py-3 text-sm">
-            Sweep artifacts were generated. Open sweep_summary.json from the run artifacts to inspect ranked variants.
+            Sweep artifacts were generated. Open sweep_summary.json from the result artifacts to inspect ranked variants.
           </div>
         ) : null}
 
@@ -257,7 +257,7 @@ export function ParameterSweepResults({ run }: { run: RunResponse }) {
           </div>
         ) : shouldShowArtifactNote ? null : (
           <div className="app-note rounded-2xl px-4 py-3 text-sm">
-            No ranked variants were available in this run summary.
+            No ranked variants were available in this result summary.
           </div>
         )}
       </div>

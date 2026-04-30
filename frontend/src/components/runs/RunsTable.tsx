@@ -30,7 +30,7 @@ export function RunsTable({
   loading,
   compact = false,
   referenceRunId = null,
-  emptyTitle = 'No runs match these filters.',
+  emptyTitle = 'No results match these filters.',
   emptyDescription = 'Try clearing filters or start from the Home builder.'
 }: RunsTableProps) {
   const columns = compact ? 7 : 9;
@@ -41,7 +41,7 @@ export function RunsTable({
         <table className="min-w-full divide-y app-divider text-sm">
           <thead className="app-table-head">
             <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em]">
-              <HeaderCell>Run</HeaderCell>
+              <HeaderCell>Result</HeaderCell>
               <HeaderCell>Status</HeaderCell>
               <HeaderCell>Created</HeaderCell>
               <HeaderCell>Finished</HeaderCell>
@@ -56,7 +56,7 @@ export function RunsTable({
             {loading ? (
               <tr>
                 <td colSpan={columns} className="px-5 py-16 text-center app-text-muted">
-                  Loading runs…
+                  Loading results…
                 </td>
               </tr>
             ) : runs.length === 0 ? (
@@ -128,7 +128,7 @@ export function RunsTable({
                             to={`/runs/${run.run_id}`}
                             className="app-button-secondary inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold whitespace-nowrap"
                           >
-                            {run.status === 'SUCCEEDED' ? 'Open result' : 'Open run'}
+                            Open result
                           </Link>
                           {!compact && run.status === 'SUCCEEDED' ? (
                             <Link

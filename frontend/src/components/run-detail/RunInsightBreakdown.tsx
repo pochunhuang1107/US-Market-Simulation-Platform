@@ -219,7 +219,7 @@ function buildNextSteps({
 
   steps.push({
     label: 'Compare another version',
-    prompt: `Create another version of this ${symbol} strategy so I can compare it against this run.`
+    prompt: `Create another version of this ${symbol} strategy so I can compare it against this result.`
   });
 
   return Array.from(
@@ -267,7 +267,7 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
         Result breakdown
       </div>
       <h2 className="app-title mt-2 text-xl font-semibold tracking-tight">
-        What this run suggests
+        What this result suggests
       </h2>
       <p className="app-text-muted mt-2 text-sm leading-6">
         Use this as a quick interpretation layer before reviewing the detailed charts and artifacts.

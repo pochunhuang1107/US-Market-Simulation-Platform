@@ -15,8 +15,8 @@ interface SaveStrategyModalProps {
 export function SaveStrategyModal({
   isOpen,
   initialName,
-  title = 'Save this run as a strategy',
-  helperText = 'This creates a saved strategy from the unsaved draft that produced this run.',
+  title = 'Save this result as a strategy',
+  helperText = 'This creates a saved strategy from the unsaved draft that produced this result.',
   isSaving = false,
   errorMessage = null,
   onClose,

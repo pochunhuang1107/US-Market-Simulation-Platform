@@ -30,7 +30,7 @@ export function RunFilters({
       <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="app-title text-sm font-semibold">Refine results</p>
-          <p className="app-text-muted mt-1 text-sm">Filter runs by status or saved strategy.</p>
+          <p className="app-text-muted mt-1 text-sm">Filter results by status or saved strategy.</p>
         </div>
       </div>
 
@@ -56,7 +56,7 @@ export function RunFilters({
             );
           })}
         </div>
-        <p className="app-text-muted mt-2 text-xs">Active includes pending, queued, claimed, and running runs.</p>
+        <p className="app-text-muted mt-2 text-xs">Active includes pending, queued, claimed, and running results.</p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">

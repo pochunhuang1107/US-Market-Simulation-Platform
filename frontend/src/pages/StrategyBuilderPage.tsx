@@ -273,7 +273,7 @@ export function StrategyBuilderPage() {
             to="/runs"
             className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition"
           >
-            Back to Runs
+            Back to results
           </Link>
         </div>
       </div>

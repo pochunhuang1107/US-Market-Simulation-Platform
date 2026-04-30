@@ -5,10 +5,10 @@ import { useTheme } from '../../theme';
 
 const navItems = [
   { to: '/', label: 'Home', end: true },
-  { to: '/runs', label: 'Run History', end: true },
+  { to: '/runs', label: 'Research Results', end: true },
   { to: '/compare', label: 'Compare', end: true },
   { to: '/strategies', label: 'Strategy Library', end: false },
-  { to: '/runs/new', label: 'Advanced Run', end: true }
+  { to: '/runs/new', label: 'Advanced Manual Run', end: true }
 ];
 
 export function AppShell() {
