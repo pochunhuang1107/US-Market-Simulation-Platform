@@ -55,6 +55,12 @@ function noLongerRelativeReturnAboveSummary(rule: RuleRecord, options: RuleSumma
   return `${symbol} no longer outperforms ${referenceSymbol} by more than ${formatPercent(rule.threshold)} over ${lookback} trading days`;
 }
 
+function realizedVolatilitySummary(rule: RuleRecord, options: RuleSummaryOptions, direction: 'below' | 'above'): string {
+  const symbol = primarySymbol(rule, options);
+  const lookback = typeof rule.lookback === 'number' ? rule.lookback : 'the lookback';
+  return `${symbol} ${lookback}-day realized volatility is ${direction} ${formatPercent(rule.threshold)}`;
+}
+
 function summarizeAtomicRule(rule: RuleRecord, options: RuleSummaryOptions): string | null {
   const type = typeof rule.type === 'string' ? rule.type : 'unknown_rule';
   const symbol = primarySymbol(rule, options);
@@ -90,6 +96,10 @@ function summarizeAtomicRule(rule: RuleRecord, options: RuleSummaryOptions): str
       return `${symbol} KD / stochastic turns bearish`;
     case 'relative_return_above':
       return relativeReturnAboveSummary(rule, options);
+    case 'realized_volatility_below':
+      return realizedVolatilitySummary(rule, options, 'below');
+    case 'realized_volatility_above':
+      return realizedVolatilitySummary(rule, options, 'above');
     case 'relative_strength_above':
       return `${symbol} outperforms reference strength threshold${lookback ? ` over ${lookback} trading days` : ''}${threshold !== null ? ` by ${threshold}` : ''}`;
     case 'relative_strength_below':

@@ -51,6 +51,26 @@ def test_not_relative_return_summary_uses_no_longer_outperforms():
     )
 
 
+def test_realized_volatility_summary_formats_percent_threshold():
+    below_rule = {
+        "kind": "atomic",
+        "type": "realized_volatility_below",
+        "symbol": "QQQ",
+        "lookback": 20,
+        "threshold": 0.25,
+    }
+    above_rule = {
+        "kind": "atomic",
+        "type": "realized_volatility_above",
+        "symbol": "QQQ",
+        "lookback": 20,
+        "threshold": 0.35,
+    }
+
+    assert _describe_rule(below_rule) == "QQQ 20-day realized volatility is below 25.0%"
+    assert _describe_rule(above_rule) == "QQQ 20-day realized volatility is above 35.0%"
+
+
 def test_existing_indicator_and_composite_summaries_still_work():
     group = {
         "kind": "group",

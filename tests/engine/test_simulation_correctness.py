@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -146,6 +147,13 @@ def _full_exits(trades: list[dict]) -> list[dict]:
 
 def _business_dates(count: int) -> list[str]:
     return [str(date.date()) for date in pd.date_range("2021-01-04", periods=count, freq="B")]
+
+
+def _closes_from_returns(returns: list[float], *, start: float = 100.0) -> list[float]:
+    closes = [start]
+    for daily_return in returns:
+        closes.append(closes[-1] * (1.0 + daily_return))
+    return closes
 
 
 def test_buy_and_hold_baseline_returns_ten_percent_before_costs() -> None:
@@ -677,6 +685,204 @@ def test_relative_return_above_handles_missing_lookback_and_reference_date_safel
 
     assert evaluate_rule(strategy.entry_rule, enriched, 0, strategy.tradable_symbol) is False
     assert evaluate_rule(strategy.entry_rule, enriched, 20, strategy.tradable_symbol) is False
+
+
+def test_realized_volatility_column_uses_close_to_close_returns_and_annualization() -> None:
+    returns = [0.01, -0.01, 0.02, -0.02, 0.015]
+    closes = _closes_from_returns(returns)
+    dates = _business_dates(len(closes))
+    bundle = _bundle(dates, closes)
+    strategy = _strategy(
+        name="spy-realized-volatility",
+        entry_rule={
+            "kind": "atomic",
+            "type": "realized_volatility_below",
+            "symbol": "SPY",
+            "lookback": 5,
+            "threshold": 1.0,
+        },
+    )
+
+    enriched = enrich_market_data(bundle, strategy)
+    expected = pd.Series(returns).std() * math.sqrt(252)
+
+    assert math.isnan(enriched.tradable.loc[4, "realized_volatility_5"])
+    assert enriched.tradable.loc[5, "realized_volatility_5"] == pytest.approx(expected)
+
+
+def test_realized_volatility_below_and_above_evaluate_thresholds_and_nan_safely() -> None:
+    low_vol_closes = _closes_from_returns([0.001, -0.001] * 10)
+    high_vol_closes = _closes_from_returns([0.02, -0.02] * 10)
+    dates = _business_dates(len(low_vol_closes))
+
+    below_strategy = _strategy(
+        name="spy-low-vol",
+        entry_rule={
+            "kind": "atomic",
+            "type": "realized_volatility_below",
+            "symbol": "SPY",
+            "lookback": 20,
+            "threshold": 0.25,
+        },
+    )
+    below_enriched = enrich_market_data(_bundle(dates, low_vol_closes), below_strategy)
+
+    assert evaluate_rule(below_strategy.entry_rule, below_enriched, 19, below_strategy.tradable_symbol) is False
+    assert evaluate_rule(below_strategy.entry_rule, below_enriched, 20, below_strategy.tradable_symbol) is True
+
+    below_false_enriched = enrich_market_data(_bundle(dates, high_vol_closes), below_strategy)
+    assert evaluate_rule(below_strategy.entry_rule, below_false_enriched, 20, below_strategy.tradable_symbol) is False
+
+    above_strategy = _strategy(
+        name="spy-high-vol",
+        entry_rule={
+            "kind": "atomic",
+            "type": "realized_volatility_above",
+            "symbol": "SPY",
+            "lookback": 20,
+            "threshold": 0.25,
+        },
+    )
+    above_enriched = enrich_market_data(_bundle(dates, high_vol_closes), above_strategy)
+    above_false_enriched = enrich_market_data(_bundle(dates, low_vol_closes), above_strategy)
+
+    assert evaluate_rule(above_strategy.entry_rule, above_enriched, 20, above_strategy.tradable_symbol) is True
+    assert evaluate_rule(above_strategy.entry_rule, above_false_enriched, 20, above_strategy.tradable_symbol) is False
+
+
+def test_reference_symbol_realized_volatility_rule_uses_reference_dataframe() -> None:
+    dates = _business_dates(21)
+    bundle = _bundle_with_references(
+        tradable_symbol="QQQ",
+        dates=dates,
+        closes=_closes_from_returns([0.001, -0.001] * 10),
+        references={
+            "SPY": (dates, _closes_from_returns([0.02, -0.02] * 10), None),
+        },
+    )
+    strategy = _strategy(
+        name="qqq-spy-vol-filter",
+        tradable_symbol="QQQ",
+        benchmark_symbol="SPY",
+        reference_symbols=["SPY"],
+        entry_rule={
+            "kind": "atomic",
+            "type": "realized_volatility_above",
+            "symbol": "SPY",
+            "lookback": 20,
+            "threshold": 0.25,
+        },
+    )
+
+    enriched = enrich_market_data(bundle, strategy)
+
+    assert "realized_volatility_20" not in enriched.tradable.columns
+    assert evaluate_rule(strategy.entry_rule, enriched, 20, strategy.tradable_symbol) is True
+
+
+def test_composite_rsi_and_realized_volatility_rule_evaluates_children() -> None:
+    dates = _business_dates(1)
+    bundle = _bundle(
+        dates,
+        [100.0],
+        extra_columns={"rsi_14": [25.0], "realized_volatility_20": [0.20]},
+    )
+    strategy = _strategy(
+        name="rsi-and-low-vol",
+        entry_rule={
+            "kind": "group",
+            "operator": "AND",
+            "rules": [
+                {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": "SPY",
+                    "lookback": 14,
+                    "threshold": 30,
+                },
+                {
+                    "kind": "atomic",
+                    "type": "realized_volatility_below",
+                    "symbol": "SPY",
+                    "lookback": 20,
+                    "threshold": 0.25,
+                },
+            ],
+        },
+    )
+
+    assert evaluate_rule(strategy.entry_rule, bundle, 0, strategy.tradable_symbol) is True
+
+
+def test_composite_rsi_or_realized_volatility_exit_rule_evaluates_children() -> None:
+    dates = _business_dates(1)
+    bundle = _bundle(
+        dates,
+        [100.0],
+        extra_columns={"rsi_14": [50.0], "realized_volatility_20": [0.40]},
+    )
+    strategy = _strategy(
+        name="rsi-or-high-vol-exit",
+        exit_rule={
+            "kind": "group",
+            "operator": "OR",
+            "rules": [
+                {
+                    "kind": "atomic",
+                    "type": "rsi_above",
+                    "symbol": "SPY",
+                    "lookback": 14,
+                    "threshold": 70,
+                },
+                {
+                    "kind": "atomic",
+                    "type": "realized_volatility_above",
+                    "symbol": "SPY",
+                    "lookback": 20,
+                    "threshold": 0.35,
+                },
+            ],
+        },
+    )
+
+    assert evaluate_rule(strategy.exit_rule, bundle, 0, strategy.tradable_symbol) is True
+
+
+def test_realized_volatility_strategy_runs_end_to_end_on_synthetic_prices() -> None:
+    closes = _closes_from_returns([0.001, -0.001] * 10 + [0.03, -0.03] * 11)
+    dates = _business_dates(len(closes))
+    strategy = _strategy(
+        name="qqq-realized-volatility-run",
+        tradable_symbol="QQQ",
+        benchmark_symbol="QQQ",
+        initial_capital=100000.0,
+        entry_rule={
+            "kind": "atomic",
+            "type": "realized_volatility_below",
+            "symbol": "QQQ",
+            "lookback": 20,
+            "threshold": 0.25,
+        },
+        exit_rule={
+            "kind": "atomic",
+            "type": "realized_volatility_above",
+            "symbol": "QQQ",
+            "lookback": 20,
+            "threshold": 0.35,
+        },
+    )
+
+    result = _run(
+        MarketDataBundle(
+            tradable=_market_df("QQQ", dates, closes),
+            references={},
+        ),
+        strategy,
+    )
+
+    assert len(result.timeline) == len(dates)
+    assert any(trade["action"] == "BUY" for trade in result.trade_log)
+    assert any(trade["action"] in FULL_EXIT_ACTIONS for trade in result.trade_log)
 
 
 def test_reference_symbol_sma_rule_evaluates_reference_dataframe() -> None:

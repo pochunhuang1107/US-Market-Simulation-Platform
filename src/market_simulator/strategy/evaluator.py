@@ -87,6 +87,20 @@ def _eval_atomic(rule: AtomicRule, bundle, index: int, tradable_symbol: str | No
         col = f"rsi_{rule.lookback}"
         return bool(pd.notna(df.iloc[row_pos][col]) and df.iloc[row_pos][col] > rule.threshold)
 
+    elif rule.type == "realized_volatility_below":
+        col = f"realized_volatility_{rule.lookback}"
+        if col not in df.columns:
+            return False
+        value = df.iloc[row_pos][col]
+        return bool(pd.notna(value) and value < rule.threshold)
+
+    elif rule.type == "realized_volatility_above":
+        col = f"realized_volatility_{rule.lookback}"
+        if col not in df.columns:
+            return False
+        value = df.iloc[row_pos][col]
+        return bool(pd.notna(value) and value > rule.threshold)
+
     elif rule.type == "sma_cross_above":
         fast_col = f"sma_{rule.fast_window}"
         slow_col = f"sma_{rule.slow_window}"

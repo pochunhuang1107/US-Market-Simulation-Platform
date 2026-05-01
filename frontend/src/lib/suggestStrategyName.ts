@@ -120,6 +120,10 @@ function getRuleTheme(entryRules: DraftRule[], exitRules: DraftRule[]): string |
     return 'relative_strength';
   }
 
+  if (hasRuleType(allRules, new Set(['realized_volatility_below', 'realized_volatility_above']))) {
+    return 'realized_volatility';
+  }
+
   if (hasRuleType(entryRules, new Set(['rsi_below'])) && hasRuleType(exitRules, new Set(['rsi_above']))) {
     return 'rsi_mean_reversion';
   }
@@ -177,6 +181,7 @@ function buildNameFromRules(config: Record<string, unknown>): string | null {
   if (theme === 'rsi_mean_reversion') return `${symbol} RSI mean reversion`;
   if (theme === 'sma_crossover') return `${symbol} SMA crossover`;
   if (theme === 'seasonality') return `${symbol} seasonality strategy`;
+  if (theme === 'realized_volatility') return `${symbol} realized volatility strategy`;
 
   return `${symbol} ${themeLabel(theme)} strategy`;
 }
@@ -195,6 +200,8 @@ function themeLabel(theme: string): string {
       return 'KD';
     case 'seasonality':
       return 'seasonality';
+    case 'realized_volatility':
+      return 'realized volatility';
     default:
       return 'strategy';
   }

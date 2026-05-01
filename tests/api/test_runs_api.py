@@ -3158,6 +3158,65 @@ def test_create_draft_run_without_saved_strategy_returns_pending(
     assert body["request_payload"]["draft_config"]["tradable_symbol"] == "QQQ"
 
 
+def test_create_draft_run_accepts_realized_volatility_strategy(
+    client,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    response = client.post(
+        "/runs",
+        json={
+            "draft_config": {
+                "schema_version": "2.0",
+                "name": "qqq-realized-volatility",
+                "tradable_symbol": "QQQ",
+                "benchmark_symbol": "QQQ",
+                "reference_symbols": [],
+                "start_date": "2021-01-01",
+                "end_date": "2021-12-31",
+                "initial_capital": 100000,
+                "transaction_cost_bps": 5,
+                "allocation": {
+                    "entry_mode": "percent_of_equity",
+                    "entry_value": 1.0,
+                    "max_position_pct": 1.0,
+                },
+                "entry_rule": {
+                    "kind": "atomic",
+                    "type": "realized_volatility_below",
+                    "symbol": "QQQ",
+                    "lookback": 20,
+                    "threshold": 0.25,
+                },
+                "exit_rule": {
+                    "kind": "atomic",
+                    "type": "realized_volatility_above",
+                    "symbol": "QQQ",
+                    "lookback": 20,
+                    "threshold": 0.35,
+                },
+                "risk": {"cooldown_bars": 0},
+                "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+            },
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {},
+            "max_attempts": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "PENDING"
+    assert body["request_payload"]["draft_config"]["entry_rule"]["type"] == "realized_volatility_below"
+    assert body["request_payload"]["draft_config"]["exit_rule"]["type"] == "realized_volatility_above"
+
+
 def test_save_draft_run_as_strategy_creates_strategy_and_links_run(
     client,
     db_session,
