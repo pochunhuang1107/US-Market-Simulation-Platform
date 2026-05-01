@@ -417,6 +417,209 @@ def test_generate_strategy_builder_normal_rsi_prompt_still_returns_strategy_draf
     assert body["config"]["entry_rule"]["type"] == "rsi_below"
 
 
+def test_generate_strategy_builder_parses_bullish_candle_prompt(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Buy QQQ when QQQ closes above its open."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "bullish_candle",
+        "symbol": "QQQ",
+    }
+    assert "Enter when QQQ closes above its open." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_parses_previous_low_exit_prompt(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Sell when QQQ closes below yesterday's low."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "close_below_previous_low",
+        "symbol": "QQQ",
+    }
+    assert "Exit when QQQ closes below the previous day's low." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_defaults_near_high_threshold(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Buy QQQ when QQQ closes near the high of the day."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "close_near_high",
+        "symbol": "QQQ",
+        "threshold": 0.2,
+    }
+    assert "QQQ closes in the top 20% of the day's range" in body["summary"]
+    assert (
+        "Used top/bottom 20% of the daily range for near-high/near-low candle signals by default."
+        in body["assumptions"]
+    )
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_defaults_near_low_threshold(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Sell when QQQ closes near the low of the day."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "close_near_low",
+        "symbol": "QQQ",
+        "threshold": 0.2,
+    }
+    assert "QQQ closes in the bottom 20% of the day's range" in body["summary"]
+    assert (
+        "Used top/bottom 20% of the daily range for near-high/near-low candle signals by default."
+        in body["assumptions"]
+    )
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_parses_top_range_percentage_threshold(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Buy QQQ when QQQ closes in the top 10% of the day's range."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "close_near_high",
+        "symbol": "QQQ",
+        "threshold": 0.1,
+    }
+    assert "QQQ closes in the top 10% of the day's range" in body["summary"]
+    assert (
+        "Used top/bottom 20% of the daily range for near-high/near-low candle signals by default."
+        not in body["assumptions"]
+    )
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_parses_bottom_range_percentage_threshold(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Sell when QQQ closes in the bottom 15% of the day's range."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "close_near_low",
+        "symbol": "QQQ",
+        "threshold": 0.15,
+    }
+    assert "QQQ closes in the bottom 15% of the day's range" in body["summary"]
+    assert (
+        "Used top/bottom 20% of the daily range for near-high/near-low candle signals by default."
+        not in body["assumptions"]
+    )
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_parses_within_candle_percentage_thresholds(client):
+    top_response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Buy QQQ when QQQ closes within the top 10% of the candle."},
+    )
+    bottom_response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Sell when QQQ closes within the bottom 15% of the candle."},
+    )
+
+    assert top_response.status_code == 200
+    assert bottom_response.status_code == 200
+    top_config = top_response.json()["config"]
+    bottom_config = bottom_response.json()["config"]
+
+    assert top_config["entry_rule"]["type"] == "close_near_high"
+    assert top_config["entry_rule"]["threshold"] == 0.1
+    assert bottom_config["exit_rule"]["type"] == "close_near_low"
+    assert bottom_config["exit_rule"]["threshold"] == 0.15
+    StrategyV2.model_validate(top_config)
+    StrategyV2.model_validate(bottom_config)
+
+
+def test_generate_strategy_builder_parses_bullish_entry_and_previous_low_exit_prompt(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Buy QQQ when QQQ closes above its open. "
+                "Sell when QQQ closes below yesterday's low."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"]["type"] == "bullish_candle"
+    assert config["exit_rule"]["type"] == "close_below_previous_low"
+    assert "Enter when QQQ closes above its open." in body["summary"]
+    assert "Exit when QQQ closes below the previous day's low." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_adds_candle_rule_symbol_to_reference_symbols(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Buy QQQ when SPY closes above its open."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["entry_rule"]["type"] == "bullish_candle"
+    assert config["entry_rule"]["symbol"] == "SPY"
+    assert config["reference_symbols"] == ["SPY"]
+    StrategyV2.model_validate(config)
+
+
 def test_generate_strategy_builder_composite_entry_and_prompt(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -454,6 +657,48 @@ def test_generate_strategy_builder_composite_entry_and_prompt(client):
     assert config["exit_rule"]["type"] == "rsi_above"
     assert "Enter when QQQ RSI(14) is below 30 and QQQ price is above its 200-day SMA." in body["summary"]
     assert "Exit when QQQ RSI(14) is above 70." in body["summary"]
+
+
+def test_generate_strategy_builder_composite_rsi_and_daily_candle_prompt(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Buy QQQ when RSI is below 30 and QQQ closes near the high of the day. "
+                "Sell when RSI is above 70 or QQQ closes below yesterday's low."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "AND"
+    assert config["entry_rule"]["rules"][0]["type"] == "rsi_below"
+    assert config["entry_rule"]["rules"][0]["symbol"] == "QQQ"
+    assert config["entry_rule"]["rules"][0]["threshold"] == 30.0
+    assert config["entry_rule"]["rules"][1] == {
+        "kind": "atomic",
+        "type": "close_near_high",
+        "symbol": "QQQ",
+        "threshold": 0.2,
+    }
+    assert config["exit_rule"]["kind"] == "group"
+    assert config["exit_rule"]["operator"] == "OR"
+    assert config["exit_rule"]["rules"][0]["type"] == "rsi_above"
+    assert config["exit_rule"]["rules"][0]["symbol"] == "QQQ"
+    assert config["exit_rule"]["rules"][0]["threshold"] == 70.0
+    assert config["exit_rule"]["rules"][1] == {
+        "kind": "atomic",
+        "type": "close_below_previous_low",
+        "symbol": "QQQ",
+    }
+    assert "QQQ closes in the top 20% of the day's range" in body["summary"]
+    assert "QQQ closes below the previous day's low" in body["summary"]
+    StrategyV2.model_validate(config)
 
 
 def test_generate_strategy_builder_simple_price_above_sma_prompt_uses_requested_window(client):

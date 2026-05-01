@@ -247,6 +247,10 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\boutperform\b",
         r"\bvolatility\b",
         r"\brealized\s+volatility\b",
+        r"\bcloses?\s+(?:above|over|below|under)\s+(?:its\s+|the\s+)?open\b",
+        r"\bcloses?\s+(?:above|over|below|under)\s+(?:(?:yesterday|previous\s+day)'?s?|the\s+previous\s+day'?s?)\s+(?:high|low)\b",
+        r"\bcloses?\s+near\s+(?:the\s+)?(?:daily\s+)?(?:high|low)(?:\s+of\s+(?:the\s+)?day)?\b",
+        r"\bcloses?\s+(?:in|within)\s+the\s+(?:top|bottom)\s+\d+(?:\.\d+)?%\s+of\s+(?:the\s+)?(?:day.?s\s+range|daily\s+range|candle)\b",
         r"\bwithin\s+\d+\s+bars?\b",
         r"\bthen\b",
         r"\bsequence\b",
@@ -962,6 +966,61 @@ def _build_single_sma_rule(
     )
 
 
+def _extract_candle_rule(text: str) -> tuple[str, float | None, bool] | None:
+    text_lower = text.lower().replace("\u2019", "'").replace("\u2018", "'")
+
+    top_range_match = re.search(
+        r"\bcloses?\s+(?:in|within)\s+the\s+top\s+(\d+(?:\.\d+)?)%\s+of\s+(?:the\s+)?(?:day'?s\s+range|daily\s+range|candle)\b",
+        text_lower,
+    )
+    if top_range_match:
+        return "close_near_high", float(top_range_match.group(1)) / 100.0, False
+
+    bottom_range_match = re.search(
+        r"\bcloses?\s+(?:in|within)\s+the\s+bottom\s+(\d+(?:\.\d+)?)%\s+of\s+(?:the\s+)?(?:day'?s\s+range|daily\s+range|candle)\b",
+        text_lower,
+    )
+    if bottom_range_match:
+        return "close_near_low", float(bottom_range_match.group(1)) / 100.0, False
+
+    if re.search(r"\bcloses?\s+(?:above|over)\s+(?:its\s+|the\s+)?open\b", text_lower):
+        return "bullish_candle", None, False
+
+    if re.search(r"\bcloses?\s+(?:below|under)\s+(?:its\s+|the\s+)?open\b", text_lower):
+        return "bearish_candle", None, False
+
+    if re.search(
+        r"\bcloses?\s+(?:above|over)\s+(?:(?:yesterday|previous\s+day)'?s?|the\s+previous\s+day'?s?)\s+high\b",
+        text_lower,
+    ):
+        return "close_above_previous_high", None, False
+
+    if re.search(
+        r"\bcloses?\s+(?:below|under)\s+(?:(?:yesterday|previous\s+day)'?s?|the\s+previous\s+day'?s?)\s+low\b",
+        text_lower,
+    ):
+        return "close_below_previous_low", None, False
+
+    if re.search(
+        r"\bcloses?\s+near\s+(?:the\s+)?(?:daily\s+)?high(?:\s+of\s+(?:the\s+)?day)?\b",
+        text_lower,
+    ):
+        return "close_near_high", 0.2, True
+
+    if re.search(
+        r"\bcloses?\s+near\s+(?:the\s+)?(?:daily\s+)?low(?:\s+of\s+(?:the\s+)?day)?\b",
+        text_lower,
+    ):
+        return "close_near_low", 0.2, True
+
+    return None
+
+
+def _extract_candle_rule_type(text: str) -> str | None:
+    candle_rule = _extract_candle_rule(text)
+    return candle_rule[0] if candle_rule is not None else None
+
+
 def _build_atomic_rule_from_clause(
     clause_text: str,
     *,
@@ -975,6 +1034,25 @@ def _build_atomic_rule_from_clause(
         clause_text,
         tradable_symbol=tradable_symbol,
     )
+
+    candle_rule = _extract_candle_rule(clause_text)
+    if candle_rule is not None:
+        candle_rule_type, threshold, defaulted_threshold = candle_rule
+        rule = {
+            "kind": "atomic",
+            "type": candle_rule_type,
+            "symbol": clause_symbol,
+        }
+        if threshold is not None:
+            rule["threshold"] = threshold
+        if defaulted_threshold:
+            assumptions.append(
+                "Used top/bottom 20% of the daily range for near-high/near-low candle signals by default."
+            )
+        return (
+            rule,
+            assumptions,
+        )
 
     if "rsi" in clause_lower:
         rsi_below = _extract_rsi_rule(clause_text, direction="below")
@@ -1876,6 +1954,8 @@ __all__ = [
     "_extract_allocation_value",
     "_extract_allocation_value_edit",
     "_extract_benchmark_symbol",
+    "_extract_candle_rule",
+    "_extract_candle_rule_type",
     "_extract_confirmation_family",
     "_extract_cooldown_edit",
     "_extract_core_allocation_pct",

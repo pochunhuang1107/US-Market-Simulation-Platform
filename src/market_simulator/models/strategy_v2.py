@@ -52,6 +52,12 @@ class AtomicRule(BaseModel):
         "relative_return_above",
         "realized_volatility_below",
         "realized_volatility_above",
+        "bullish_candle",
+        "bearish_candle",
+        "close_above_previous_high",
+        "close_below_previous_low",
+        "close_near_high",
+        "close_near_low",
     ]
     symbol: Optional[str] = None
     lookback: Optional[int] = None

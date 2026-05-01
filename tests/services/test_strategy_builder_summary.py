@@ -118,6 +118,41 @@ def test_realized_volatility_summary_formats_percent_threshold():
     assert _describe_rule(above_rule) == "QQQ 20-day realized volatility is above 35.0%"
 
 
+def test_daily_candle_summaries_are_readable():
+    assert (
+        _describe_rule({"kind": "atomic", "type": "bullish_candle", "symbol": "QQQ"})
+        == "QQQ closes above its open"
+    )
+    assert (
+        _describe_rule({"kind": "atomic", "type": "bearish_candle", "symbol": "QQQ"})
+        == "QQQ closes below its open"
+    )
+    assert (
+        _describe_rule({"kind": "atomic", "type": "close_above_previous_high", "symbol": "QQQ"})
+        == "QQQ closes above the previous day's high"
+    )
+    assert (
+        _describe_rule({"kind": "atomic", "type": "close_below_previous_low", "symbol": "QQQ"})
+        == "QQQ closes below the previous day's low"
+    )
+    assert (
+        _describe_rule({"kind": "atomic", "type": "close_near_high", "symbol": "QQQ"})
+        == "QQQ closes in the top 20% of the day's range"
+    )
+    assert (
+        _describe_rule(
+            {"kind": "atomic", "type": "close_near_high", "symbol": "QQQ", "threshold": 0.1}
+        )
+        == "QQQ closes in the top 10% of the day's range"
+    )
+    assert (
+        _describe_rule(
+            {"kind": "atomic", "type": "close_near_low", "symbol": "QQQ", "threshold": 0.15}
+        )
+        == "QQQ closes in the bottom 15% of the day's range"
+    )
+
+
 def test_existing_indicator_and_composite_summaries_still_work():
     group = {
         "kind": "group",
