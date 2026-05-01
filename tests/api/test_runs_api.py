@@ -3217,6 +3217,81 @@ def test_create_draft_run_accepts_realized_volatility_strategy(
     assert body["request_payload"]["draft_config"]["exit_rule"]["type"] == "realized_volatility_above"
 
 
+def test_create_draft_run_accepts_reference_symbol_trend_filter_strategy(
+    client,
+    create_user,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner@example.com",
+    )
+
+    draft_config = {
+        "schema_version": "2.0",
+        "name": "qqq-spy-trend-filter",
+        "tradable_symbol": "QQQ",
+        "benchmark_symbol": "QQQ",
+        "reference_symbols": ["SPY"],
+        "start_date": "2021-01-01",
+        "end_date": "2021-12-31",
+        "initial_capital": 100000,
+        "transaction_cost_bps": 5,
+        "allocation": {
+            "entry_mode": "percent_of_equity",
+            "entry_value": 1.0,
+            "max_position_pct": 1.0,
+        },
+        "entry_rule": {
+            "kind": "group",
+            "operator": "AND",
+            "rules": [
+                {
+                    "kind": "atomic",
+                    "type": "rsi_below",
+                    "symbol": "QQQ",
+                    "lookback": 14,
+                    "threshold": 30,
+                },
+                {
+                    "kind": "atomic",
+                    "type": "sma_above",
+                    "symbol": "SPY",
+                    "fast_window": 1,
+                    "slow_window": 200,
+                },
+            ],
+        },
+        "exit_rule": {
+            "kind": "atomic",
+            "type": "rsi_above",
+            "symbol": "QQQ",
+            "lookback": 14,
+            "threshold": 70,
+        },
+        "risk": {"cooldown_bars": 0},
+        "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+    }
+
+    response = client.post(
+        "/runs",
+        json={
+            "draft_config": draft_config,
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {},
+            "max_attempts": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "PENDING"
+    assert body["request_payload"]["draft_config"]["tradable_symbol"] == "QQQ"
+    assert body["request_payload"]["draft_config"]["reference_symbols"] == ["SPY"]
+    assert body["request_payload"]["draft_config"]["entry_rule"]["rules"][1]["symbol"] == "SPY"
+
+
 def test_save_draft_run_as_strategy_creates_strategy_and_links_run(
     client,
     db_session,

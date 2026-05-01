@@ -184,7 +184,7 @@ export function summarizeRule(rule: unknown, options: RuleSummaryOptions = {}, d
     ) {
       const symbol = primarySymbol(nestedRule, options);
       const slowWindow = typeof nestedRule.slow_window === 'number' ? nestedRule.slow_window : 'slow';
-      return { text: `${symbol} is below its ${slowWindow}-day SMA`, kind: 'simple' };
+      return { text: `${symbol} price is no longer above its ${slowWindow}-day SMA`, kind: 'simple' };
     }
 
     if (options.reviewJsonForComplex) return { text: complexText, kind: 'complex' };

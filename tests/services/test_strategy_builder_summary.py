@@ -1,4 +1,4 @@
-from market_simulator.services.strategy_builder_summary import _describe_rule
+from market_simulator.services.strategy_builder_summary import _build_strategy_name, _describe_rule
 
 
 def test_relative_return_summary_names_symbols_threshold_and_lookback():
@@ -49,6 +49,53 @@ def test_not_relative_return_summary_uses_no_longer_outperforms():
         _describe_rule(rule)
         == "QQQ no longer outperforms SPY by more than 3.0% over 20 trading days"
     )
+
+
+def test_not_price_sma_summary_uses_no_longer_above_copy():
+    rule = {
+        "kind": "not",
+        "rule": {
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": "SPY",
+            "fast_window": 1,
+            "slow_window": 200,
+        },
+    }
+
+    assert _describe_rule(rule) == "SPY price is no longer above its 200-day SMA"
+
+
+def test_reference_trend_filter_strategy_name_mentions_signal_and_filter_symbol():
+    entry_rule = {
+        "kind": "group",
+        "operator": "AND",
+        "rules": [
+            {
+                "kind": "atomic",
+                "type": "rsi_below",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 30,
+            },
+            {
+                "kind": "atomic",
+                "type": "sma_above",
+                "symbol": "SPY",
+                "fast_window": 1,
+                "slow_window": 200,
+            },
+        ],
+    }
+    exit_rule = {
+        "kind": "atomic",
+        "type": "rsi_above",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 70,
+    }
+
+    assert _build_strategy_name("QQQ", entry_rule, exit_rule) == "qqq-rsi-with-spy-trend-filter"
 
 
 def test_realized_volatility_summary_formats_percent_threshold():

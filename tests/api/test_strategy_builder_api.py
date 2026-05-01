@@ -629,7 +629,7 @@ def test_generate_strategy_builder_composite_exit_or_prompt(client):
             "slow_window": 200,
         },
     }
-    assert "Exit when QQQ RSI(14) is above 70 or QQQ price is below its 200-day SMA." in body["summary"]
+    assert "Exit when QQQ RSI(14) is above 70 or QQQ price is no longer above its 200-day SMA." in body["summary"]
 
 
 def test_generate_strategy_builder_simple_price_below_sma_exit_prompt_uses_requested_window(client):
@@ -658,7 +658,7 @@ def test_generate_strategy_builder_simple_price_below_sma_exit_prompt_uses_reque
             "slow_window": 200,
         },
     }
-    assert "Exit when QQQ price is below its 200-day SMA." in body["summary"]
+    assert "Exit when QQQ price is no longer above its 200-day SMA." in body["summary"]
     assert "20-day SMA" not in body["summary"]
     assert "50-day SMA" not in body["summary"]
 
@@ -684,6 +684,149 @@ def test_generate_strategy_builder_composite_reference_symbol_condition(client):
     assert config["tradable_symbol"] == "QQQ"
     assert config["entry_rule"]["rules"][1]["symbol"] == "SPY"
     assert config["entry_rule"]["rules"][1]["type"] == "sma_above"
+
+
+def test_generate_strategy_builder_reference_symbol_trend_filter_with_rsi(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy that buys when RSI is below 30 and "
+                "SPY is above its 200-day SMA. Sell when RSI is above 70."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+    entry_rules = config["entry_rule"]["rules"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["name"] == "qqq-rsi-with-spy-trend-filter"
+    assert config["name"] != "qqq-and-to-rsi-above"
+    assert config["tradable_symbol"] == "QQQ"
+    assert "SPY" in config["reference_symbols"]
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "AND"
+    assert entry_rules[0] == {
+        "kind": "atomic",
+        "type": "rsi_below",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 30.0,
+    }
+    assert entry_rules[1] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 200,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_above",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 70.0,
+    }
+    assert "Enter when QQQ RSI(14) is below 30 and SPY price is above its 200-day SMA." in body["summary"]
+    assert "Exit when QQQ RSI(14) is above 70." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_entry_only_reference_symbol_trend_filter(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Trade QQQ only when SPY is above its 200-day SMA."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["tradable_symbol"] == "QQQ"
+    assert "SPY" in config["reference_symbols"]
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 200,
+    }
+    assert config["exit_rule"] == {
+        "kind": "not",
+        "rule": {
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": "SPY",
+            "fast_window": 1,
+            "slow_window": 200,
+        },
+    }
+    assert "Enter when SPY price is above its 200-day SMA." in body["summary"]
+    assert "Exit when SPY price is no longer above its 200-day SMA." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_keeps_rule_symbol_reference_when_it_is_also_benchmark(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy benchmark SPY. "
+                "Trade QQQ only when SPY is above its 200-day SMA."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    config = response.json()["config"]
+
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["benchmark_symbol"] == "SPY"
+    assert "SPY" in config["reference_symbols"]
+    assert config["entry_rule"]["symbol"] == "SPY"
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_mixed_tradable_and_reference_sma_filters(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Buy QQQ when QQQ is above its 50-day SMA and "
+                "SPY is above its 200-day SMA."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+    entry_rules = config["entry_rule"]["rules"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["tradable_symbol"] == "QQQ"
+    assert "SPY" in config["reference_symbols"]
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "AND"
+    assert entry_rules[0] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "QQQ",
+        "fast_window": 1,
+        "slow_window": 50,
+    }
+    assert entry_rules[1] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 200,
+    }
+    StrategyV2.model_validate(config)
 
 
 def test_generate_strategy_builder_composite_follow_up_edits_and_sweep(client):

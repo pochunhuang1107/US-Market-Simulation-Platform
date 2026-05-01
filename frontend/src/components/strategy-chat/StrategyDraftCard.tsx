@@ -273,12 +273,12 @@ export function StrategyDraftCard({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={() => setShowConfig((value) => !value)} className="app-button-secondary rounded-2xl px-4 py-2 text-sm font-medium transition">
+          <div className="flex flex-wrap items-center justify-start gap-3 lg:justify-end">
+            <button type="button" onClick={() => setShowConfig((value) => !value)} className="app-button-secondary whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium transition">
               {showConfig ? 'Hide JSON' : 'Show JSON'}
             </button>
             {isLatestDraft ? (
-              <button type="button" onClick={onRun} disabled={isRunning} className="app-button-primary rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="button" onClick={onRun} disabled={isRunning} className="app-button-primary min-w-[8.75rem] whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60">
                 {isRunning ? 'Running...' : 'Run Simulation'}
               </button>
             ) : (
