@@ -1651,7 +1651,6 @@ def _sync_reference_symbols(config: dict[str, Any]) -> dict[str, Any]:
     synced_config = dict(config)
 
     tradable_symbol = synced_config.get("tradable_symbol")
-    benchmark_symbol = synced_config.get("benchmark_symbol")
 
     collected: list[str] = []
     for key in ("entry_rule", "exit_rule"):
@@ -1659,7 +1658,7 @@ def _sync_reference_symbols(config: dict[str, Any]) -> dict[str, Any]:
 
     deduped: list[str] = []
     for symbol in collected:
-        if symbol not in deduped and symbol not in {tradable_symbol, benchmark_symbol}:
+        if symbol not in deduped and symbol != tradable_symbol:
             deduped.append(symbol)
 
     synced_config["reference_symbols"] = deduped

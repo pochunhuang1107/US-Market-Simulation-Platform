@@ -155,12 +155,36 @@ function getRuleTheme(entryRules: DraftRule[], exitRules: DraftRule[]): string |
   return null;
 }
 
+function getReferenceTrendFilterSymbol(entryRules: DraftRule[], tradableSymbol: string): string | null {
+  const trendRule = entryRules.find((rule) => {
+    const type = getRuleType(rule);
+    const ruleSymbol = getRuleSymbol(rule)?.toUpperCase();
+    return (
+      type === 'sma_above' &&
+      rule.fast_window === 1 &&
+      ruleSymbol !== null &&
+      ruleSymbol !== tradableSymbol
+    );
+  });
+
+  return getRuleSymbol(trendRule)?.toUpperCase() ?? null;
+}
+
 function buildNameFromRules(config: Record<string, unknown>): string | null {
   const entryRules = collectAtomicRules(config.entry_rule);
   const exitRules = collectAtomicRules(config.exit_rule);
   const allRules = [...entryRules, ...exitRules];
   const symbol = getSymbol(config, allRules);
   if (!symbol) return null;
+
+  const referenceTrendFilterSymbol = getReferenceTrendFilterSymbol(entryRules, symbol);
+  if (
+    referenceTrendFilterSymbol &&
+    hasRuleType(entryRules, new Set(['rsi_below'])) &&
+    hasRuleType(exitRules, new Set(['rsi_above']))
+  ) {
+    return `${symbol} RSI with ${referenceTrendFilterSymbol} trend filter`;
+  }
 
   const theme = getRuleTheme(entryRules, exitRules);
   if (!theme) return null;

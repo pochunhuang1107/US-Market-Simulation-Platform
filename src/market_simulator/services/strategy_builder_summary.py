@@ -15,9 +15,84 @@ def _build_strategy_name(
     entry_rule: dict,
     exit_rule: dict,
 ) -> str:
+    reference_trend_filter_name = _build_reference_trend_filter_strategy_name(
+        symbol,
+        entry_rule,
+        exit_rule,
+    )
+    if reference_trend_filter_name is not None:
+        return reference_trend_filter_name
+
     entry_label = _rule_label(entry_rule)
     exit_label = _rule_label(exit_rule)
     return f"{symbol.lower()}-{entry_label}-to-{exit_label}"
+
+
+def _collect_atomic_rules(rule: Any) -> list[dict[str, Any]]:
+    if not isinstance(rule, dict):
+        return []
+
+    kind = rule.get("kind")
+    if kind == "atomic":
+        return [rule]
+
+    if kind == "not":
+        return _collect_atomic_rules(rule.get("rule"))
+
+    if kind == "group":
+        rules: list[dict[str, Any]] = []
+        for child_rule in rule.get("rules", []):
+            rules.extend(_collect_atomic_rules(child_rule))
+        return rules
+
+    if kind == "window":
+        return _collect_atomic_rules(rule.get("rule"))
+
+    if kind == "sequence":
+        rules: list[dict[str, Any]] = []
+        for step in rule.get("steps", []):
+            rules.extend(_collect_atomic_rules(step))
+        return rules
+
+    return []
+
+
+def _build_reference_trend_filter_strategy_name(
+    symbol: str,
+    entry_rule: dict,
+    exit_rule: dict,
+) -> str | None:
+    tradable_symbol = symbol.upper()
+    entry_rules = _collect_atomic_rules(entry_rule)
+    exit_rules = _collect_atomic_rules(exit_rule)
+
+    has_tradable_rsi_entry = any(
+        rule.get("type") == "rsi_below"
+        and str(rule.get("symbol") or tradable_symbol).upper() == tradable_symbol
+        for rule in entry_rules
+    )
+    has_tradable_rsi_exit = any(
+        rule.get("type") == "rsi_above"
+        and str(rule.get("symbol") or tradable_symbol).upper() == tradable_symbol
+        for rule in exit_rules
+    )
+    reference_trend_rule = next(
+        (
+            rule
+            for rule in entry_rules
+            if rule.get("type") == "sma_above"
+            and rule.get("fast_window") == 1
+            and isinstance(rule.get("symbol"), str)
+            and str(rule.get("symbol")).upper() != tradable_symbol
+        ),
+        None,
+    )
+
+    if has_tradable_rsi_entry and has_tradable_rsi_exit and reference_trend_rule is not None:
+        reference_symbol = str(reference_trend_rule["symbol"]).lower()
+        return f"{tradable_symbol.lower()}-rsi-with-{reference_symbol}-trend-filter"
+
+    return None
 
 
 def _rule_label(rule: dict) -> str:
@@ -171,7 +246,7 @@ def _describe_rule(rule: dict | None, tradable_symbol: str | None = None) -> str
             and nested_rule.get("fast_window") == 1
         ):
             symbol = _format_rule_symbol(nested_rule, tradable_symbol)
-            return f"{symbol} price is below its {nested_rule.get('slow_window')}-day SMA"
+            return f"{symbol} price is no longer above its {nested_rule.get('slow_window')}-day SMA"
         return f"not ({_describe_rule(nested_rule, tradable_symbol)})"
 
     if kind == "group":

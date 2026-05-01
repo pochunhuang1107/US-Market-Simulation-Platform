@@ -815,6 +815,30 @@ def _extract_entry_exit_rule_clauses(text: str) -> tuple[str | None, str | None]
     return entry_clause, exit_clause
 
 
+def _extract_entry_rule_clause(text: str) -> str | None:
+    patterns = [
+        r"(?:entry|buys?|buying)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:[.;]|$)",
+        r"trade(?:\s+[A-Z]{2,5})?\s+only\s+when\s+(.+?)(?:[.;]|$)",
+        r"(?:trade|hold)(?:\s+[A-Z]{2,5})?\s+while\s+(.+?)(?:[.;]|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip(" .,")
+    return None
+
+
+def _extract_exit_rule_clause(text: str) -> str | None:
+    patterns = [
+        r"(?:exit|sells?|selling)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:[.;]|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip(" .,")
+    return None
+
+
 def _split_clause_conditions(text: str) -> tuple[str | None, list[str]] | None:
     has_and = bool(re.search(r"\band\b", text, flags=re.IGNORECASE))
     has_or = bool(re.search(r"\bor\b", text, flags=re.IGNORECASE))
@@ -1858,7 +1882,9 @@ __all__ = [
     "_extract_date_range",
     "_extract_entry_exit_rule_clauses",
     "_extract_entry_fast_window_edit",
+    "_extract_entry_rule_clause",
     "_extract_entry_slow_window_edit",
+    "_extract_exit_rule_clause",
     "_extract_explicit_date_edits",
     "_extract_group_condition_edit",
     "_extract_group_operator_edit",

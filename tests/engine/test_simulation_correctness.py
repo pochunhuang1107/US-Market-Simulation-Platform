@@ -203,6 +203,52 @@ def test_simple_entry_exit_trade_records_dates_count_equity_and_realized_return(
     assert result.trade_log[1]["net_pnl"] == pytest.approx(200.0)
 
 
+def test_reference_symbol_sma_filter_uses_reference_dataframe() -> None:
+    dates = ["2021-01-04", "2021-01-05"]
+    bundle = _bundle_with_references(
+        tradable_symbol="QQQ",
+        dates=dates,
+        closes=[100.0, 100.0],
+        extra_columns={
+            "sma_1": [50.0, 50.0],
+            "sma_200": [100.0, 100.0],
+        },
+        references={
+            "SPY": (
+                dates,
+                [100.0, 100.0],
+                {
+                    "sma_1": [120.0, 120.0],
+                    "sma_200": [100.0, 100.0],
+                },
+            )
+        },
+    )
+    strategy = _strategy(
+        name="qqq-spy-reference-sma-filter",
+        tradable_symbol="QQQ",
+        benchmark_symbol="QQQ",
+        reference_symbols=["SPY"],
+        entry_rule={
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": "SPY",
+            "fast_window": 1,
+            "slow_window": 200,
+        },
+        exit_rule={
+            "kind": "atomic",
+            "type": "month_in",
+            "symbol": "QQQ",
+            "month_values": [12],
+        },
+    )
+
+    result = _run(bundle, strategy)
+
+    assert [trade["action"] for trade in result.trade_log] == ["BUY"]
+
+
 def test_transaction_cost_reduces_final_equity_and_is_reported_consistently() -> None:
     result = _run(
         _bundle(["2021-01-04", "2021-02-01"], [100.0, 120.0]),

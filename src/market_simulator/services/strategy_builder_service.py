@@ -81,8 +81,10 @@ from market_simulator.services.strategy_builder_parsers import (
     _extract_date_range,
     _extract_entry_exit_rule_clauses,
     _extract_entry_fast_window_edit,
+    _extract_entry_rule_clause,
     _extract_entry_slow_window_edit,
     _extract_exit_fast_window_edit,
+    _extract_exit_rule_clause,
     _extract_exit_slow_window_edit,
     _extract_explicit_date_edits,
     _extract_group_condition_edit,
@@ -790,6 +792,47 @@ def _finalize_rule_setup(
         assumptions.append(
             "Interpreted explicit entry/exit clauses as combined rules using AND/OR."
         )
+
+    elif entry_clause is None and exit_clause is None:
+        entry_only_clause = _extract_entry_rule_clause(prompt)
+        exit_only_clause = _extract_exit_rule_clause(prompt)
+
+        if entry_only_clause is not None:
+            composite_entry_rule, composite_entry_assumptions = _build_rule_from_clause(
+                entry_only_clause,
+                tradable_symbol=effective_tradable_symbol,
+                fallback_reference_symbol=effective_benchmark_symbol,
+                side="entry",
+            )
+            if composite_entry_rule is not None:
+                entry_rule = composite_entry_rule
+                assumptions.extend(composite_entry_assumptions)
+                assumptions.append(
+                    "Interpreted explicit entry clause as a combined rule using AND/OR."
+                )
+
+                if re.search(r"\b(?:only\s+when|while)\b", prompt, flags=re.IGNORECASE):
+                    exit_rule = {
+                        "kind": "not",
+                        "rule": deepcopy(composite_entry_rule),
+                    }
+                    assumptions.append(
+                        "Interpreted regime-filter language as exiting when the entry filter no longer holds."
+                    )
+
+        if exit_only_clause is not None:
+            composite_exit_rule, composite_exit_assumptions = _build_rule_from_clause(
+                exit_only_clause,
+                tradable_symbol=effective_tradable_symbol,
+                fallback_reference_symbol=effective_benchmark_symbol,
+                side="exit",
+            )
+            if composite_exit_rule is not None:
+                exit_rule = composite_exit_rule
+                assumptions.extend(composite_exit_assumptions)
+                assumptions.append(
+                    "Interpreted explicit exit clause as a combined rule using AND/OR."
+                )
 
     if "mean reversion" in prompt_lower and entry_rule is None and exit_rule is None:
         entry_rule = {

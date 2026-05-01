@@ -14,6 +14,7 @@ def test_shared_rule_summary_helper_has_readable_relative_return_copy():
     assert "case 'realized_volatility_below'" in source
     assert "case 'realized_volatility_above'" in source
     assert "rule.symbol ?? options.tradableSymbol" in source
+    assert "price is no longer above its ${slowWindow}-day SMA" in source
 
 
 def test_strategy_draft_and_saved_config_use_shared_rule_summary_helper():
@@ -25,6 +26,8 @@ def test_strategy_draft_and_saved_config_use_shared_rule_summary_helper():
 
     assert "from '../../lib/ruleSummaries'" in draft_source
     assert "tradableSymbol: config.tradable_symbol" in draft_source
+    assert "whitespace-nowrap" in draft_source
+    assert "min-w-[8.75rem]" in draft_source
     assert "summarizeRule(config.entry_rule" in signal_logic_source
     assert "summarizeRule(config.exit_rule" in signal_logic_source
     assert "summarizeStrategyRule(config.entry_rule" in saved_version_source
@@ -37,3 +40,5 @@ def test_strategy_name_helper_knows_realized_volatility_rules():
     assert "'realized_volatility_below'" in source
     assert "'realized_volatility_above'" in source
     assert "realized volatility strategy" in source
+    assert "getReferenceTrendFilterSymbol" in source
+    assert "RSI with ${referenceTrendFilterSymbol} trend filter" in source
