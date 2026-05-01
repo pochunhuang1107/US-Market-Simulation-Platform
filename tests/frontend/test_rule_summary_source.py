@@ -13,6 +13,10 @@ def test_shared_rule_summary_helper_has_readable_relative_return_copy():
     assert "${lookback}-day realized volatility is ${direction} ${formatPercent(rule.threshold)}" in source
     assert "case 'realized_volatility_below'" in source
     assert "case 'realized_volatility_above'" in source
+    assert "case 'bullish_candle'" in source
+    assert "case 'close_below_previous_low'" in source
+    assert "closes in the top ${formatCompactPercent(threshold ?? 0.2)} of the day's range" in source
+    assert "closes in the bottom ${formatCompactPercent(threshold ?? 0.2)} of the day's range" in source
     assert "rule.symbol ?? options.tradableSymbol" in source
     assert "price is no longer above its ${slowWindow}-day SMA" in source
 
@@ -39,6 +43,8 @@ def test_strategy_name_helper_knows_realized_volatility_rules():
 
     assert "'realized_volatility_below'" in source
     assert "'realized_volatility_above'" in source
+    assert "'close_near_high'" in source
+    assert "daily price-action strategy" in source
     assert "realized volatility strategy" in source
     assert "getReferenceTrendFilterSymbol" in source
     assert "RSI with ${referenceTrendFilterSymbol} trend filter" in source

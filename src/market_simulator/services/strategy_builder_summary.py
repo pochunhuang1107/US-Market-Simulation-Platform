@@ -8,6 +8,15 @@ _RELATIVE_STRENGTH_RULE_TYPES = {
     "relative_strength_below",
 }
 _RSI_RULE_TYPES = {"rsi_below", "rsi_above"}
+_DEFAULT_CANDLE_RANGE_THRESHOLD = 0.2
+_CANDLE_RULE_TYPES = {
+    "bullish_candle",
+    "bearish_candle",
+    "close_above_previous_high",
+    "close_below_previous_low",
+    "close_near_high",
+    "close_near_low",
+}
 
 
 def _build_strategy_name(
@@ -22,6 +31,10 @@ def _build_strategy_name(
     )
     if reference_trend_filter_name is not None:
         return reference_trend_filter_name
+
+    all_rules = [*_collect_atomic_rules(entry_rule), *_collect_atomic_rules(exit_rule)]
+    if any(rule.get("type") in _CANDLE_RULE_TYPES for rule in all_rules):
+        return f"{symbol.lower()}-daily-price-action"
 
     entry_label = _rule_label(entry_rule)
     exit_label = _rule_label(exit_rule)
@@ -154,6 +167,13 @@ def _describe_realized_volatility(
     )
 
 
+def _format_candle_range_threshold(rule: dict[str, Any]) -> str:
+    threshold = rule.get("threshold")
+    if threshold is None:
+        threshold = _DEFAULT_CANDLE_RANGE_THRESHOLD
+    return f"{float(threshold) * 100:g}%"
+
+
 def _describe_atomic_rule(rule: dict[str, Any], tradable_symbol: str | None = None) -> str:
     rule_type = str(rule.get("type") or "rule")
     symbol = _format_rule_symbol(rule, tradable_symbol)
@@ -211,6 +231,24 @@ def _describe_atomic_rule(rule: dict[str, Any], tradable_symbol: str | None = No
             direction="above",
             tradable_symbol=tradable_symbol,
         )
+
+    if rule_type == "bullish_candle":
+        return f"{symbol} closes above its open"
+
+    if rule_type == "bearish_candle":
+        return f"{symbol} closes below its open"
+
+    if rule_type == "close_above_previous_high":
+        return f"{symbol} closes above the previous day's high"
+
+    if rule_type == "close_below_previous_low":
+        return f"{symbol} closes below the previous day's low"
+
+    if rule_type == "close_near_high":
+        return f"{symbol} closes in the top {_format_candle_range_threshold(rule)} of the day's range"
+
+    if rule_type == "close_near_low":
+        return f"{symbol} closes in the bottom {_format_candle_range_threshold(rule)} of the day's range"
 
     if rule_type == "month_in":
         return f"month is one of {_format_month_values(rule.get('month_values'))}"

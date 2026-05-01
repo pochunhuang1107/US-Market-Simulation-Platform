@@ -37,6 +37,10 @@ function formatPercent(value: unknown): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function formatCompactPercent(value: number): string {
+  return `${Number.isInteger(value * 100) ? value * 100 : (value * 100).toFixed(1)}%`;
+}
+
 function primarySymbol(rule: RuleRecord, options: RuleSummaryOptions): string {
   return formatSymbol(rule.symbol ?? options.tradableSymbol);
 }
@@ -100,6 +104,18 @@ function summarizeAtomicRule(rule: RuleRecord, options: RuleSummaryOptions): str
       return realizedVolatilitySummary(rule, options, 'below');
     case 'realized_volatility_above':
       return realizedVolatilitySummary(rule, options, 'above');
+    case 'bullish_candle':
+      return `${symbol} closes above its open`;
+    case 'bearish_candle':
+      return `${symbol} closes below its open`;
+    case 'close_above_previous_high':
+      return `${symbol} closes above the previous day's high`;
+    case 'close_below_previous_low':
+      return `${symbol} closes below the previous day's low`;
+    case 'close_near_high':
+      return `${symbol} closes in the top ${formatCompactPercent(threshold ?? 0.2)} of the day's range`;
+    case 'close_near_low':
+      return `${symbol} closes in the bottom ${formatCompactPercent(threshold ?? 0.2)} of the day's range`;
     case 'relative_strength_above':
       return `${symbol} outperforms reference strength threshold${lookback ? ` over ${lookback} trading days` : ''}${threshold !== null ? ` by ${threshold}` : ''}`;
     case 'relative_strength_below':

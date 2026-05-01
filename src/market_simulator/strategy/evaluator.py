@@ -18,6 +18,23 @@ from market_simulator.strategy.dataframe_resolution import (
 )
 
 
+CANDLE_RULE_TYPES = {
+    "bullish_candle",
+    "bearish_candle",
+    "close_above_previous_high",
+    "close_below_previous_low",
+    "close_near_high",
+    "close_near_low",
+}
+DEFAULT_NEAR_RANGE_THRESHOLD = 0.2
+
+
+def _safe_float(value) -> float | None:
+    if pd.isna(value):
+        return None
+    return float(value)
+
+
 def _rule_row(rule: AtomicRule, bundle, index: int, tradable_symbol: str | None):
     df = resolve_market_dataframe(bundle, rule.symbol, tradable_symbol)
     date = tradable_row_date(bundle, index)
@@ -71,6 +88,46 @@ def _eval_relative_return_above(
     return bool(float(primary_return) - float(reference_return) > float(rule.threshold))
 
 
+def _eval_candle_rule(rule: AtomicRule, df: pd.DataFrame, row_pos: int) -> bool:
+    row = df.iloc[row_pos]
+    open_value = _safe_float(row.get("open"))
+    high_value = _safe_float(row.get("high"))
+    low_value = _safe_float(row.get("low"))
+    close_value = _safe_float(row.get("close"))
+
+    if rule.type in {"bullish_candle", "bearish_candle"}:
+        if open_value is None or close_value is None:
+            return False
+        return close_value > open_value if rule.type == "bullish_candle" else close_value < open_value
+
+    if rule.type in {"close_above_previous_high", "close_below_previous_low"}:
+        if close_value is None or row_pos == 0:
+            return False
+
+        previous_row = df.iloc[row_pos - 1]
+        previous_high = _safe_float(previous_row.get("high"))
+        previous_low = _safe_float(previous_row.get("low"))
+
+        if rule.type == "close_above_previous_high":
+            return bool(previous_high is not None and close_value > previous_high)
+        return bool(previous_low is not None and close_value < previous_low)
+
+    if rule.type in {"close_near_high", "close_near_low"}:
+        if high_value is None or low_value is None or close_value is None:
+            return False
+
+        daily_range = high_value - low_value
+        if daily_range == 0:
+            return False
+
+        threshold = rule.threshold if rule.threshold is not None else DEFAULT_NEAR_RANGE_THRESHOLD
+        if rule.type == "close_near_high":
+            return bool((high_value - close_value) / daily_range <= threshold)
+        return bool((close_value - low_value) / daily_range <= threshold)
+
+    return False
+
+
 def _eval_atomic(rule: AtomicRule, bundle, index: int, tradable_symbol: str | None) -> bool:
     if rule.type == "relative_return_above":
         return _eval_relative_return_above(rule, bundle, index, tradable_symbol)
@@ -79,7 +136,10 @@ def _eval_atomic(rule: AtomicRule, bundle, index: int, tradable_symbol: str | No
     if row_pos is None:
         return False
 
-    if rule.type == "rsi_below":
+    if rule.type in CANDLE_RULE_TYPES:
+        return _eval_candle_rule(rule, df, row_pos)
+
+    elif rule.type == "rsi_below":
         col = f"rsi_{rule.lookback}"
         return bool(pd.notna(df.iloc[row_pos][col]) and df.iloc[row_pos][col] < rule.threshold)
 

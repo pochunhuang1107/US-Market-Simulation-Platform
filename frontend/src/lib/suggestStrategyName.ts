@@ -124,6 +124,17 @@ function getRuleTheme(entryRules: DraftRule[], exitRules: DraftRule[]): string |
     return 'realized_volatility';
   }
 
+  if (hasRuleType(allRules, new Set([
+    'bullish_candle',
+    'bearish_candle',
+    'close_above_previous_high',
+    'close_below_previous_low',
+    'close_near_high',
+    'close_near_low'
+  ]))) {
+    return 'daily_price_action';
+  }
+
   if (hasRuleType(entryRules, new Set(['rsi_below'])) && hasRuleType(exitRules, new Set(['rsi_above']))) {
     return 'rsi_mean_reversion';
   }
@@ -206,6 +217,7 @@ function buildNameFromRules(config: Record<string, unknown>): string | null {
   if (theme === 'sma_crossover') return `${symbol} SMA crossover`;
   if (theme === 'seasonality') return `${symbol} seasonality strategy`;
   if (theme === 'realized_volatility') return `${symbol} realized volatility strategy`;
+  if (theme === 'daily_price_action') return `${symbol} daily price-action strategy`;
 
   return `${symbol} ${themeLabel(theme)} strategy`;
 }
@@ -226,6 +238,8 @@ function themeLabel(theme: string): string {
       return 'seasonality';
     case 'realized_volatility':
       return 'realized volatility';
+    case 'daily_price_action':
+      return 'daily price-action';
     default:
       return 'strategy';
   }

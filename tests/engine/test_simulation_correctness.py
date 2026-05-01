@@ -156,6 +156,157 @@ def _closes_from_returns(returns: list[float], *, start: float = 100.0) -> list[
     return closes
 
 
+@pytest.mark.parametrize(
+    "rule",
+    [
+        {"kind": "atomic", "type": "bullish_candle", "symbol": "SPY"},
+        {"kind": "atomic", "type": "bearish_candle", "symbol": "SPY"},
+        {"kind": "atomic", "type": "close_above_previous_high", "symbol": "SPY"},
+        {"kind": "atomic", "type": "close_below_previous_low", "symbol": "SPY"},
+        {"kind": "atomic", "type": "close_near_high", "symbol": "SPY"},
+        {"kind": "atomic", "type": "close_near_low", "symbol": "SPY"},
+        {"kind": "atomic", "type": "close_near_high", "symbol": "SPY", "threshold": 0.1},
+        {"kind": "atomic", "type": "close_near_low", "symbol": "SPY", "threshold": 0.1},
+    ],
+)
+def test_daily_candle_rules_validate_as_strategy_v2(rule: dict) -> None:
+    strategy = _strategy(entry_rule=rule)
+
+    assert strategy.entry_rule.type == rule["type"]
+
+
+def test_daily_candle_bullish_and_bearish_rules_evaluate_ohlc() -> None:
+    dates = _business_dates(2)
+    bundle = _bundle(
+        dates,
+        [11.0, 9.0],
+        {
+            "open": [10.0, 10.0],
+            "high": [12.0, 11.0],
+            "low": [9.0, 8.0],
+        },
+    )
+
+    bullish = _strategy(entry_rule={"kind": "atomic", "type": "bullish_candle", "symbol": "SPY"})
+    bearish = _strategy(entry_rule={"kind": "atomic", "type": "bearish_candle", "symbol": "SPY"})
+
+    assert evaluate_rule(bullish.entry_rule, bundle, 0, bullish.tradable_symbol) is True
+    assert evaluate_rule(bullish.entry_rule, bundle, 1, bullish.tradable_symbol) is False
+    assert evaluate_rule(bearish.entry_rule, bundle, 0, bearish.tradable_symbol) is False
+    assert evaluate_rule(bearish.entry_rule, bundle, 1, bearish.tradable_symbol) is True
+
+
+def test_daily_candle_previous_high_low_rules_evaluate_previous_row() -> None:
+    dates = _business_dates(3)
+    bundle = _bundle(
+        dates,
+        [10.0, 12.5, 8.5],
+        {
+            "open": [10.0, 10.0, 10.0],
+            "high": [12.0, 13.0, 11.0],
+            "low": [9.0, 10.0, 9.0],
+        },
+    )
+
+    above_previous_high = _strategy(
+        entry_rule={"kind": "atomic", "type": "close_above_previous_high", "symbol": "SPY"}
+    )
+    below_previous_low = _strategy(
+        entry_rule={"kind": "atomic", "type": "close_below_previous_low", "symbol": "SPY"}
+    )
+
+    assert evaluate_rule(above_previous_high.entry_rule, bundle, 0, "SPY") is False
+    assert evaluate_rule(above_previous_high.entry_rule, bundle, 1, "SPY") is True
+    assert evaluate_rule(above_previous_high.entry_rule, bundle, 2, "SPY") is False
+    assert evaluate_rule(below_previous_low.entry_rule, bundle, 0, "SPY") is False
+    assert evaluate_rule(below_previous_low.entry_rule, bundle, 1, "SPY") is False
+    assert evaluate_rule(below_previous_low.entry_rule, bundle, 2, "SPY") is True
+
+
+def test_daily_candle_near_high_low_rules_use_threshold_and_zero_range_is_false() -> None:
+    dates = _business_dates(3)
+    bundle = _bundle(
+        dates,
+        [18.5, 11.5, 10.0],
+        {
+            "open": [15.0, 15.0, 10.0],
+            "high": [20.0, 20.0, 10.0],
+            "low": [10.0, 10.0, 10.0],
+        },
+    )
+
+    near_high = _strategy(
+        entry_rule={"kind": "atomic", "type": "close_near_high", "symbol": "SPY", "threshold": 0.2}
+    )
+    near_low = _strategy(
+        entry_rule={"kind": "atomic", "type": "close_near_low", "symbol": "SPY", "threshold": 0.2}
+    )
+
+    assert evaluate_rule(near_high.entry_rule, bundle, 0, "SPY") is True
+    assert evaluate_rule(near_high.entry_rule, bundle, 1, "SPY") is False
+    assert evaluate_rule(near_high.entry_rule, bundle, 2, "SPY") is False
+    assert evaluate_rule(near_low.entry_rule, bundle, 0, "SPY") is False
+    assert evaluate_rule(near_low.entry_rule, bundle, 1, "SPY") is True
+    assert evaluate_rule(near_low.entry_rule, bundle, 2, "SPY") is False
+
+
+def test_daily_candle_rules_return_false_for_missing_required_ohlc_values() -> None:
+    dates = _business_dates(2)
+    bundle = _bundle(
+        dates,
+        [11.0, 12.0],
+        {
+            "open": [None, 10.0],
+            "high": [None, None],
+            "low": [9.0, 9.0],
+        },
+    )
+
+    bullish = _strategy(entry_rule={"kind": "atomic", "type": "bullish_candle", "symbol": "SPY"})
+    above_previous_high = _strategy(
+        entry_rule={"kind": "atomic", "type": "close_above_previous_high", "symbol": "SPY"}
+    )
+    near_high = _strategy(entry_rule={"kind": "atomic", "type": "close_near_high", "symbol": "SPY"})
+
+    assert evaluate_rule(bullish.entry_rule, bundle, 0, "SPY") is False
+    assert evaluate_rule(above_previous_high.entry_rule, bundle, 1, "SPY") is False
+    assert evaluate_rule(near_high.entry_rule, bundle, 1, "SPY") is False
+
+
+def test_daily_candle_rule_can_evaluate_reference_symbol_dataframe() -> None:
+    dates = _business_dates(1)
+    bundle = _bundle_with_references(
+        tradable_symbol="QQQ",
+        dates=dates,
+        closes=[9.0],
+        references={
+            "SPY": (
+                dates,
+                [11.0],
+                {
+                    "open": [10.0],
+                    "high": [12.0],
+                    "low": [9.0],
+                },
+            ),
+        },
+        extra_columns={
+            "open": [10.0],
+            "high": [11.0],
+            "low": [8.0],
+        },
+    )
+    strategy = _strategy(
+        name="qqq-spy-candle",
+        tradable_symbol="QQQ",
+        benchmark_symbol="QQQ",
+        reference_symbols=["SPY"],
+        entry_rule={"kind": "atomic", "type": "bullish_candle", "symbol": "SPY"},
+    )
+
+    assert evaluate_rule(strategy.entry_rule, bundle, 0, strategy.tradable_symbol) is True
+
+
 def test_buy_and_hold_baseline_returns_ten_percent_before_costs() -> None:
     result = _run(
         _bundle(["2021-01-04", "2021-01-05"], [100.0, 110.0]),
