@@ -245,6 +245,8 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\brelative\s+strength\b",
         r"\brelative\s+return\b",
         r"\boutperform\b",
+        r"\bvolatility\b",
+        r"\brealized\s+volatility\b",
         r"\bwithin\s+\d+\s+bars?\b",
         r"\bthen\b",
         r"\bsequence\b",
@@ -414,6 +416,34 @@ def _extract_rsi_rule(
             threshold = float(groups[0])
 
         return lookback, threshold
+
+    return None
+
+
+def _extract_realized_volatility_rule(
+    text: str,
+    direction: str,
+) -> tuple[int, float, bool] | None:
+    comparator_words = {
+        "below": r"(?:below|under|<)",
+        "above": r"(?:above|over|>)",
+    }
+    comparator = comparator_words[direction]
+
+    patterns = [
+        rf"(\d+)\s*(?:[-\s]*(?:day|d))?\s+(?:realized\s+)?volatility[^.\n]*?{comparator}\s*(\d+(?:\.\d+)?)%",
+        rf"(?:realized\s+)?volatility[^.\n]*?{comparator}\s*(\d+(?:\.\d+)?)%",
+    ]
+
+    for index, pattern in enumerate(patterns):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            continue
+
+        if index == 0:
+            return int(match.group(1)), float(match.group(2)) / 100.0, False
+
+        return 20, float(match.group(1)) / 100.0, True
 
     return None
 
@@ -773,7 +803,7 @@ def _extract_relative_strength_threshold_edit(text: str) -> float | None:
 
 def _extract_entry_exit_rule_clauses(text: str) -> tuple[str | None, str | None]:
     match = re.search(
-        r"(?:entry|buy)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:,\s*|\s+)(?:and\s+)?(?:exit|sell)(?:\s+[A-Z]{2,5})?\s+when\s+(.+)$",
+        r"(?:entry|buys?|buying)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:,\s*|\s+)(?:and\s+)?(?:exit|sells?|selling)(?:\s+[A-Z]{2,5})?\s+when\s+(.+)$",
         text,
         flags=re.IGNORECASE,
     )
@@ -945,6 +975,42 @@ def _build_atomic_rule_from_clause(
                 {
                     "kind": "atomic",
                     "type": "rsi_above",
+                    "symbol": clause_symbol,
+                    "lookback": lookback,
+                    "threshold": threshold,
+                },
+                assumptions,
+            )
+
+        return None, assumptions
+
+    if "volatility" in clause_lower:
+        volatility_below = _extract_realized_volatility_rule(clause_text, direction="below")
+        volatility_above = _extract_realized_volatility_rule(clause_text, direction="above")
+
+        if volatility_below is not None:
+            lookback, threshold, used_default_lookback = volatility_below
+            if used_default_lookback:
+                assumptions.append("Used 20 trading days as the realized volatility lookback by default.")
+            return (
+                {
+                    "kind": "atomic",
+                    "type": "realized_volatility_below",
+                    "symbol": clause_symbol,
+                    "lookback": lookback,
+                    "threshold": threshold,
+                },
+                assumptions,
+            )
+
+        if volatility_above is not None:
+            lookback, threshold, used_default_lookback = volatility_above
+            if used_default_lookback:
+                assumptions.append("Used 20 trading days as the realized volatility lookback by default.")
+            return (
+                {
+                    "kind": "atomic",
+                    "type": "realized_volatility_above",
                     "symbol": clause_symbol,
                     "lookback": lookback,
                     "threshold": threshold,

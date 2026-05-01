@@ -1506,6 +1506,115 @@ def test_generate_strategy_builder_draft_parses_relative_strength_strategy(clien
     assert evaluate_rule(strategy.entry_rule, enriched, 20, strategy.tradable_symbol) is True
 
 
+def test_generate_strategy_builder_draft_parses_realized_volatility_below_strategy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Buy QQQ when 20-day volatility is below 25%.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"]["type"] == "realized_volatility_below"
+    assert config["entry_rule"]["symbol"] == "QQQ"
+    assert config["entry_rule"]["lookback"] == 20
+    assert config["entry_rule"]["threshold"] == 0.25
+    assert "Enter when QQQ 20-day realized volatility is below 25.0%." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_draft_parses_realized_volatility_above_with_default_lookback(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Sell when volatility is above 35%.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["exit_rule"]["type"] == "realized_volatility_above"
+    assert config["exit_rule"]["symbol"] == "QQQ"
+    assert config["exit_rule"]["lookback"] == 20
+    assert config["exit_rule"]["threshold"] == 0.35
+    assert "Used 20 trading days as the realized volatility lookback by default." in body["assumptions"]
+    assert "Exit when QQQ 20-day realized volatility is above 35.0%." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_draft_parses_composite_rsi_and_volatility_rules(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy that buys when RSI is below 30 and 20-day volatility is below 25%. "
+                "Sell when RSI is above 70 or 20-day volatility is above 35%."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "AND"
+    assert config["entry_rule"]["rules"][0]["type"] == "rsi_below"
+    assert config["entry_rule"]["rules"][1]["type"] == "realized_volatility_below"
+    assert config["entry_rule"]["rules"][1]["lookback"] == 20
+    assert config["entry_rule"]["rules"][1]["threshold"] == 0.25
+    assert config["exit_rule"]["kind"] == "group"
+    assert config["exit_rule"]["operator"] == "OR"
+    assert config["exit_rule"]["rules"][0]["type"] == "rsi_above"
+    assert config["exit_rule"]["rules"][1]["type"] == "realized_volatility_above"
+    assert config["exit_rule"]["rules"][1]["lookback"] == 20
+    assert config["exit_rule"]["rules"][1]["threshold"] == 0.35
+    assert "QQQ 20-day realized volatility is below 25.0%" in body["summary"]
+    assert "QQQ 20-day realized volatility is above 35.0%" in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_draft_exact_realized_volatility_prompt_validates(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ strategy that buys when 20-day volatility is below 25%. "
+                "Sell when 20-day volatility is above 35%."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "realized_volatility_below",
+        "symbol": "QQQ",
+        "lookback": 20,
+        "threshold": 0.25,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "realized_volatility_above",
+        "symbol": "QQQ",
+        "lookback": 20,
+        "threshold": 0.35,
+    }
+    StrategyV2.model_validate(config)
+
+
 def test_generate_strategy_builder_draft_syncs_reference_symbols_for_relative_strength_strategy(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -5227,7 +5336,7 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert body["answer_data"]["answer_type"] == "SUPPORTED_STRATEGY_TYPES"
     assert body["message"] == (
         "You can currently build ETF strategies using RSI mean reversion, SMA / moving-average crossover, "
-        "SMA trend-state rules, MACD, KD / stochastic, relative strength, seasonality, stop loss, "
+        "SMA trend-state rules, MACD, KD / stochastic, relative strength, realized volatility, seasonality, stop loss, "
         "take profit, cooldown, benchmark comparison, and core-overlay allocation."
     )
     assert "RSI mean reversion" in body["message"]

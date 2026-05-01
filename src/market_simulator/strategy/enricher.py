@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from market_simulator.data.repository import MarketDataBundle
-from market_simulator.indicators import compute_kd, compute_macd, compute_rsi, compute_sma
+from market_simulator.indicators import (
+    compute_kd,
+    compute_macd,
+    compute_realized_volatility,
+    compute_rsi,
+    compute_sma,
+)
 from market_simulator.models.strategy_v2 import AtomicRule, GroupRule, NotRule, SequenceRule, WindowRule
 from market_simulator.strategy.dataframe_resolution import resolve_market_data_target
 
@@ -52,6 +58,11 @@ def _ensure(df, rule):
         col = f"return_{rule.lookback}"
         if col not in df.columns:
             df[col] = df["close"] / df["close"].shift(rule.lookback) - 1.0
+
+    elif rule.type in {"realized_volatility_below", "realized_volatility_above"}:
+        col = f"realized_volatility_{rule.lookback}"
+        if col not in df.columns:
+            df[col] = compute_realized_volatility(df["close"], rule.lookback)
 
     return df
 

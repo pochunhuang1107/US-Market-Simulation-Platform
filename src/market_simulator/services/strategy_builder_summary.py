@@ -65,6 +65,20 @@ def _describe_relative_return_above(
     )
 
 
+def _describe_realized_volatility(
+    rule: dict[str, Any],
+    *,
+    direction: str,
+    tradable_symbol: str | None = None,
+) -> str:
+    symbol = _format_rule_symbol(rule, tradable_symbol)
+    lookback = rule.get("lookback") or "the lookback"
+    return (
+        f"{symbol} {lookback}-day realized volatility is {direction} "
+        f"{_format_pct(rule.get('threshold'))}"
+    )
+
+
 def _describe_atomic_rule(rule: dict[str, Any], tradable_symbol: str | None = None) -> str:
     rule_type = str(rule.get("type") or "rule")
     symbol = _format_rule_symbol(rule, tradable_symbol)
@@ -108,6 +122,20 @@ def _describe_atomic_rule(rule: dict[str, Any], tradable_symbol: str | None = No
 
     if rule_type == "relative_return_above":
         return _describe_relative_return_above(rule, tradable_symbol=tradable_symbol)
+
+    if rule_type == "realized_volatility_below":
+        return _describe_realized_volatility(
+            rule,
+            direction="below",
+            tradable_symbol=tradable_symbol,
+        )
+
+    if rule_type == "realized_volatility_above":
+        return _describe_realized_volatility(
+            rule,
+            direction="above",
+            tradable_symbol=tradable_symbol,
+        )
 
     if rule_type == "month_in":
         return f"month is one of {_format_month_values(rule.get('month_values'))}"

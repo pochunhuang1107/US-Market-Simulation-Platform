@@ -97,6 +97,7 @@ from market_simulator.services.strategy_builder_parsers import (
     _extract_primary_symbol,
     _extract_profit_reduce_threshold_edit,
     _extract_reference_symbols,
+    _extract_realized_volatility_rule,
     _extract_relative_strength_lookback_edit,
     _extract_relative_strength_reference_symbol_edit,
     _extract_relative_strength_rules,
@@ -846,6 +847,8 @@ def _build_base_rule_candidates(
 
     rsi_buy = _extract_rsi_rule(prompt, direction="below")
     rsi_sell = _extract_rsi_rule(prompt, direction="above")
+    volatility_below = _extract_realized_volatility_rule(prompt, direction="below")
+    volatility_above = _extract_realized_volatility_rule(prompt, direction="above")
     rsi_entry_threshold_edit = _extract_rsi_entry_threshold_edit(prompt)
     rsi_exit_threshold_edit = _extract_rsi_exit_threshold_edit(prompt)
     rsi_entry_lookback_edit = _extract_rsi_entry_lookback_edit(prompt)
@@ -889,6 +892,38 @@ def _build_base_rule_candidates(
             "lookback": lookback,
             "threshold": threshold,
         }
+
+    if volatility_below:
+        lookback, threshold, used_default_lookback = volatility_below
+        rule = {
+            "kind": "atomic",
+            "type": "realized_volatility_below",
+            "symbol": tradable_symbol,
+            "lookback": lookback,
+            "threshold": threshold,
+        }
+        if used_default_lookback:
+            assumptions.append("Used 20 trading days as the realized volatility lookback by default.")
+        if _looks_like_exit_only_prompt(prompt):
+            exit_rule = rule
+        elif entry_rule is None:
+            entry_rule = rule
+
+    if volatility_above:
+        lookback, threshold, used_default_lookback = volatility_above
+        rule = {
+            "kind": "atomic",
+            "type": "realized_volatility_above",
+            "symbol": tradable_symbol,
+            "lookback": lookback,
+            "threshold": threshold,
+        }
+        if used_default_lookback:
+            assumptions.append("Used 20 trading days as the realized volatility lookback by default.")
+        if _looks_like_entry_only_prompt(prompt):
+            entry_rule = rule
+        elif exit_rule is None:
+            exit_rule = rule
 
     if "moving average" in prompt_lower or "sma" in prompt_lower:
         selected_pair = sma_above_pair if sma_above_pair is not None else sma_pair
@@ -1826,6 +1861,7 @@ def _apply_update_flow_edits(
         or "relative strength" in prompt_lower
         or "relative return" in prompt_lower
         or "outperform" in prompt_lower
+        or "volatility" in prompt_lower
     ):
         default_config["entry_rule"] = entry_rule
 
@@ -1874,6 +1910,7 @@ def _apply_update_flow_edits(
         or "relative strength" in prompt_lower
         or "relative return" in prompt_lower
         or "outperform" in prompt_lower
+        or "volatility" in prompt_lower
     ):
         default_config["exit_rule"] = exit_rule
 

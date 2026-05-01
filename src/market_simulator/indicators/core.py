@@ -18,6 +18,10 @@ def compute_rsi(close, window=14):
     rs = avg_gain / avg_loss.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
+def compute_realized_volatility(close, window):
+    daily_returns = close.pct_change()
+    return daily_returns.rolling(window=window, min_periods=window).std() * np.sqrt(252)
+
 def compute_macd(close, fast=12, slow=26, signal=9):
     ema_fast = compute_ema(close, fast)
     ema_slow = compute_ema(close, slow)

@@ -50,6 +50,8 @@ class AtomicRule(BaseModel):
         "kd_dead_cross",
         "month_in",
         "relative_return_above",
+        "realized_volatility_below",
+        "realized_volatility_above",
     ]
     symbol: Optional[str] = None
     lookback: Optional[int] = None
@@ -61,9 +63,21 @@ class AtomicRule(BaseModel):
 
     @model_validator(mode="after")
     def validate_fields(self) -> "AtomicRule":
-        if self.type in {"rsi_below", "rsi_above", "relative_return_above"} and self.lookback is None:
+        if self.type in {
+            "rsi_below",
+            "rsi_above",
+            "relative_return_above",
+            "realized_volatility_below",
+            "realized_volatility_above",
+        } and self.lookback is None:
             raise ValueError("lookback required")
-        if self.type in {"rsi_below", "rsi_above", "relative_return_above"} and self.threshold is None:
+        if self.type in {
+            "rsi_below",
+            "rsi_above",
+            "relative_return_above",
+            "realized_volatility_below",
+            "realized_volatility_above",
+        } and self.threshold is None:
             raise ValueError("threshold required")
         if self.type in {"sma_cross_above", "sma_cross_below", "sma_above"} and (
             self.fast_window is None or self.slow_window is None
