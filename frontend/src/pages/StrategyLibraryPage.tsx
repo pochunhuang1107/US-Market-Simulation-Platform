@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { MetricCard } from '../components/shared/MetricCard';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
@@ -83,11 +82,6 @@ export function StrategyLibraryPage() {
     return [...strategies].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
   }, [strategies]);
 
-  const activeStrategyCount = useMemo(() => {
-    return strategies.filter((strategy) => strategy.status?.toLowerCase() === 'active').length;
-  }, [strategies]);
-
-  const mostRecentlyUpdatedStrategy = sortedStrategies[0];
   const savedStrategyLimitReached = entitlements?.usage.saved_strategies_remaining === 0;
 
   return (
@@ -120,15 +114,21 @@ export function StrategyLibraryPage() {
             </div>
             <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[30rem]">
               <div className="app-surface-soft rounded-xl border px-3 py-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] app-text-soft">Active saved</p>
+                <p className="flex min-h-8 items-start text-xs font-semibold uppercase tracking-[0.16em] app-text-soft">
+                  Active saved
+                </p>
                 <p className="mt-1 app-title text-lg font-semibold">{entitlements.usage.saved_strategies}</p>
               </div>
               <div className="app-surface-soft rounded-xl border px-3 py-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] app-text-soft">Max saved</p>
+                <p className="flex min-h-8 items-start text-xs font-semibold uppercase tracking-[0.16em] app-text-soft">
+                  Max saved
+                </p>
                 <p className="mt-1 app-title text-lg font-semibold">{entitlements.limits.max_saved_strategies}</p>
               </div>
               <div className="app-surface-soft rounded-xl border px-3 py-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] app-text-soft">Remaining slots</p>
+                <p className="flex min-h-8 items-start text-xs font-semibold uppercase tracking-[0.16em] app-text-soft">
+                  Remaining slots
+                </p>
                 <p
                   className={`mt-1 text-lg font-semibold ${
                     savedStrategyLimitReached ? 'text-rose-500 dark:text-rose-300' : 'text-emerald-500 dark:text-emerald-300'
@@ -144,18 +144,6 @@ export function StrategyLibraryPage() {
               You have reached your saved strategy limit. Archive an older strategy or upgrade later to save more.
             </div>
           ) : null}
-        </section>
-      ) : null}
-
-      {!loading && sortedStrategies.length > 0 ? (
-        <section className="grid gap-4 md:grid-cols-3">
-          <MetricCard label="Saved strategies" value={String(sortedStrategies.length)} />
-          <MetricCard label="Active saved" value={String(activeStrategyCount)} />
-          <div className="app-card-soft rounded-2xl border p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] app-text-soft">Recently updated</p>
-            <p className="mt-3 truncate text-lg font-semibold app-title">{mostRecentlyUpdatedStrategy.name}</p>
-            <p className="mt-1 text-sm app-text-muted">{formatDateTime(mostRecentlyUpdatedStrategy.updated_at)}</p>
-          </div>
         </section>
       ) : null}
 

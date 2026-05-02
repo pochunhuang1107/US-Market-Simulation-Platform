@@ -792,7 +792,7 @@ export function StrategyChatPage() {
       ) : (
         <>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-4xl px-4 py-6 pb-40">
+            <div className="mx-auto w-full max-w-4xl px-4 py-6 pb-48">
               {latestDraftConfig ? (
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 app-surface-soft">
                   <div className="min-w-0">
