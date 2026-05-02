@@ -248,7 +248,7 @@ def test_archived_strategies_do_not_count_toward_saved_strategy_limit(client, db
                 "symbol": "QQQ",
                 "benchmark": "QQQ",
                 "start_date": "2019-01-02",
-                "end_date": "2024-12-31",
+                "end_date": "2023-12-31",
                 "initial_capital": 100000,
                 "transaction_cost_bps": 5,
                 "position_sizing": {"type": "percent_of_equity", "value": 1.0},
