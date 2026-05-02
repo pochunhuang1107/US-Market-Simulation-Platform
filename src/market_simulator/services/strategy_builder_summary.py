@@ -819,7 +819,7 @@ def _build_summary_intro(
     ):
         return (
             f"Drafted a strategy for {symbol} using available history "
-            f"from {start_date_str} to {end_date_str}"
+            f"from {start_date_str} to {end_date_str}."
         )
 
     if any(
@@ -828,10 +828,10 @@ def _build_summary_intro(
     ):
         return (
             f"Drafted a strategy for {symbol} using the default platform range "
-            f"from {start_date_str} to {end_date_str}"
+            f"from {start_date_str} to {end_date_str}."
         )
 
-    return f"Drafted a strategy for {symbol} from {start_date_str} to {end_date_str}"
+    return f"Drafted a strategy for {symbol} from {start_date_str} to {end_date_str}."
 
 
 def _build_strategy_summary(

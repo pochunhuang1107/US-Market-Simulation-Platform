@@ -8,6 +8,7 @@ import market_simulator.services.strategy_builder_service as builder_service
 import market_simulator.services.strategy_builder_parsers as builder_parsers
 import market_simulator.services.strategy_builder_response as builder_response
 from market_simulator.data.repository import MarketDataBundle
+from market_simulator.engine import runner
 from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.platform.services.parameter_sweep import (
     generate_variant_configs,
@@ -1067,7 +1068,38 @@ def test_generate_strategy_builder_parses_composite_rsi_and_vix_filter(client):
         "threshold": 35.0,
     }
     assert "VIX" in config["reference_symbols"]
-    StrategyV2.model_validate(config)
+    strategy = StrategyV2.model_validate(config)
+
+    bundle = MarketDataBundle(
+        tradable=pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2021-01-04", "2021-01-05", "2021-01-06"]),
+                "symbol": ["QQQ", "QQQ", "QQQ"],
+                "open": [100.0, 101.0, 102.0],
+                "high": [101.0, 102.0, 103.0],
+                "low": [99.0, 100.0, 101.0],
+                "close": [100.0, 101.0, 102.0],
+                "volume": [1_000_000.0, 1_000_000.0, 1_000_000.0],
+                "vwap": [100.0, 101.0, 102.0],
+                "transactions": [10_000.0, 10_000.0, 10_000.0],
+                "rsi_14": [30.0, 30.0, 30.0],
+            }
+        ),
+        references={
+            "VIX": pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2021-01-04", "2021-01-06"]),
+                    "symbol": ["VIX", "VIX"],
+                    "value": [30.0, 20.0],
+                }
+            )
+        },
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+
+    assert [row["entry_signal"] for row in result.timeline] == [False, False, True]
+    assert result.timeline[1]["action_taken"] == ""
 
 
 def test_generate_strategy_builder_parses_vix_exit_filter(client):
@@ -5669,6 +5701,7 @@ def test_generate_strategy_builder_summary_mentions_available_history_when_metad
 
     assert "using available history" in body["summary"]
     assert "from 2024-01-11 to 2026-04-17" in body["summary"]
+    assert "from 2024-01-11 to 2026-04-17. Enter when" in body["summary"]
 
 
 def test_generate_strategy_builder_summary_mentions_default_platform_range_when_metadata_is_missing(
