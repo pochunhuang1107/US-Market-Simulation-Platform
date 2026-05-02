@@ -42,6 +42,18 @@ DEFAULT_SUPPORTED_ETF_SYMBOLS = ",".join(
     ]
 )
 
+DEFAULT_SUPPORTED_REFERENCE_SERIES_SYMBOLS = ",".join(
+    [
+        "VIX",
+        "VIX9D",
+        "VXEEM",
+        "DGS10",
+        "DGS2",
+        "T10Y2Y",
+        "DFF",
+    ]
+)
+
 
 class Settings(BaseModel):
     database_url: str = os.getenv(
@@ -56,6 +68,14 @@ class Settings(BaseModel):
     etf_metadata_s3_uri: str = os.getenv(
         "ETF_METADATA_S3_URI",
         "s3://us-market-data-casper/curated/reference/etf_symbol_metadata/data.parquet",
+    )
+    reference_series_data_path: str = os.getenv(
+        "REFERENCE_SERIES_DATA_PATH",
+        "s3://us-market-data-casper/curated/reference_series",
+    )
+    reference_series_metadata_s3_uri: str = os.getenv(
+        "REFERENCE_SERIES_METADATA_S3_URI",
+        "s3://us-market-data-casper/curated/reference/reference_series_metadata/data.parquet",
     )
     duckdb_database: str = os.getenv("DUCKDB_DATABASE", ":memory:")
     s3_region: str = os.getenv("S3_REGION", "us-west-2")
@@ -123,6 +143,10 @@ class Settings(BaseModel):
         "SUPPORTED_ETF_SYMBOLS",
         DEFAULT_SUPPORTED_ETF_SYMBOLS,
     )
+    supported_reference_series_symbols_csv: str = os.getenv(
+        "SUPPORTED_REFERENCE_SERIES_SYMBOLS",
+        DEFAULT_SUPPORTED_REFERENCE_SERIES_SYMBOLS,
+    )
 
     @property
     def dev_admin_user_ids(self) -> tuple[str, ...]:
@@ -142,6 +166,15 @@ class Settings(BaseModel):
         values = {
             symbol.strip().upper()
             for symbol in self.supported_etf_symbols_csv.split(",")
+            if symbol.strip()
+        }
+        return tuple(sorted(values))
+
+    @property
+    def supported_reference_series_symbols(self) -> tuple[str, ...]:
+        values = {
+            symbol.strip().upper()
+            for symbol in self.supported_reference_series_symbols_csv.split(",")
             if symbol.strip()
         }
         return tuple(sorted(values))
