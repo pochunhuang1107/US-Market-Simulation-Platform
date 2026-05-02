@@ -81,6 +81,10 @@ def _succeeded_run(
     user_id: str,
     strategy_id: str | None = None,
     version_id: str | None = None,
+    summary_json: dict | None = None,
+    artifact_manifest_json: dict | None = None,
+    artifact_storage_type: str = ArtifactStorageType.LOCAL,
+    artifact_root_uri: str | None = None,
 ):
     run = create_run(
         db_session,
@@ -98,9 +102,11 @@ def _succeeded_run(
     return mark_run_succeeded(
         db_session,
         run,
-        summary_json={"total_return_pct": 10.0},
+        summary_json=summary_json or {"total_return_pct": 10.0},
         artifact_dir=f"data/local_artifacts/runs/{run.id}",
-        artifact_manifest_json={"summary": f"summary-{run.id}"},
+        artifact_manifest_json=artifact_manifest_json or {"summary": f"summary-{run.id}"},
+        artifact_storage_type=artifact_storage_type,
+        artifact_root_uri=artifact_root_uri,
     )
 
 
@@ -165,6 +171,17 @@ def _strategy_v2_config() -> dict:
         },
         "risk": {"stop_loss_pct": None, "take_profit_pct": None, "cooldown_bars": 0},
         "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+    }
+
+
+def _empty_chart_data() -> dict:
+    return {
+        "equity_curve": [],
+        "drawdown_curve": [],
+        "monthly_returns": [],
+        "sleeve_equity_curve": [],
+        "sleeve_weight_curve": [],
+        "trade_markers": [],
     }
 
 
@@ -331,6 +348,144 @@ def test_owner_can_access_owned_strategy_run_dashboard_compare_and_sweep_detail(
     assert client.get(f"/runs/{sweep_run.id}/sweep/variants/variant-1").status_code == 200
 
 
+def test_owner_authorized_run_endpoints_return_artifact_manifest_and_download_urls(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="artifact-owner@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    manifest = {
+        "summary": "s3://unit-test-bucket/artifacts/runs/owner-run/summary.json",
+        "timeline": "s3://unit-test-bucket/artifacts/runs/owner-run/timeline.csv",
+    }
+    run = _succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        version_id=str(version.id),
+        artifact_manifest_json=manifest,
+        artifact_storage_type=ArtifactStorageType.S3,
+        artifact_root_uri="s3://unit-test-bucket/artifacts/runs/owner-run",
+    )
+    generated_urls = []
+
+    def fake_generate_download_url(uri):
+        generated_urls.append(uri)
+        return f"https://signed.example.test/{uri.rsplit('/', 1)[-1]}?owner=1"
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.artifact_store.generate_download_url",
+        fake_generate_download_url,
+    )
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.chart_service.load_chart_data",
+        lambda manifest_json: _empty_chart_data(),
+    )
+
+    detail_response = client.get(f"/runs/{run.id}")
+    assert detail_response.status_code == 200
+    detail_body = detail_response.json()
+    assert detail_body["artifact_manifest_json"] == manifest
+    assert detail_body["artifact_download_urls"] == {
+        "summary": "https://signed.example.test/summary.json?owner=1",
+        "timeline": "https://signed.example.test/timeline.csv?owner=1",
+    }
+    assert detail_body["artifact_summary"]["manifest"] == manifest
+    assert detail_body["artifact_summary"]["download_urls"] == detail_body["artifact_download_urls"]
+
+    dashboard_response = client.get(f"/runs/{run.id}/dashboard")
+    assert dashboard_response.status_code == 200
+    dashboard_run = dashboard_response.json()["run"]
+    assert dashboard_run["artifact_manifest_json"] == manifest
+    assert dashboard_run["artifact_download_urls"]["summary"].endswith("summary.json?owner=1")
+    assert generated_urls == [manifest["summary"], manifest["timeline"]] * 2
+
+
+def test_non_owner_cannot_get_artifact_manifest_or_generate_download_urls(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="artifact-manifest-owner@example.com")
+    create_user(user_id=other_id, email="artifact-manifest-other@example.com")
+    strategy, version = create_strategy_bundle(user_id=owner_id)
+    run = _succeeded_run(
+        db_session,
+        user_id=owner_id,
+        strategy_id=str(strategy.id),
+        version_id=str(version.id),
+        artifact_manifest_json={
+            "summary": "s3://unit-test-bucket/private-owner/summary.json",
+            "timeline": "s3://unit-test-bucket/private-owner/timeline.csv",
+        },
+        artifact_storage_type=ArtifactStorageType.S3,
+        artifact_root_uri="s3://unit-test-bucket/private-owner",
+    )
+    calls = []
+
+    def fail_if_presigned(uri):
+        calls.append(uri)
+        raise AssertionError("non-owner request generated an artifact download URL")
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.artifact_store.generate_download_url",
+        fail_if_presigned,
+    )
+
+    current_user_ctx["id"] = other_id
+
+    assert client.get(f"/runs/{run.id}").status_code == 404
+    assert client.get(f"/runs/{run.id}/dashboard").status_code == 404
+    assert calls == []
+
+
+def test_non_owner_chart_endpoint_does_not_load_another_users_artifacts(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="artifact-chart-owner@example.com")
+    create_user(user_id=other_id, email="artifact-chart-other@example.com")
+    strategy, version = create_strategy_bundle(user_id=owner_id)
+    run = _succeeded_run(
+        db_session,
+        user_id=owner_id,
+        strategy_id=str(strategy.id),
+        version_id=str(version.id),
+        artifact_manifest_json={"timeline": "private-owner/timeline.csv"},
+    )
+    calls = []
+
+    def fail_if_loaded(manifest_json):
+        calls.append(manifest_json)
+        raise AssertionError("non-owner request loaded chart artifact data")
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.chart_service.load_chart_data",
+        fail_if_loaded,
+    )
+
+    current_user_ctx["id"] = other_id
+    response = client.get(f"/runs/{run.id}/chart-data")
+
+    assert response.status_code == 404
+    assert calls == []
+
+
 def test_strategy_apis_scope_list_and_deny_non_owner_mutations(
     client,
     db_session,
@@ -471,6 +626,51 @@ def test_non_owner_cannot_access_user_scoped_run_and_sweep_surfaces(
     assert client.get(f"/runs/{sweep_run.id}/sweep/variants/variant-1").status_code == 404
 
 
+def test_non_owner_cannot_access_sweep_variant_artifacts_or_chart_data(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+    monkeypatch,
+    tmp_path,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="sweep-artifact-owner@example.com")
+    create_user(user_id=other_id, email="sweep-artifact-other@example.com")
+    variant_dir = tmp_path / "owner-sweep" / "variants" / "001_variant-1"
+    variant_dir.mkdir(parents=True)
+    for filename in ("timeline.csv", "monthly_returns.csv", "trade_log.csv"):
+        (variant_dir / filename).write_text("date,value\n2024-01-01,1\n", encoding="utf-8")
+
+    sweep_run = _succeeded_sweep_run(db_session, user_id=owner_id, config=_strategy_v2_config())
+    variant = dict(sweep_run.summary_json["results"][0])
+    variant["artifact_dir"] = str(variant_dir)
+    sweep_run.summary_json = {
+        **sweep_run.summary_json,
+        "best_variant": variant,
+        "results": [variant],
+    }
+    db_session.commit()
+    calls = []
+
+    def fail_if_loaded(manifest_json):
+        calls.append(manifest_json)
+        raise AssertionError("non-owner request loaded sweep variant chart artifacts")
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.chart_service.load_chart_data",
+        fail_if_loaded,
+    )
+
+    current_user_ctx["id"] = other_id
+    response = client.get(f"/runs/{sweep_run.id}/sweep/variants/variant-1")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Run not found"
+    assert calls == []
+
+
 def test_save_draft_run_as_strategy_cannot_save_another_users_run(
     client,
     db_session,
@@ -509,6 +709,57 @@ def test_save_draft_run_as_strategy_cannot_save_another_users_run(
     assert response.json()["detail"] == "Run not found"
 
 
+def test_save_draft_run_as_strategy_does_not_expose_another_users_artifacts(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+    monkeypatch,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="draft-artifact-owner@example.com")
+    create_user(user_id=other_id, email="draft-artifact-other@example.com")
+    run = Run(
+        id=uuid.uuid4(),
+        user_id=owner_id,
+        strategy_id=None,
+        strategy_version_id=None,
+        run_type=RunType.SIMULATION,
+        executor_type=ExecutorType.SIMULATION_EXECUTOR,
+        status=RunStatus.SUCCEEDED,
+        request_payload={"draft_config": _strategy_v2_config()},
+        summary_json={"total_return_pct": 10.0},
+        artifact_manifest_json={"summary": "s3://unit-test-bucket/draft-owner/summary.json"},
+        artifact_dir="data/local_artifacts/runs/draft-artifact-save",
+        artifact_storage_type=ArtifactStorageType.S3,
+        artifact_root_uri="s3://unit-test-bucket/draft-owner",
+        attempt_count=1,
+        max_attempts=3,
+        progress_pct=100,
+        progress_message="Run completed",
+    )
+    db_session.add(run)
+    db_session.commit()
+    calls = []
+
+    def fail_if_presigned(uri):
+        calls.append(uri)
+        raise AssertionError("save-strategy generated an artifact download URL")
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.artifact_store.generate_download_url",
+        fail_if_presigned,
+    )
+
+    current_user_ctx["id"] = other_id
+    response = client.post(f"/runs/{run.id}/save-strategy", json={"name": "Should fail"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Run not found"
+    assert calls == []
+
+
 def test_promote_sweep_variant_cannot_promote_another_users_sweep_run(
     client,
     db_session,
@@ -526,6 +777,77 @@ def test_promote_sweep_variant_cannot_promote_another_users_sweep_run(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Run not found"
+
+
+def test_compare_and_compare_chart_do_not_load_foreign_artifact_backed_results(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+    monkeypatch,
+    tmp_path,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="compare-artifact-owner@example.com")
+    create_user(user_id=other_id, email="compare-artifact-other@example.com")
+    own_run = _succeeded_run(
+        db_session,
+        user_id=other_id,
+        artifact_manifest_json={"summary": "owned-summary.json"},
+    )
+    foreign_run = _succeeded_run(
+        db_session,
+        user_id=owner_id,
+        artifact_manifest_json={"summary": "foreign-summary.json"},
+    )
+
+    variant_dir = tmp_path / "foreign-sweep" / "variants" / "001_variant-1"
+    variant_dir.mkdir(parents=True)
+    for filename in ("timeline.csv", "monthly_returns.csv", "trade_log.csv"):
+        (variant_dir / filename).write_text("date,value\n2024-01-01,1\n", encoding="utf-8")
+    foreign_sweep_run = _succeeded_sweep_run(db_session, user_id=owner_id, config=_strategy_v2_config())
+    variant = dict(foreign_sweep_run.summary_json["results"][0])
+    variant["artifact_dir"] = str(variant_dir)
+    foreign_sweep_run.summary_json = {
+        **foreign_sweep_run.summary_json,
+        "best_variant": variant,
+        "results": [variant],
+    }
+    db_session.commit()
+    calls = []
+
+    def fail_if_loaded(manifest_json):
+        calls.append(manifest_json)
+        raise AssertionError("comparison loaded a non-owned artifact-backed result")
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        fail_if_loaded,
+    )
+
+    current_user_ctx["id"] = other_id
+
+    compare_response = client.get(f"/runs/compare?run_ids={own_run.id},{foreign_run.id}")
+    assert compare_response.status_code == 404
+    assert compare_response.json()["detail"] == f"Run not found: {foreign_run.id}"
+
+    chart_response = client.get(f"/runs/compare/chart?run_ids={own_run.id},{foreign_run.id}")
+    assert chart_response.status_code == 404
+    assert chart_response.json()["detail"] == f"Run not found: {foreign_run.id}"
+
+    variant_response = client.get(
+        f"/runs/compare?results=run:{own_run.id},sweep_variant:{foreign_sweep_run.id}:variant-1"
+    )
+    assert variant_response.status_code == 404
+    assert variant_response.json()["detail"] == f"Sweep run not found: {foreign_sweep_run.id}"
+
+    variant_chart_response = client.get(
+        f"/runs/compare/chart?results=run:{own_run.id},sweep_variant:{foreign_sweep_run.id}:variant-1"
+    )
+    assert variant_chart_response.status_code == 404
+    assert variant_chart_response.json()["detail"] == f"Sweep run not found: {foreign_sweep_run.id}"
+    assert calls == []
 
 
 def test_compare_fails_if_any_compared_run_is_not_owned_by_current_user(
