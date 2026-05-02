@@ -50,6 +50,8 @@ class AtomicRule(BaseModel):
         "kd_dead_cross",
         "month_in",
         "relative_return_above",
+        "series_below",
+        "series_above",
         "realized_volatility_below",
         "realized_volatility_above",
         "bullish_candle",
@@ -81,10 +83,14 @@ class AtomicRule(BaseModel):
             "rsi_below",
             "rsi_above",
             "relative_return_above",
+            "series_below",
+            "series_above",
             "realized_volatility_below",
             "realized_volatility_above",
         } and self.threshold is None:
             raise ValueError("threshold required")
+        if self.type in {"series_below", "series_above"} and not self.symbol:
+            raise ValueError("symbol required")
         if self.type in {"sma_cross_above", "sma_cross_below", "sma_above"} and (
             self.fast_window is None or self.slow_window is None
         ):

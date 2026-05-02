@@ -128,6 +128,14 @@ def _eval_candle_rule(rule: AtomicRule, df: pd.DataFrame, row_pos: int) -> bool:
     return False
 
 
+def _series_value_at(df: pd.DataFrame, row_pos: int):
+    if "value" in df.columns:
+        return df.iloc[row_pos]["value"]
+    if "close" in df.columns:
+        return df.iloc[row_pos]["close"]
+    return pd.NA
+
+
 def _eval_atomic(rule: AtomicRule, bundle, index: int, tradable_symbol: str | None) -> bool:
     if rule.type == "relative_return_above":
         return _eval_relative_return_above(rule, bundle, index, tradable_symbol)
@@ -159,6 +167,14 @@ def _eval_atomic(rule: AtomicRule, bundle, index: int, tradable_symbol: str | No
         if col not in df.columns:
             return False
         value = df.iloc[row_pos][col]
+        return bool(pd.notna(value) and value > rule.threshold)
+
+    elif rule.type == "series_below":
+        value = _series_value_at(df, row_pos)
+        return bool(pd.notna(value) and value < rule.threshold)
+
+    elif rule.type == "series_above":
+        value = _series_value_at(df, row_pos)
         return bool(pd.notna(value) and value > rule.threshold)
 
     elif rule.type == "sma_cross_above":
