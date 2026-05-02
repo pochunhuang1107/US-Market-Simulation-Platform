@@ -11,6 +11,7 @@ from market_simulator.db.enums import (
     RunStatus,
     RunType,
     SubscriptionStatus,
+    StrategyStatus,
     UserStatus,
 )
 from market_simulator.db.models.run import Run
@@ -279,6 +280,116 @@ def test_owner_can_access_owned_strategy_run_dashboard_compare_and_sweep_detail(
     assert client.get(f"/runs/{sweep_run.id}/sweep/variants/variant-1").status_code == 200
 
 
+def test_strategy_apis_scope_list_and_deny_non_owner_mutations(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="strategy-owner@example.com")
+    create_user(user_id=other_id, email="strategy-other@example.com")
+    owner_strategy, _ = create_strategy_bundle(
+        user_id=owner_id,
+        strategy_name="Owner Strategy",
+        config_json=_strategy_v2_config(),
+    )
+    other_strategy, _ = create_strategy_bundle(
+        user_id=other_id,
+        strategy_name="Other Strategy",
+        config_json=_strategy_v2_config(),
+    )
+
+    current_user_ctx["id"] = other_id
+
+    list_response = client.get("/strategies?include_archived=true")
+    assert list_response.status_code == 200
+    assert {item["id"] for item in list_response.json()} == {str(other_strategy.id)}
+
+    assert client.get(f"/strategies/{owner_strategy.id}/dashboard").status_code == 404
+
+    version_response = client.post(
+        f"/strategies/{owner_strategy.id}/versions",
+        json={
+            "config": _strategy_v2_config(),
+            "change_note": "should not cross ownership boundary",
+        },
+    )
+    assert version_response.status_code == 404
+    assert version_response.json()["detail"] == "Strategy not found"
+
+    archive_response = client.post(f"/strategies/{owner_strategy.id}/archive")
+    assert archive_response.status_code == 404
+    assert archive_response.json()["detail"] == "Strategy not found"
+    db_session.refresh(owner_strategy)
+    assert owner_strategy.status == StrategyStatus.ACTIVE
+
+    owner_strategy.status = StrategyStatus.ARCHIVED
+    db_session.commit()
+    restore_response = client.post(f"/strategies/{owner_strategy.id}/restore")
+    assert restore_response.status_code == 404
+    assert restore_response.json()["detail"] == "Strategy not found"
+    db_session.refresh(owner_strategy)
+    assert owner_strategy.status == StrategyStatus.ARCHIVED
+
+
+def test_run_apis_scope_lists_and_deny_non_owner_details_charts_and_actions(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="run-owner@example.com")
+    create_user(user_id=other_id, email="run-other@example.com")
+    owner_strategy, owner_version = create_strategy_bundle(user_id=owner_id)
+    other_strategy, other_version = create_strategy_bundle(user_id=other_id)
+    owner_run = _succeeded_run(
+        db_session,
+        user_id=owner_id,
+        strategy_id=str(owner_strategy.id),
+        version_id=str(owner_version.id),
+    )
+    owner_pending_run = create_run(
+        db_session,
+        owner_id,
+        str(owner_strategy.id),
+        str(owner_version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "owner pending action target"},
+        max_attempts=3,
+    )
+    other_run = _succeeded_run(
+        db_session,
+        user_id=other_id,
+        strategy_id=str(other_strategy.id),
+        version_id=str(other_version.id),
+    )
+
+    current_user_ctx["id"] = other_id
+
+    list_response = client.get("/runs")
+    assert list_response.status_code == 200
+    assert {item["id"] for item in list_response.json()["items"]} == {str(other_run.id)}
+
+    dashboard_list_response = client.get("/runs/dashboard")
+    assert dashboard_list_response.status_code == 200
+    assert {item["run_id"] for item in dashboard_list_response.json()["items"]} == {
+        str(other_run.id)
+    }
+
+    assert client.get(f"/runs/{owner_run.id}").status_code == 404
+    assert client.get(f"/runs/{owner_run.id}/dashboard").status_code == 404
+    assert client.get(f"/runs/{owner_run.id}/chart-data").status_code == 404
+    assert client.post(f"/runs/{owner_pending_run.id}/enqueue").status_code == 404
+    assert client.post(f"/runs/{owner_pending_run.id}/cancel").status_code == 404
+
+
 def test_non_owner_cannot_access_user_scoped_run_and_sweep_surfaces(
     client,
     db_session,
@@ -386,6 +497,26 @@ def test_compare_fails_if_any_compared_run_is_not_owned_by_current_user(
     assert "Run not found" in response.json()["detail"]
 
 
+def test_compare_chart_fails_if_any_compared_run_is_not_owned_by_current_user(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="compare-chart-owner@example.com")
+    create_user(user_id=other_id, email="compare-chart-other@example.com")
+    own_run = _succeeded_run(db_session, user_id=other_id)
+    foreign_run = _succeeded_run(db_session, user_id=owner_id)
+
+    current_user_ctx["id"] = other_id
+    response = client.get(f"/runs/compare/chart?run_ids={own_run.id},{foreign_run.id}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"Run not found: {foreign_run.id}"
+
+
 def test_compare_sweep_variant_fails_for_non_owner(
     client,
     db_session,
@@ -402,6 +533,28 @@ def test_compare_sweep_variant_fails_for_non_owner(
     current_user_ctx["id"] = other_id
     response = client.get(
         f"/runs/compare?results=run:{own_run.id},sweep_variant:{sweep_run.id}:variant-1"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"Sweep run not found: {sweep_run.id}"
+
+
+def test_compare_chart_sweep_variant_fails_for_non_owner(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="compare-chart-sweep-owner@example.com")
+    create_user(user_id=other_id, email="compare-chart-sweep-other@example.com")
+    own_run = _succeeded_run(db_session, user_id=other_id)
+    sweep_run = _succeeded_sweep_run(db_session, user_id=owner_id, config=_strategy_v2_config())
+
+    current_user_ctx["id"] = other_id
+    response = client.get(
+        f"/runs/compare/chart?results=run:{own_run.id},sweep_variant:{sweep_run.id}:variant-1"
     )
 
     assert response.status_code == 404

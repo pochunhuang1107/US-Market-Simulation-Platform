@@ -1155,6 +1155,13 @@ def get_run_chart_data_api(
         raise HTTPException(status_code=500, detail=f"Missing required artifact: {exc}") from exc
 
 
+def _run_action_http_exception(exc: ValueError) -> HTTPException:
+    detail = str(exc)
+    if detail.startswith("Run not found:"):
+        return HTTPException(status_code=404, detail="Run not found")
+    return HTTPException(status_code=400, detail=detail)
+
+
 @router.post("/{run_id}/enqueue", response_model=RunActionResponse)
 def enqueue_run_api(
     run_id: str,
@@ -1165,7 +1172,7 @@ def enqueue_run_api(
         result = dispatcher.dispatch_run(db, run_id, user["id"])
         return RunActionResponse.model_validate(result)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _run_action_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -1180,7 +1187,7 @@ def cancel_run_api(
         result = dispatcher.cancel_run(db, run_id, user["id"])
         return RunActionResponse.model_validate(result)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _run_action_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
