@@ -34,6 +34,12 @@ const CAPABILITY_PROMPT_TEMPLATES: PromptTemplate[] = [
   DEFAULT_PROMPT_TEMPLATE,
   SYMBOL_PROMPT_TEMPLATES[1],
   {
+    id: 'regime-aware',
+    label: 'Only trade QQQ when VIX is below 25 and RSI is below 35',
+    buildPrompt: (symbol) =>
+      `Only trade ${symbol} when VIX is below 25 and RSI is below 35`
+  },
+  {
     id: 'core-overlay',
     label: 'Create a QQQ core-overlay strategy with 60% core and 40% RSI overlay',
     buildPrompt: (symbol) =>
@@ -309,6 +315,8 @@ function StrategyAnswerCard({
               'MACD',
               'KD / stochastic',
               'Relative strength',
+              'VIX and rates filters',
+              'Yield-curve filters',
               'Seasonality'
             ]}
           />
@@ -333,6 +341,7 @@ function StrategyAnswerCard({
               <ActionChip
                 key={template.id}
                 text={template.label}
+                promptText={template.buildPrompt('QQQ')}
                 onClick={(prompt) => onUsePrompt?.(prompt)}
               />
             ))}

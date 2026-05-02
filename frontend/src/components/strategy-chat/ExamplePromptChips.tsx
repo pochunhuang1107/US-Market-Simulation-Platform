@@ -12,8 +12,8 @@ const EXAMPLES = [
     prompt: 'Create a QQQ core-overlay strategy with 60% core and 40% RSI overlay.'
   },
   {
-    label: 'Benchmark-aware',
-    prompt: 'Build an SPY moving average crossover strategy and compare it with QQQ.'
+    label: 'VIX filter',
+    prompt: 'Only trade QQQ when VIX is below 25 and RSI is below 35.'
   },
   {
     label: 'Relative strength',
