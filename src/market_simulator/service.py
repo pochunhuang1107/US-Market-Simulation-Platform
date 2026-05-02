@@ -17,6 +17,8 @@ class SimulationService:
         self.artifacts_dir = Path(artifacts_dir or settings.artifacts_dir)
         self.repo = MarketDataRepository(
             market_data_path=self.market_data_path,
+            reference_series_data_path=settings.reference_series_data_path,
+            supported_reference_series_symbols=settings.supported_reference_series_symbols,
             duckdb_database=settings.duckdb_database,
             s3_region=settings.s3_region,
         )
