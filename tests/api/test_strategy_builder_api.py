@@ -5964,8 +5964,9 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert body["answer_data"]["answer_type"] == "SUPPORTED_STRATEGY_TYPES"
     assert body["message"] == (
         "You can currently build ETF strategies using RSI mean reversion, SMA / moving-average crossover, "
-        "SMA trend-state rules, MACD, KD / stochastic, relative strength, realized volatility, seasonality, stop loss, "
-        "take profit, cooldown, benchmark comparison, and core-overlay allocation."
+        "SMA trend-state rules, MACD, KD / stochastic, relative strength, VIX and rates filters, "
+        "yield-curve filters, realized volatility, seasonality, stop loss, take profit, cooldown, "
+        "benchmark comparison, and core-overlay allocation."
     )
     assert "RSI mean reversion" in body["message"]
     assert "SMA / moving-average crossover" in body["message"]
@@ -5973,6 +5974,8 @@ def test_generate_strategy_builder_returns_structured_supported_strategy_types_a
     assert "MACD" in body["message"]
     assert "KD" in body["message"]
     assert "relative strength" in body["message"]
+    assert "VIX and rates filters" in body["message"]
+    assert "yield-curve filters" in body["message"]
     assert "seasonality" in body["message"]
     assert "stop loss" in body["message"]
     assert "take profit" in body["message"]

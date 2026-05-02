@@ -50,8 +50,9 @@ DEFAULT_GUIDANCE_ACTIONS = [
 
 SUPPORTED_STRATEGY_TYPES_MESSAGE = (
     "You can currently build ETF strategies using RSI mean reversion, SMA / moving-average crossover, "
-    "SMA trend-state rules, MACD, KD / stochastic, relative strength, realized volatility, seasonality, stop loss, "
-    "take profit, cooldown, benchmark comparison, and core-overlay allocation."
+    "SMA trend-state rules, MACD, KD / stochastic, relative strength, VIX and rates filters, "
+    "yield-curve filters, realized volatility, seasonality, stop loss, take profit, cooldown, "
+    "benchmark comparison, and core-overlay allocation."
 )
 
 UNSUPPORTED_EDIT_SUGGESTED_ACTION = (

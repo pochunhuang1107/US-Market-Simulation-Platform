@@ -274,7 +274,7 @@ export function StrategyDraftCard({
           </div>
 
           <div className="flex flex-wrap items-center justify-start gap-3 lg:justify-end">
-            <button type="button" onClick={() => setShowConfig((value) => !value)} className="app-button-secondary whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium transition">
+            <button type="button" onClick={() => setShowConfig((value) => !value)} className="app-button-secondary w-[6.75rem] whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium transition">
               {showConfig ? 'Hide JSON' : 'Show JSON'}
             </button>
             {isLatestDraft ? (
