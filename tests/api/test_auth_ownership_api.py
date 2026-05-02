@@ -168,8 +168,22 @@ def _strategy_v2_config() -> dict:
     }
 
 
+def test_auth_settings_keep_dev_convenient_but_force_required_in_protected_envs():
+    assert Settings(env="local", auth_mode=None).resolved_auth_mode == "dev"
+    assert Settings(env="test", auth_mode=None).resolved_auth_mode == "dev"
+    assert Settings(env="local", auth_mode=None).is_dev_auth_enabled is True
+
+    production_settings = Settings(env="production", auth_mode="dev")
+    assert production_settings.resolved_auth_mode == "required"
+    assert production_settings.is_dev_auth_enabled is False
+
+    beta_settings = Settings(env="beta", auth_mode="dev")
+    assert beta_settings.resolved_auth_mode == "required"
+    assert beta_settings.is_dev_auth_enabled is False
+
+
 def test_dev_mode_default_user_fallback_still_works(real_auth_client, create_user, monkeypatch):
-    _set_auth_settings(monkeypatch, env="local", auth_mode="dev")
+    _set_auth_settings(monkeypatch, env="local", auth_mode=None)
     create_user(user_id=DEV_USER_ID, email="dev-default@example.com")
 
     response = real_auth_client.get("/me/entitlements")
@@ -178,7 +192,11 @@ def test_dev_mode_default_user_fallback_still_works(real_auth_client, create_use
     assert response.json()["user"]["id"] == DEV_USER_ID
 
 
-def test_x_user_id_works_only_in_explicit_dev_mode(real_auth_client, create_user, monkeypatch):
+def test_x_user_id_works_only_when_dev_auth_is_enabled(
+    real_auth_client,
+    create_user,
+    monkeypatch,
+):
     user_id = str(uuid.uuid4())
     create_user(user_id=user_id, email="header-user@example.com")
 
@@ -187,9 +205,15 @@ def test_x_user_id_works_only_in_explicit_dev_mode(real_auth_client, create_user
     assert dev_response.status_code == 200
     assert dev_response.json()["user"]["id"] == user_id
 
-    _set_auth_settings(monkeypatch, env="beta", auth_mode="required")
+    _set_auth_settings(monkeypatch, env="local", auth_mode="required")
+    required_response = real_auth_client.get("/me/entitlements", headers={"X-User-Id": user_id})
+    assert required_response.status_code == 401
+    assert required_response.json()["detail"] == "Missing authenticated user"
+
+    _set_auth_settings(monkeypatch, env="beta", auth_mode="dev")
     beta_response = real_auth_client.get("/me/entitlements", headers={"X-User-Id": user_id})
     assert beta_response.status_code == 401
+    assert beta_response.json()["detail"] == "Missing authenticated user"
 
 
 def test_production_beta_mode_rejects_unauthenticated_and_x_user_id_only(
@@ -206,6 +230,33 @@ def test_production_beta_mode_rejects_unauthenticated_and_x_user_id_only(
         real_auth_client.get("/me/entitlements", headers={"X-User-Id": user_id}).status_code
         == 401
     )
+
+    _set_auth_settings(monkeypatch, env="production", auth_mode="dev")
+    production_response = real_auth_client.get(
+        "/me/entitlements",
+        headers={"X-User-Id": user_id},
+    )
+    assert production_response.status_code == 401
+    assert production_response.json()["detail"] == "Missing authenticated user"
+
+
+def test_current_user_rejects_invalid_x_user_id(real_auth_client, monkeypatch):
+    _set_auth_settings(monkeypatch, env="local", auth_mode="dev")
+
+    response = real_auth_client.get("/me/entitlements", headers={"X-User-Id": "not-a-uuid"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid user id"
+
+
+def test_current_user_rejects_missing_user(real_auth_client, monkeypatch):
+    _set_auth_settings(monkeypatch, env="local", auth_mode="dev")
+    missing_user_id = str(uuid.uuid4())
+
+    response = real_auth_client.get("/me/entitlements", headers={"X-User-Id": missing_user_id})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "User not found"
 
 
 def test_current_user_requires_active_user(real_auth_client, db_session, create_user, monkeypatch):

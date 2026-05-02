@@ -192,7 +192,14 @@ class Settings(BaseModel):
         return self.env.strip().lower()
 
     @property
+    def is_protected_env(self) -> bool:
+        return self.normalized_env in {"prod", "production", "beta"}
+
+    @property
     def resolved_auth_mode(self) -> str:
+        if self.is_protected_env:
+            return "required"
+
         if self.auth_mode:
             return self.auth_mode.strip().lower()
 
@@ -203,9 +210,6 @@ class Settings(BaseModel):
 
     @property
     def is_dev_auth_enabled(self) -> bool:
-        if self.normalized_env in {"prod", "production", "beta"}:
-            return False
-
         return self.resolved_auth_mode in {"dev", "local", "test"}
 
 
