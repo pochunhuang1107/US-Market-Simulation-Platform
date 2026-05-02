@@ -6,6 +6,9 @@ from typing import Any
 from pydantic import ValidationError
 
 from market_simulator.models.strategy_v2 import StrategyV2
+from market_simulator.services.strategy_builder_parsers import (
+    SUPPORTED_REFERENCE_SERIES_SYMBOLS,
+)
 from market_simulator.settings import get_settings
 
 
@@ -103,7 +106,12 @@ def validate_draft_config(
     symbols_to_check.extend(_collect_rule_symbols(exit_rule))
 
     unsupported_symbols = sorted(
-        {symbol for symbol in symbols_to_check if symbol not in supported_symbols}
+        {
+            symbol
+            for symbol in symbols_to_check
+            if symbol not in supported_symbols
+            and symbol not in SUPPORTED_REFERENCE_SERIES_SYMBOLS
+        }
     )
     if unsupported_symbols:
         joined = ", ".join(unsupported_symbols)

@@ -137,6 +137,26 @@ def _format_rule_symbol(rule: dict[str, Any], tradable_symbol: str | None = None
     return str(rule.get("symbol") or tradable_symbol or "asset")
 
 
+def _format_reference_series_subject(symbol: str) -> str:
+    labels = {
+        "DGS10": "the 10-year Treasury yield",
+        "DGS2": "the 2-year Treasury yield",
+        "T10Y2Y": "the 10Y-2Y Treasury spread",
+        "DFF": "the federal funds rate",
+        "VIX": "VIX",
+        "VIX9D": "VIX9D",
+        "VXEEM": "VXEEM",
+    }
+    return labels.get(symbol.upper(), symbol)
+
+
+def _format_reference_series_threshold(symbol: str, threshold: Any) -> str:
+    formatted = _format_number(threshold)
+    if symbol.upper() in {"DGS10", "DGS2", "DFF"}:
+        return f"{formatted}%"
+    return formatted
+
+
 def _describe_relative_return_above(
     rule: dict[str, Any],
     *,
@@ -219,10 +239,16 @@ def _describe_atomic_rule(rule: dict[str, Any], tradable_symbol: str | None = No
         return _describe_relative_return_above(rule, tradable_symbol=tradable_symbol)
 
     if rule_type == "series_below":
-        return f"{symbol} is below {_format_number(threshold)}"
+        return (
+            f"{_format_reference_series_subject(symbol)} is below "
+            f"{_format_reference_series_threshold(symbol, threshold)}"
+        )
 
     if rule_type == "series_above":
-        return f"{symbol} is above {_format_number(threshold)}"
+        return (
+            f"{_format_reference_series_subject(symbol)} is above "
+            f"{_format_reference_series_threshold(symbol, threshold)}"
+        )
 
     if rule_type == "realized_volatility_below":
         return _describe_realized_volatility(

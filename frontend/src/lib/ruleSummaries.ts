@@ -32,6 +32,24 @@ function formatThreshold(value: unknown): string {
   return Number.isInteger(value) ? String(value) : String(value);
 }
 
+function referenceSeriesSubject(symbol: string): string {
+  const labels: Record<string, string> = {
+    DGS10: 'the 10-year Treasury yield',
+    DGS2: 'the 2-year Treasury yield',
+    T10Y2Y: 'the 10Y-2Y Treasury spread',
+    DFF: 'the federal funds rate',
+    VIX: 'VIX',
+    VIX9D: 'VIX9D',
+    VXEEM: 'VXEEM'
+  };
+  return labels[symbol.toUpperCase()] ?? symbol;
+}
+
+function referenceSeriesThreshold(symbol: string, value: unknown): string {
+  const formatted = formatThreshold(value);
+  return ['DGS10', 'DGS2', 'DFF'].includes(symbol.toUpperCase()) ? `${formatted}%` : formatted;
+}
+
 function formatPercent(value: unknown): string {
   if (typeof value !== 'number' || Number.isNaN(value)) return 'threshold';
   return `${(value * 100).toFixed(1)}%`;
@@ -100,6 +118,10 @@ function summarizeAtomicRule(rule: RuleRecord, options: RuleSummaryOptions): str
       return `${symbol} KD / stochastic turns bearish`;
     case 'relative_return_above':
       return relativeReturnAboveSummary(rule, options);
+    case 'series_below':
+      return `${referenceSeriesSubject(symbol)} is below ${referenceSeriesThreshold(symbol, threshold)}`;
+    case 'series_above':
+      return `${referenceSeriesSubject(symbol)} is above ${referenceSeriesThreshold(symbol, threshold)}`;
     case 'realized_volatility_below':
       return realizedVolatilitySummary(rule, options, 'below');
     case 'realized_volatility_above':
