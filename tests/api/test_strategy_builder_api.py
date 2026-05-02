@@ -1052,6 +1052,8 @@ def test_generate_strategy_builder_parses_composite_rsi_and_vix_filter(client):
     entry_rules = config["entry_rule"]["rules"]
 
     assert body["response_type"] == "CREATE_DRAFT"
+    assert config["name"] == "QQQ VIX + RSI Strategy"
+    assert config["name"] != "qqq-and-to-rsi-above"
     assert config["entry_rule"]["kind"] == "group"
     assert config["entry_rule"]["operator"] == "AND"
     assert entry_rules[0] == {

@@ -24,6 +24,10 @@ def _build_strategy_name(
     entry_rule: dict,
     exit_rule: dict,
 ) -> str:
+    reference_series_rsi_name = _build_reference_series_rsi_strategy_name(symbol, entry_rule)
+    if reference_series_rsi_name is not None:
+        return reference_series_rsi_name
+
     reference_trend_filter_name = _build_reference_trend_filter_strategy_name(
         symbol,
         entry_rule,
@@ -106,6 +110,36 @@ def _build_reference_trend_filter_strategy_name(
         return f"{tradable_symbol.lower()}-rsi-with-{reference_symbol}-trend-filter"
 
     return None
+
+
+def _build_reference_series_rsi_strategy_name(symbol: str, entry_rule: dict) -> str | None:
+    tradable_symbol = symbol.upper()
+    entry_rules = _collect_atomic_rules(entry_rule)
+    has_tradable_rsi_entry = any(
+        rule.get("type") in _RSI_RULE_TYPES
+        and str(rule.get("symbol") or tradable_symbol).upper() == tradable_symbol
+        for rule in entry_rules
+    )
+    reference_series_rule = next(
+        (
+            rule
+            for rule in entry_rules
+            if rule.get("type") in {"series_below", "series_above"}
+            and isinstance(rule.get("symbol"), str)
+            and str(rule.get("symbol")).upper() != tradable_symbol
+        ),
+        None,
+    )
+
+    if not has_tradable_rsi_entry or reference_series_rule is None:
+        return None
+
+    reference_symbol = str(reference_series_rule["symbol"]).upper()
+    if reference_symbol in {"DGS10", "DGS2", "T10Y2Y", "DFF"}:
+        reference_label = "Rates"
+    else:
+        reference_label = reference_symbol
+    return f"{tradable_symbol} {reference_label} + RSI Strategy"
 
 
 def _rule_label(rule: dict) -> str:
