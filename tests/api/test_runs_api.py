@@ -1611,7 +1611,7 @@ def test_get_run_enforces_ownership(
     assert get_resp.status_code == 404
 
     enqueue_resp = client.post(f"/runs/{run_id}/enqueue")
-    assert enqueue_resp.status_code == 400
+    assert enqueue_resp.status_code == 404
     assert "not found" in enqueue_resp.json()["detail"].lower()
 
 
