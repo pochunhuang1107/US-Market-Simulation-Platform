@@ -118,6 +118,42 @@ def test_realized_volatility_summary_formats_percent_threshold():
     assert _describe_rule(above_rule) == "QQQ 20-day realized volatility is above 35.0%"
 
 
+def test_reference_series_summaries_use_readable_macro_labels():
+    assert (
+        _describe_rule(
+            {
+                "kind": "atomic",
+                "type": "series_below",
+                "symbol": "VIX",
+                "threshold": 25,
+            }
+        )
+        == "VIX is below 25"
+    )
+    assert (
+        _describe_rule(
+            {
+                "kind": "atomic",
+                "type": "series_below",
+                "symbol": "DGS10",
+                "threshold": 4.5,
+            }
+        )
+        == "the 10-year Treasury yield is below 4.5%"
+    )
+    assert (
+        _describe_rule(
+            {
+                "kind": "atomic",
+                "type": "series_above",
+                "symbol": "T10Y2Y",
+                "threshold": 0,
+            }
+        )
+        == "the 10Y-2Y Treasury spread is above 0"
+    )
+
+
 def test_daily_candle_summaries_are_readable():
     assert (
         _describe_rule({"kind": "atomic", "type": "bullish_candle", "symbol": "QQQ"})

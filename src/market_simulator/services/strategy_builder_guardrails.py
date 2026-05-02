@@ -4,6 +4,9 @@ import re
 from typing import Any
 
 from market_simulator.services.draft_validation import validate_draft_config
+from market_simulator.services.strategy_builder_parsers import (
+    SUPPORTED_REFERENCE_SERIES_SYMBOLS,
+)
 
 
 _TICKER_PATTERN = re.compile(r"\b[A-Z]{2,6}\b")
@@ -56,7 +59,10 @@ def validate_strategy_builder_request(
 
     requested_symbols = _extract_requested_symbols_from_prompt(prompt)
     unsupported_requested = sorted(
-        symbol for symbol in requested_symbols if symbol not in supported_symbols
+        symbol
+        for symbol in requested_symbols
+        if symbol not in supported_symbols
+        and symbol not in SUPPORTED_REFERENCE_SERIES_SYMBOLS
     )
     if unsupported_requested:
         joined = ", ".join(unsupported_requested)

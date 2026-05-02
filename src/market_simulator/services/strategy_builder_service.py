@@ -142,6 +142,7 @@ from market_simulator.services.strategy_builder_parsers import (
     _has_stop_loss_removal,
     _has_take_profit_removal,
     _has_temporal_rule_edit,
+    _looks_like_reference_series_filter_intent,
     _is_supported_edit_request,
     _looks_like_edit_request,
     _looks_like_question,
@@ -811,7 +812,11 @@ def _finalize_rule_setup(
                     "Interpreted explicit entry clause as a combined rule using AND/OR."
                 )
 
-                if re.search(r"\b(?:only\s+when|while)\b", prompt, flags=re.IGNORECASE):
+                if re.search(
+                    r"\b(?:only\s+when|while)\b|\bavoid\s+(?:trading|risk[-\s]?on\s+entries|entries)\b",
+                    prompt,
+                    flags=re.IGNORECASE,
+                ):
                     exit_rule = {
                         "kind": "not",
                         "rule": deepcopy(composite_entry_rule),
@@ -1905,6 +1910,7 @@ def _apply_update_flow_edits(
         or "relative return" in prompt_lower
         or "outperform" in prompt_lower
         or "volatility" in prompt_lower
+        or _looks_like_reference_series_filter_intent(prompt)
     ):
         default_config["entry_rule"] = entry_rule
 
@@ -1954,6 +1960,7 @@ def _apply_update_flow_edits(
         or "relative return" in prompt_lower
         or "outperform" in prompt_lower
         or "volatility" in prompt_lower
+        or _looks_like_reference_series_filter_intent(prompt)
     ):
         default_config["exit_rule"] = exit_rule
 

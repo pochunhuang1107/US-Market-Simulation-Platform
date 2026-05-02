@@ -1015,6 +1015,213 @@ def test_generate_strategy_builder_entry_only_reference_symbol_trend_filter(clie
     StrategyV2.model_validate(config)
 
 
+def test_generate_strategy_builder_parses_vix_entry_filter(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Buy QQQ when VIX is below 25."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "series_below",
+        "symbol": "VIX",
+        "threshold": 25.0,
+    }
+    assert "VIX" in config["reference_symbols"]
+    assert "Enter when VIX is below 25." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_parses_composite_rsi_and_vix_filter(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Only trade QQQ when VIX is below 25 and RSI is below 35.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+    entry_rules = config["entry_rule"]["rules"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"]["kind"] == "group"
+    assert config["entry_rule"]["operator"] == "AND"
+    assert entry_rules[0] == {
+        "kind": "atomic",
+        "type": "series_below",
+        "symbol": "VIX",
+        "threshold": 25.0,
+    }
+    assert entry_rules[1] == {
+        "kind": "atomic",
+        "type": "rsi_below",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 35.0,
+    }
+    assert "VIX" in config["reference_symbols"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_parses_vix_exit_filter(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Sell when VIX is above 35."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "series_above",
+        "symbol": "VIX",
+        "threshold": 35.0,
+    }
+    assert "VIX" in config["reference_symbols"]
+    assert "Exit when VIX is above 35." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_parses_10y_yield_alias(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Only trade QQQ when the 10Y yield is below 4.5%."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "series_below",
+        "symbol": "DGS10",
+        "threshold": 4.5,
+    }
+    assert "DGS10" in config["reference_symbols"]
+    assert "Enter when the 10-year Treasury yield is below 4.5%." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_parses_inverted_yield_curve(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Only trade QQQ when the yield curve is inverted."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "series_below",
+        "symbol": "T10Y2Y",
+        "threshold": 0.0,
+    }
+    assert "T10Y2Y" in config["reference_symbols"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_parses_t10y2y_direct_above_filter(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Only trade QQQ when T10Y2Y is above 0."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "series_above",
+        "symbol": "T10Y2Y",
+        "threshold": 0.0,
+    }
+    assert "T10Y2Y" in config["reference_symbols"]
+    assert "Enter when the 10Y-2Y Treasury spread is above 0." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_avoid_inverted_yield_curve_uses_safe_side(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Avoid risk-on entries when the yield curve is inverted."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "series_above",
+        "symbol": "T10Y2Y",
+        "threshold": 0.0,
+    }
+    assert "T10Y2Y" in config["reference_symbols"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_avoid_vix_above_uses_safe_side(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Avoid trading QQQ when VIX is above 30."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "series_below",
+        "symbol": "VIX",
+        "threshold": 30.0,
+    }
+    assert config["exit_rule"] == {
+        "kind": "not",
+        "rule": {
+            "kind": "atomic",
+            "type": "series_below",
+            "symbol": "VIX",
+            "threshold": 30.0,
+        },
+    }
+    assert "VIX" in config["reference_symbols"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_unsupported_macro_symbol_returns_guidance(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Only trade QQQ when MOVE is below 120."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["config"] is None
+    assert "VIX, VIX9D, VXEEM, DGS10, DGS2, T10Y2Y, and DFF" in body["message"]
+
+
 def test_generate_strategy_builder_keeps_rule_symbol_reference_when_it_is_also_benchmark(client):
     response = client.post(
         "/strategy-builder/generate",

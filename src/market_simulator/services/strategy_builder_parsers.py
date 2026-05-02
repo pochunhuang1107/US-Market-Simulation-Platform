@@ -9,6 +9,184 @@ from market_simulator.settings import get_settings
 
 
 SUPPORTED_SYMBOLS = frozenset(get_settings().supported_etf_symbols)
+SUPPORTED_REFERENCE_SERIES_SYMBOLS = frozenset(
+    {"VIX", "VIX9D", "VXEEM", "DGS10", "DGS2", "T10Y2Y", "DFF"}
+)
+_REFERENCE_SERIES_ALIAS_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "T10Y2Y",
+        (
+            r"\bt10y2y\b",
+            r"\byield\s+curve\b",
+            r"\b10\s*y\s*[-/]\s*2\s*y\s+spread\b",
+            r"\b10\s*year\s+minus\s+2\s*year\b",
+            r"\b10\s*[-\s]?year\s+minus\s+2\s*[-\s]?year\b",
+            r"\b10\s*y\s+minus\s+2\s*y\b",
+        ),
+    ),
+    (
+        "DGS10",
+        (
+            r"\bdgs10\b",
+            r"\b10\s*y\s+yield\b",
+            r"\b10\s*[-\s]?year\s+yield\b",
+            r"\b10\s*year\s+treasury\b",
+            r"\b10\s*[-\s]?year\s+treasury\s+yield\b",
+        ),
+    ),
+    (
+        "DGS2",
+        (
+            r"\bdgs2\b",
+            r"\b2\s*y\s+yield\b",
+            r"\b2\s*[-\s]?year\s+yield\b",
+            r"\b2\s*year\s+treasury\b",
+            r"\b2\s*[-\s]?year\s+treasury\s+yield\b",
+        ),
+    ),
+    ("DFF", (r"\bdff\b", r"\bfed\s+funds\b", r"\bfederal\s+funds\s+rate\b")),
+    ("VIX9D", (r"\bvix9d\b",)),
+    ("VXEEM", (r"\bvxeem\b",)),
+    ("VIX", (r"\bvix\b",)),
+)
+_REFERENCE_SERIES_COMPARATOR_PATTERNS = {
+    "series_below": r"(?:below|under|less\s+than|lower\s+than|<)",
+    "series_above": r"(?:above|over|greater\s+than|higher\s+than|>)",
+}
+_NON_REFERENCE_SYMBOL_TOKENS = {
+    "AND",
+    "BUY",
+    "D",
+    "ETF",
+    "ETFS",
+    "EXIT",
+    "KD",
+    "MACD",
+    "OR",
+    "RSI",
+    "SELL",
+    "SMA",
+}
+_UNSUPPORTED_REFERENCE_TERMS = (
+    "cpi",
+    "credit spread",
+    "dxy",
+    "gold",
+    "high yield spread",
+    "inflation",
+    "move",
+    "oil",
+    "unemployment",
+)
+
+
+def _reference_series_guidance() -> str:
+    return (
+        "I can build reference-series filters for VIX, VIX9D, VXEEM, DGS10, "
+        "DGS2, T10Y2Y, and DFF. I cannot create filters for unsupported macro "
+        "symbols yet."
+    )
+
+
+def _extract_reference_series_symbol(text: str) -> str | None:
+    for symbol, patterns in _REFERENCE_SERIES_ALIAS_PATTERNS:
+        if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns):
+            return symbol
+    return None
+
+
+def _looks_like_reference_series_filter_intent(text: str) -> bool:
+    text_lower = text.lower()
+    if _extract_reference_series_symbol(text) is not None:
+        return True
+
+    if any(
+        re.search(rf"\b{re.escape(term)}\b", text_lower)
+        for term in _UNSUPPORTED_REFERENCE_TERMS
+    ):
+        return True
+
+    has_threshold_comparator = any(
+        re.search(pattern, text, flags=re.IGNORECASE)
+        for pattern in _REFERENCE_SERIES_COMPARATOR_PATTERNS.values()
+    )
+    if not has_threshold_comparator:
+        return False
+
+    for candidate in re.findall(r"\b[A-Z][A-Z0-9]{1,5}\b", text):
+        symbol = candidate.upper()
+        if (
+            symbol not in SUPPORTED_SYMBOLS
+            and symbol not in SUPPORTED_REFERENCE_SERIES_SYMBOLS
+            and symbol not in _NON_REFERENCE_SYMBOL_TOKENS
+        ):
+            return True
+
+    return False
+
+
+def _has_avoidance_context(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\bavoid\b|\bdo\s+not\s+trade\b|\bdon't\s+trade\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _extract_reference_series_rule(text: str) -> tuple[dict, list[str]] | None:
+    symbol = _extract_reference_series_symbol(text)
+    if symbol is None:
+        if _looks_like_reference_series_filter_intent(text):
+            raise ValueError(_reference_series_guidance())
+        return None
+
+    text_lower = text.lower()
+    if "inverted" in text_lower and symbol == "T10Y2Y":
+        rule_type = "series_above" if _has_avoidance_context(text) else "series_below"
+        return (
+            {
+                "kind": "atomic",
+                "type": rule_type,
+                "symbol": symbol,
+                "threshold": 0,
+            },
+            [],
+        )
+
+    for rule_type, comparator in _REFERENCE_SERIES_COMPARATOR_PATTERNS.items():
+        match = re.search(
+            rf"{comparator}\s*(\d+(?:\.\d+)?)\s*%?",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            continue
+
+        effective_rule_type = rule_type
+        if _has_avoidance_context(text):
+            effective_rule_type = (
+                "series_below" if rule_type == "series_above" else "series_above"
+            )
+
+        return (
+            {
+                "kind": "atomic",
+                "type": effective_rule_type,
+                "symbol": symbol,
+                "threshold": float(match.group(1)),
+            },
+            [],
+        )
+
+    if _looks_like_reference_series_filter_intent(text):
+        raise ValueError(
+            f"{_reference_series_guidance()} Use a threshold phrase like 'VIX below 25' "
+            "or 'DGS10 above 4.5'."
+        )
+
+    return None
 
 
 def _build_fallback_default_date_range(*, max_backtest_years: int) -> tuple[str, str]:
@@ -132,7 +310,16 @@ def _extract_reference_symbols(
     benchmark_symbol: str,
 ) -> list[str]:
     symbols = _extract_symbols(text)
-    return [s for s in symbols if s not in {tradable_symbol, benchmark_symbol}]
+    reference_symbols = [s for s in symbols if s not in {tradable_symbol, benchmark_symbol}]
+
+    reference_series_symbol = _extract_reference_series_symbol(text)
+    if (
+        reference_series_symbol is not None
+        and reference_series_symbol not in reference_symbols
+    ):
+        reference_symbols.append(reference_series_symbol)
+
+    return reference_symbols
 
 
 def _extract_date_range(
@@ -245,6 +432,19 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\brelative\s+strength\b",
         r"\brelative\s+return\b",
         r"\boutperform\b",
+        r"\bvix\b",
+        r"\bvix9d\b",
+        r"\bvxeem\b",
+        r"\bdgs10\b",
+        r"\bdgs2\b",
+        r"\bt10y2y\b",
+        r"\bdff\b",
+        r"\b10\s*y\s+yield\b",
+        r"\b10\s*[-\s]?year\s+(?:yield|treasury)\b",
+        r"\b2\s*y\s+yield\b",
+        r"\b2\s*[-\s]?year\s+(?:yield|treasury)\b",
+        r"\byield\s+curve\b",
+        r"\bfed(?:eral)?\s+funds\b",
         r"\bvolatility\b",
         r"\brealized\s+volatility\b",
         r"\bcloses?\s+(?:above|over|below|under)\s+(?:its\s+|the\s+)?open\b",
@@ -821,20 +1021,31 @@ def _extract_entry_exit_rule_clauses(text: str) -> tuple[str | None, str | None]
 
 def _extract_entry_rule_clause(text: str) -> str | None:
     patterns = [
-        r"(?:entry|buys?|buying)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:[.;]|$)",
-        r"trade(?:\s+[A-Z]{2,5})?\s+only\s+when\s+(.+?)(?:[.;]|$)",
-        r"(?:trade|hold)(?:\s+[A-Z]{2,5})?\s+while\s+(.+?)(?:[.;]|$)",
+        r"(?:entry|buys?|buying)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:\.(?!\d)|;|$)",
+        r"only\s+trade(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:\.(?!\d)|;|$)",
+        r"trade(?:\s+[A-Z]{2,5})?\s+only\s+when\s+(.+?)(?:\.(?!\d)|;|$)",
+        r"(?:trade|hold)(?:\s+[A-Z]{2,5})?\s+while\s+(.+?)(?:\.(?!\d)|;|$)",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             return match.group(1).strip(" .,")
+
+    avoidance_patterns = [
+        r"avoid\s+trading(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:\.(?!\d)|;|$)",
+        r"avoid\s+risk[-\s]?on\s+entries\s+when\s+(.+?)(?:\.(?!\d)|;|$)",
+        r"avoid\s+entries\s+when\s+(.+?)(?:\.(?!\d)|;|$)",
+    ]
+    for pattern in avoidance_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return f"avoid when {match.group(1).strip(' .,')}"
     return None
 
 
 def _extract_exit_rule_clause(text: str) -> str | None:
     patterns = [
-        r"(?:exit|sells?|selling)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:[.;]|$)",
+        r"(?:exit|sells?|selling)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:\.(?!\d)|;|$)",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -1034,6 +1245,10 @@ def _build_atomic_rule_from_clause(
         clause_text,
         tradable_symbol=tradable_symbol,
     )
+
+    reference_series_rule = _extract_reference_series_rule(clause_text)
+    if reference_series_rule is not None:
+        return reference_series_rule
 
     candle_rule = _extract_candle_rule(clause_text)
     if candle_rule is not None:
