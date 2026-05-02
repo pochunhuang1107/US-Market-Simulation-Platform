@@ -244,3 +244,82 @@ def test_runner_combines_tradable_rsi_with_reference_series_rule() -> None:
 
     assert result.trade_log[0]["action"] == "BUY"
     assert result.trade_log[0]["date"] == str(date(2021, 1, 5))
+
+
+def test_runner_reference_series_entry_uses_exact_same_date_without_lookahead() -> None:
+    bundle = _bundle(
+        reference_df=_reference_series(
+            "VIX",
+            ["2021-01-04", "2021-01-05", "2021-01-06"],
+            values=[30.0, 30.0, 20.0],
+        )
+    )
+    strategy = StrategyV2.model_validate(
+        _strategy_config(
+            {
+                "kind": "group",
+                "operator": "AND",
+                "rules": [
+                    {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 50,
+                    },
+                    {
+                        "kind": "atomic",
+                        "type": "series_below",
+                        "symbol": "VIX",
+                        "threshold": 25,
+                    },
+                ],
+            }
+        )
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+
+    assert [row["entry_signal"] for row in result.timeline] == [False, False, True]
+    assert [(trade["action"], trade["date"]) for trade in result.trade_log] == [
+        ("BUY", str(date(2021, 1, 6)))
+    ]
+
+
+def test_runner_missing_reference_date_is_no_signal_on_valid_tradable_entry_day() -> None:
+    bundle = _bundle(
+        reference_df=_reference_series(
+            "VIX",
+            ["2021-01-04", "2021-01-06"],
+            values=[20.0, 30.0],
+        )
+    )
+    strategy = StrategyV2.model_validate(
+        _strategy_config(
+            {
+                "kind": "group",
+                "operator": "AND",
+                "rules": [
+                    {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 50,
+                    },
+                    {
+                        "kind": "atomic",
+                        "type": "series_below",
+                        "symbol": "VIX",
+                        "threshold": 25,
+                    },
+                ],
+            }
+        )
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+
+    assert [row["entry_signal"] for row in result.timeline] == [False, False, False]
+    assert result.trade_log == []
+    assert result.summary["ending_equity"] == pytest.approx(result.summary["initial_capital"])
