@@ -117,6 +117,12 @@ def enforce_comparison_run_limit(
     requested_run_count: int,
 ) -> UserEntitlements:
     entitlements = get_user_entitlements(db, user_id)
+    if not entitlements.allow_comparison_runs:
+        raise HTTPException(
+            status_code=403,
+            detail="Your current plan does not include comparison runs",
+        )
+
     if requested_run_count > entitlements.max_comparison_runs:
         raise HTTPException(
             status_code=403,

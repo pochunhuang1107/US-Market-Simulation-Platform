@@ -91,7 +91,14 @@ def create_strategy_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    enforce_strategy_create_access(db, user["id"])
+    entitlements = enforce_strategy_create_access(db, user["id"])
+    try:
+        validate_backtest_window(
+            config=req.config,
+            max_backtest_years=entitlements.max_backtest_years,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     strategy = create_strategy(
         db,
@@ -141,12 +148,16 @@ def create_strategy_version_api(
                 current_config=current_version.config_json,
                 new_config=normalized_config,
             )
-            validate_backtest_window(
-                config=normalized_config,
-                max_backtest_years=entitlements.max_backtest_years,
-            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        validate_backtest_window(
+            config=normalized_config,
+            max_backtest_years=entitlements.max_backtest_years,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     version = create_strategy_version(
         db,
