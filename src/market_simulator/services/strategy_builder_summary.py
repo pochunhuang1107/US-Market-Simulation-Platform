@@ -218,6 +218,12 @@ def _describe_atomic_rule(rule: dict[str, Any], tradable_symbol: str | None = No
     if rule_type == "relative_return_above":
         return _describe_relative_return_above(rule, tradable_symbol=tradable_symbol)
 
+    if rule_type == "series_below":
+        return f"{symbol} is below {_format_number(threshold)}"
+
+    if rule_type == "series_above":
+        return f"{symbol} is above {_format_number(threshold)}"
+
     if rule_type == "realized_volatility_below":
         return _describe_realized_volatility(
             rule,
