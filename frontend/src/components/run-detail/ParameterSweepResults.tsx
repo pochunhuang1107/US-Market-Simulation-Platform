@@ -5,6 +5,7 @@ import { formatDecimal, formatNumber, formatPct } from '../../lib/formatters';
 import {
   formatParameterSummary,
   formatRankingMetricName,
+  formatTradeActivity,
   formatTopVariantLabel,
   isRecord,
   toNumber,
@@ -24,6 +25,13 @@ type SweepResultRow = {
   sharpe_ratio?: unknown;
   max_drawdown_pct?: unknown;
   trade_count?: unknown;
+  trade_event_count?: unknown;
+  full_exit_count?: unknown;
+  buy_event_count?: unknown;
+  entry_event_count?: unknown;
+  add_event_count?: unknown;
+  reduce_event_count?: unknown;
+  config?: unknown;
   status?: unknown;
   error?: unknown;
 };
@@ -154,7 +162,7 @@ export function ParameterSweepResults({ run }: { run: RunResponse }) {
           <SummaryMetric label="Total variants" value={formatNumber(toNumber(summary.variant_count))} />
           <SummaryMetric
             label={formatTopVariantLabel(selectedRankingMetric)}
-            value={topVariant ? formatParameterSummary(topVariant.parameters) : '—'}
+            value={topVariant ? formatParameterSummary(topVariant.parameters, topVariant.config) : '—'}
           />
           <SummaryMetric label="Benchmark return" value={benchmarkSummary} />
         </div>
@@ -197,7 +205,7 @@ export function ParameterSweepResults({ run }: { run: RunResponse }) {
                   <th className="px-4 py-3">CAGR</th>
                   <th className="px-4 py-3">Sharpe</th>
                   <th className="px-4 py-3">Max drawdown</th>
-                  <th className="px-4 py-3">Trades</th>
+                  <th className="px-4 py-3">Activity</th>
                   {hasFailures ? <th className="min-w-[180px] px-4 py-3">Status</th> : null}
                   <th className="w-28 px-4 py-3">Action</th>
                 </tr>
@@ -213,7 +221,7 @@ export function ParameterSweepResults({ run }: { run: RunResponse }) {
                           {getVariantLabel(index)}
                         </div>
                         <div className="app-text-muted mt-1 max-w-[340px] text-xs">
-                          {formatParameterSummary(row.parameters)}
+                          {formatParameterSummary(row.parameters, row.config)}
                         </div>
                         <div className="app-text-soft mt-1 max-w-[300px] truncate text-xs" title={getFullVariantName(row)}>
                           {getFullVariantName(row)}
@@ -227,7 +235,7 @@ export function ParameterSweepResults({ run }: { run: RunResponse }) {
                       <td className="whitespace-nowrap px-4 py-3">{formatPct(toNumber(row.cagr_pct))}</td>
                       <td className="whitespace-nowrap px-4 py-3">{formatDecimal(toNumber(row.sharpe_ratio))}</td>
                       <td className="whitespace-nowrap px-4 py-3">{formatPct(toNumber(row.max_drawdown_pct))}</td>
-                      <td className="whitespace-nowrap px-4 py-3">{formatNumber(toNumber(row.trade_count))}</td>
+                      <td className="whitespace-nowrap px-4 py-3">{formatTradeActivity(row)}</td>
                       {hasFailures ? (
                         <td className="max-w-[240px] px-4 py-3">
                           <span className="line-clamp-2" title={formatStatus(row)}>

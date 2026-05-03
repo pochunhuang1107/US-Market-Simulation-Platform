@@ -14,6 +14,30 @@ FULL_EXIT_ACTIONS = {
 }
 
 
+def _trade_activity_counts(trades: pd.DataFrame) -> dict[str, int]:
+    if trades.empty or "action" not in trades.columns:
+        return {
+            "trade_event_count": 0,
+            "full_exit_count": 0,
+            "buy_event_count": 0,
+            "entry_event_count": 0,
+            "add_event_count": 0,
+            "reduce_event_count": 0,
+        }
+
+    actions = trades["action"].astype(str)
+    return {
+        "trade_event_count": int(len(trades)),
+        "full_exit_count": int(actions.isin(FULL_EXIT_ACTIONS).sum()),
+        "buy_event_count": int((actions == "BUY").sum()),
+        "entry_event_count": int((actions == "BUY").sum()),
+        "add_event_count": int((actions == "BUY_ADD").sum()),
+        "reduce_event_count": int(
+            actions.isin({"SELL_REDUCE", "SELL_REDUCE_PROFIT"}).sum()
+        ),
+    }
+
+
 def build_summary(timeline: pd.DataFrame, trades: pd.DataFrame, strategy):
     initial = strategy.initial_capital
     ending = float(timeline["strategy_equity"].iloc[-1])
@@ -41,6 +65,7 @@ def build_summary(timeline: pd.DataFrame, trades: pd.DataFrame, strategy):
 
     exits = trades[trades["action"].isin(FULL_EXIT_ACTIONS)] if not trades.empty else trades
     win = float((exits["net_pnl"] > 0).mean()) if not exits.empty else 0.0
+    activity_counts = _trade_activity_counts(trades)
 
     return {
         "name": strategy.name,
@@ -59,6 +84,7 @@ def build_summary(timeline: pd.DataFrame, trades: pd.DataFrame, strategy):
         "max_drawdown_pct": round(max_dd * 100, 4),
         "benchmark_max_drawdown_pct": round(bdd * 100, 4),
         "trade_count": int(len(exits)),
+        **activity_counts,
         "win_rate_pct": round(win * 100, 4),
         "final_cash": round(float(timeline["cash"].iloc[-1]), 6),
         "final_core_cash": round(float(timeline["core_cash"].iloc[-1]), 6),

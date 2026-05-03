@@ -48,3 +48,23 @@ def test_strategy_name_helper_knows_realized_volatility_rules():
     assert "realized volatility strategy" in source
     assert "getReferenceTrendFilterSymbol" in source
     assert "RSI with ${referenceTrendFilterSymbol} trend filter" in source
+
+
+def test_sweep_helpers_use_contextual_parameter_labels_and_trade_activity_copy():
+    helper_source = (ROOT / "frontend/src/lib/sweepVariants.ts").read_text()
+    draft_card_source = (
+        ROOT / "frontend/src/components/strategy-chat/ParameterSweepDraftCard.tsx"
+    ).read_text()
+    results_source = (
+        ROOT / "frontend/src/components/run-detail/ParameterSweepResults.tsx"
+    ).read_text()
+    variant_source = (ROOT / "frontend/src/pages/SweepVariantDetailPage.tsx").read_text()
+
+    assert "VIX add threshold" in helper_source
+    assert "VIX reduce threshold" in helper_source
+    assert "${side} RSI threshold" in helper_source
+    assert "formatParameterLabel(path, baseConfig)" in draft_card_source
+    assert "formatTradeActivity(row)" in results_source
+    assert "<th className=\"px-4 py-3\">Activity</th>" in results_source
+    assert "formatParameterLabel(path, config)" in variant_source
+    assert "label: 'Activity'" in variant_source

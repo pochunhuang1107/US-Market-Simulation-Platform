@@ -11,6 +11,7 @@ from market_simulator.data.repository import MarketDataBundle
 from market_simulator.engine import runner
 from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.platform.services.parameter_sweep import (
+    build_sweep_request,
     generate_variant_configs,
     get_nested,
 )
@@ -74,7 +75,7 @@ def _qqq_rsi_core_overlay_current_config() -> dict:
         "position_management": {
             "scale_in_fraction": 0.25,
             "scale_out_fraction": 0.5,
-            "profit_reduce_threshold": 0.05,
+            "profit_reduce_threshold": None,
         },
     }
 
@@ -120,6 +121,83 @@ def _qqq_sma_current_config() -> dict:
         },
         "position_management": None,
     }
+
+
+def _qqq_vix_add_reduce_current_config() -> dict:
+    return {
+        "schema_version": "2.0",
+        "name": "QQQ VIX Add Reduce Strategy",
+        "tradable_symbol": "QQQ",
+        "benchmark_symbol": "SPY",
+        "reference_symbols": ["VIX"],
+        "start_date": "2021-01-01",
+        "end_date": "2024-12-31",
+        "initial_capital": 100000,
+        "transaction_cost_bps": 5,
+        "allocation": {
+            "entry_mode": "percent_of_equity",
+            "entry_value": 0.4,
+            "max_position_pct": 1.0,
+        },
+        "entry_rule": {
+            "kind": "atomic",
+            "type": "series_below",
+            "symbol": "VIX",
+            "threshold": 15,
+        },
+        "exit_rule": {
+            "kind": "atomic",
+            "type": "series_above",
+            "symbol": "VIX",
+            "threshold": 35,
+        },
+        "risk": {
+            "stop_loss_pct": None,
+            "take_profit_pct": None,
+            "cooldown_bars": 0,
+        },
+        "core_overlay": {
+            "enabled": True,
+            "core_allocation_pct": 0.6,
+        },
+        "position_management": {
+            "scale_in_fraction": 0.25,
+            "scale_out_fraction": 0.5,
+            "profit_reduce_threshold": None,
+        },
+    }
+
+
+def _qqq_vix_rsi_current_config() -> dict:
+    config = _qqq_vix_add_reduce_current_config()
+    config["name"] = "QQQ VIX + RSI Strategy"
+    config["entry_rule"] = {
+        "kind": "group",
+        "operator": "AND",
+        "rules": [
+            {
+                "kind": "atomic",
+                "type": "rsi_below",
+                "symbol": "QQQ",
+                "lookback": 14,
+                "threshold": 35,
+            },
+            {
+                "kind": "atomic",
+                "type": "series_below",
+                "symbol": "VIX",
+                "threshold": 25,
+            },
+        ],
+    }
+    config["exit_rule"] = {
+        "kind": "atomic",
+        "type": "rsi_above",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 70,
+    }
+    return config
 
 
 def test_generate_strategy_builder_follow_up_rsi_sweep_uses_current_config(client):
@@ -214,6 +292,143 @@ def test_generate_strategy_builder_follow_up_risk_sweep_parses_percent_and_coold
         "risk.cooldown_bars": [0, 5],
     }
     assert sweep["variant_count"] == 8
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Try VIX add thresholds 10, 15, 20 and reduce thresholds 30, 35, 40.",
+        "Sweep VIX below 10/15/20 and VIX above 30/35/40.",
+        "Try add when VIX below 10, 15, 20 and reduce when VIX above 30, 35, 40.",
+    ],
+)
+def test_generate_strategy_builder_follow_up_vix_add_reduce_threshold_sweep(
+    client,
+    prompt,
+):
+    current_config = _qqq_vix_add_reduce_current_config()
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["base_config"] == current_config
+    assert sweep["grid"] == {
+        "entry_rule.threshold": [10, 15, 20],
+        "exit_rule.threshold": [30, 35, 40],
+    }
+    assert sweep["variant_count"] == 9
+    build_sweep_request(sweep)
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Try scale-in 20%, 25%, 30% and scale-out 40%, 50%, 60%.",
+        "Sweep overlay sizing with scale in 20/25/30 and scale out 40/50/60.",
+    ],
+)
+def test_generate_strategy_builder_follow_up_scale_in_scale_out_sweep(client, prompt):
+    current_config = _qqq_vix_add_reduce_current_config()
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {
+        "position_management.scale_in_fraction": [0.2, 0.25, 0.3],
+        "position_management.scale_out_fraction": [0.4, 0.5, 0.6],
+    }
+    assert sweep["variant_count"] == 9
+    build_sweep_request(sweep)
+
+
+def test_generate_strategy_builder_follow_up_core_allocation_sweep(client):
+    current_config = _qqq_vix_add_reduce_current_config()
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try core allocations 40%, 50%, 60%, 70%.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {
+        "core_overlay.core_allocation_pct": [0.4, 0.5, 0.6, 0.7],
+    }
+    assert sweep["variant_count"] == 4
+    build_sweep_request(sweep)
+
+
+def test_generate_strategy_builder_follow_up_vix_rsi_group_threshold_sweep(client):
+    current_config = _qqq_vix_rsi_current_config()
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try VIX thresholds 20, 25, 30 and RSI thresholds 30, 35, 40.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+    rsi_path = "entry_rule.rules[0].threshold"
+    vix_path = "entry_rule.rules[1].threshold"
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["grid"] == {
+        vix_path: [20, 25, 30],
+        rsi_path: [30, 35, 40],
+    }
+    assert get_nested(sweep["base_config"], vix_path) == 25
+    assert get_nested(sweep["base_config"], rsi_path) == 35
+    assert sweep["variant_count"] == 9
+    build_sweep_request(sweep)
+
+
+def test_generate_strategy_builder_follow_up_ambiguous_vix_threshold_sweep_returns_guidance(
+    client,
+):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Try VIX thresholds 10, 15, 20.",
+            "context": {"current_config": _qqq_vix_add_reduce_current_config()},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["sweep_draft"] is None
+    assert "multiple possible" in body["message"]
 
 
 def test_generate_strategy_builder_follow_up_sweep_ranking_metric_total_return(client):
@@ -1111,6 +1326,7 @@ def test_generate_strategy_builder_parses_vix_add_reduce_core_overlay_prompt(
     }
     assert config["position_management"]["scale_in_fraction"] == 0.25
     assert config["position_management"]["scale_out_fraction"] == 0.50
+    assert config["position_management"].get("profit_reduce_threshold") is None
     assert config["allocation"]["max_position_pct"] == 1.0
     assert "Enter/add overlay when VIX is below 15." in body["summary"]
     assert "Reduce overlay when VIX is above 35." in body["summary"]

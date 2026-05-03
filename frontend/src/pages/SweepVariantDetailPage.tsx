@@ -9,12 +9,13 @@ import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
 import { fetchSweepVariantDetail, promoteSweepVariant } from '../lib/api';
-import { formatDecimal, formatNumber, formatPct } from '../lib/formatters';
+import { formatDecimal, formatPct } from '../lib/formatters';
 import { suggestStrategyNameFromConfig } from '../lib/suggestStrategyName';
 import {
   formatParameterLabel,
   formatParameterValue,
   formatRankingMetricName,
+  formatTradeActivity,
   isRecord,
   sortedParameterEntries,
   toNumber
@@ -228,7 +229,7 @@ export function SweepVariantDetailPage() {
     { label: 'CAGR', value: formatPct(toNumber(variant.cagr_pct)), tone: getMetricTone(toNumber(variant.cagr_pct)) },
     { label: 'Sharpe', value: formatDecimal(toNumber(variant.sharpe_ratio)) },
     { label: 'Max Drawdown', value: formatPct(toNumber(variant.max_drawdown_pct)), tone: 'negative' as const },
-    { label: 'Trades', value: formatNumber(toNumber(variant.trade_count)) }
+    { label: 'Activity', value: formatTradeActivity(variant) }
   ];
 
   return (
@@ -289,7 +290,7 @@ export function SweepVariantDetailPage() {
             {parameterRows.map(([path, value]) => (
               <div key={path} className="app-surface-soft rounded-2xl border px-4 py-3">
                 <dt className="app-label text-[11px] font-semibold uppercase tracking-[0.18em]">
-                  {formatParameterLabel(path)}
+                  {formatParameterLabel(path, config)}
                 </dt>
                 <dd className="app-title mt-2 text-sm font-semibold">{formatParameterValue(value)}</dd>
                 <dd className="app-text-soft mt-1 text-xs">{path}</dd>
