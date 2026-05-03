@@ -4,10 +4,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import pytest
+from sqlalchemy.orm import sessionmaker
 
 from market_simulator.db.enums import RunStatus
+from market_simulator.platform.services.parameter_sweep import SweepProgressEvent
 from market_simulator.platform.services.run_failure_policy import RetryableRunError
 from market_simulator.platform.services.run_worker_service import RunWorkerService
+from market_simulator.repositories import runs as runs_repo
 from market_simulator.repositories.runs import (
     create_run,
     enqueue_run,
@@ -144,6 +147,65 @@ def test_claim_and_execute_reference_run_sets_version_reference(
     assert result is not None
     assert refreshed.status == RunStatus.SUCCEEDED
     assert version.reference_run_id == refreshed.id
+
+
+def test_simulation_run_progress_checkpoints_remain_unchanged(
+    monkeypatch,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+):
+    user = create_user(email="worker-simulation-progress@example.com")
+    strategy, version = create_strategy_bundle(user_id=str(user.id))
+    progress_updates: list[tuple[int, str | None]] = []
+
+    class FakeSimulationService:
+        def run_from_config(self, config_json, output_dir):
+            return FakeSimulationResult(summary={"name": "test", "total_return_pct": 12.34})
+
+    def record_update_run_progress(db, run, *, progress_pct, progress_message=None):
+        progress_updates.append((progress_pct, progress_message))
+        return runs_repo.update_run_progress(
+            db,
+            run,
+            progress_pct=progress_pct,
+            progress_message=progress_message,
+        )
+
+    monkeypatch.setattr(
+        "market_simulator.platform.services.run_worker_service.SimulationService",
+        FakeSimulationService,
+    )
+    monkeypatch.setattr(
+        "market_simulator.platform.services.run_worker_service.update_run_progress",
+        record_update_run_progress,
+    )
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "worker progress"},
+        max_attempts=3,
+    )
+    enqueue_run(db_session, run)
+
+    service = RunWorkerService(artifact_store=FakeArtifactStore())
+    service.claim_and_execute_next_run(
+        db_session,
+        worker_id="worker-simulation-progress",
+        lease_seconds=300,
+    )
+
+    assert progress_updates == [
+        (5, "Worker started execution"),
+        (15, "Loaded saved strategy version"),
+        (35, "Running simulation"),
+        (85, "Finalizing artifacts"),
+    ]
 
 
 def test_bad_executor_marks_run_failed_non_retryable(
@@ -327,12 +389,96 @@ def test_claim_and_execute_next_run_succeeds_for_parameter_sweep(
     create_user,
 ):
     user = create_user(email="worker-sweep@example.com")
+    progress_updates: list[tuple[int, str | None]] = []
+    persisted_progress_snapshots: list[tuple[int, str | None]] = []
+    progress_reader_factory = sessionmaker(
+        bind=db_session.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        future=True,
+    )
 
     class FakeParameterSweepService:
-        def run_sweep(self, payload, output_dir, fallback_base_config=None):
+        def run_sweep(
+            self,
+            payload,
+            output_dir,
+            fallback_base_config=None,
+            progress_callback=None,
+        ):
             assert payload["grid"] == {"entry_rule.threshold": [20, 25]}
             assert fallback_base_config is None
             assert output_dir == "/tmp/fake-run-dir"
+
+            def emit(event: SweepProgressEvent) -> None:
+                assert progress_callback is not None
+                progress_callback(event)
+                reader_db = progress_reader_factory()
+                try:
+                    refreshed = get_run(reader_db, run.id)
+                    persisted_progress_snapshots.append(
+                        (refreshed.progress_pct, refreshed.progress_message)
+                    )
+                finally:
+                    reader_db.close()
+
+            if progress_callback is not None:
+                emit(
+                    SweepProgressEvent(
+                        stage="prepared",
+                        current_variant_index=None,
+                        total_variants=2,
+                        message="Prepared 2 sweep variants",
+                    )
+                )
+                emit(
+                    SweepProgressEvent(
+                        stage="variant_started",
+                        current_variant_index=1,
+                        total_variants=2,
+                        variant_id="variant-1",
+                        variant_name="Variant 1",
+                        message="Running sweep variant 1 of 2",
+                    )
+                )
+                emit(
+                    SweepProgressEvent(
+                        stage="variant_completed",
+                        current_variant_index=1,
+                        total_variants=2,
+                        variant_id="variant-1",
+                        variant_name="Variant 1",
+                        message="Completed sweep variant 1 of 2",
+                    )
+                )
+                emit(
+                    SweepProgressEvent(
+                        stage="variant_started",
+                        current_variant_index=2,
+                        total_variants=2,
+                        variant_id="variant-2",
+                        variant_name="Variant 2",
+                        message="Running sweep variant 2 of 2",
+                    )
+                )
+                emit(
+                    SweepProgressEvent(
+                        stage="variant_completed",
+                        current_variant_index=2,
+                        total_variants=2,
+                        variant_id="variant-2",
+                        variant_name="Variant 2",
+                        message="Completed sweep variant 2 of 2",
+                    )
+                )
+                emit(
+                    SweepProgressEvent(
+                        stage="artifacts_finalizing",
+                        current_variant_index=None,
+                        total_variants=2,
+                        message="Finalizing sweep artifacts",
+                    )
+                )
             return {
                 "summary": {
                     "run_type": "PARAMETER_SWEEP",
@@ -345,9 +491,22 @@ def test_claim_and_execute_next_run_succeeds_for_parameter_sweep(
                 "results": [],
             }
 
+    def record_update_run_progress(db, run, *, progress_pct, progress_message=None):
+        progress_updates.append((progress_pct, progress_message))
+        return runs_repo.update_run_progress(
+            db,
+            run,
+            progress_pct=progress_pct,
+            progress_message=progress_message,
+        )
+
     monkeypatch.setattr(
         "market_simulator.platform.services.run_worker_service.ParameterSweepService",
         FakeParameterSweepService,
+    )
+    monkeypatch.setattr(
+        "market_simulator.platform.services.run_worker_service.update_run_progress",
+        record_update_run_progress,
     )
 
     run = create_run(
@@ -380,4 +539,27 @@ def test_claim_and_execute_next_run_succeeds_for_parameter_sweep(
     assert result["status"] == "SUCCEEDED"
     assert refreshed.status == RunStatus.SUCCEEDED
     assert refreshed.summary_json["variant_count"] == 2
-    assert refreshed.artifact_manifest_json["sweep_summary"].endswith("sweep_summary.json")
+    assert refreshed.artifact_manifest_json["sweep_summary"].endswith(
+        "sweep_summary.json"
+    )
+    assert progress_updates == [
+        (3, "Worker started execution"),
+        (6, "Loaded sweep base_config"),
+        (10, "Prepared 2 sweep variants"),
+        (10, "Running sweep variant 1 of 2"),
+        (52, "Completed sweep variant 1 of 2"),
+        (52, "Running sweep variant 2 of 2"),
+        (95, "Completed sweep variant 2 of 2"),
+        (97, "Finalizing sweep artifacts"),
+    ]
+    assert [pct for pct, _message in progress_updates] == sorted(
+        pct for pct, _message in progress_updates
+    )
+    assert persisted_progress_snapshots == [
+        (10, "Prepared 2 sweep variants"),
+        (10, "Running sweep variant 1 of 2"),
+        (52, "Completed sweep variant 1 of 2"),
+        (52, "Running sweep variant 2 of 2"),
+        (95, "Completed sweep variant 2 of 2"),
+        (97, "Finalizing sweep artifacts"),
+    ]

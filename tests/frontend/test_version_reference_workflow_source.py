@@ -15,6 +15,29 @@ def test_run_detail_header_does_not_expose_new_version_action():
     assert "Open strategy" in source
 
 
+def test_run_detail_polls_active_runs_more_responsively():
+    source = (ROOT / "frontend/src/pages/RunDetailPage.tsx").read_text()
+    api_source = (ROOT / "frontend/src/lib/api.ts").read_text()
+
+    assert "const ACTIVE_RUN_INITIAL_POLL_INTERVAL_MS = 750" in source
+    assert "const ACTIVE_RUN_STEADY_POLL_INTERVAL_MS = 1500" in source
+    assert "const ACTIVE_RUN_LONG_POLL_INTERVAL_MS = 3000" in source
+    assert "const HIDDEN_TAB_POLL_INTERVAL_MS = 5000" in source
+    assert "const FINALIZING_DASHBOARD_POLL_INTERVAL_MS = 2000" in source
+    assert "document.hidden" in source
+    assert "elapsedMs < 10_000" in source
+    assert "elapsedMs < 60_000" in source
+    assert "}, activeProgressPollIntervalMs());" in source
+    assert "}, FINALIZING_DASHBOARD_POLL_INTERVAL_MS);" in source
+    assert "fetchRunProgress" in source
+    assert "progressResponse.progress_pct" in source
+    assert "progressResponse.progress_message" in source
+    assert "progressResponse.is_terminal" in source
+    assert "run.progress_message" in source
+    assert "`${run.progress_message} (${run.progress_pct}%)`" in source
+    assert "`/api/runs/${runId}/progress`" in api_source
+
+
 def test_navigation_and_results_page_use_research_results_language():
     nav_source = (ROOT / "frontend/src/components/layout/AppShell.tsx").read_text()
     page_source = (ROOT / "frontend/src/pages/RunsPage.tsx").read_text()

@@ -7,7 +7,12 @@ from decimal import Decimal
 from market_simulator.db.enums import RunStatus, SubscriptionStatus
 from market_simulator.db.models import Plan, UserPlanSubscription
 from market_simulator.repositories.plans import count_runs_created_today
-from market_simulator.repositories.runs import create_run, get_run, mark_run_succeeded
+from market_simulator.repositories.runs import (
+    create_run,
+    get_run,
+    mark_run_succeeded,
+    update_run_progress,
+)
 
 def create_plan(
     db_session,
@@ -373,6 +378,52 @@ def test_create_run_returns_pending(
     assert body["attempt_count"] == 0
     assert body["max_attempts"] == 3
     assert body["progress_message"] == "Run created"
+
+
+def test_get_run_progress_returns_latest_intermediate_progress(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="owner-progress@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"grid": {"entry_rule.threshold": [20, 25]}},
+    )
+    run.status = RunStatus.RUNNING
+    run.progress_pct = 35
+    run.progress_message = "Running sweep variant 1 of 2"
+    db_session.commit()
+    db_session.refresh(run)
+
+    update_run_progress(
+        db_session,
+        run,
+        progress_pct=60,
+        progress_message="Completed sweep variant 1 of 2",
+    )
+
+    response = client.get(f"/runs/{run.id}/progress")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run_id"] == str(run.id)
+    assert body["status"] == "RUNNING"
+    assert body["progress_pct"] == 60
+    assert body["progress_message"] == "Completed sweep variant 1 of 2"
+    assert body["is_terminal"] is False
+    assert body["heartbeat_at"] is not None
 
 
 def test_create_and_enqueue_version_run_uses_strategy_version_and_payload_dates(

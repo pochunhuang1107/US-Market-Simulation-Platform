@@ -6,8 +6,9 @@ import itertools
 import json
 import re
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Literal
 
 from pydantic import ValidationError
 
@@ -50,6 +51,27 @@ SUMMARY_METRICS = [
     "add_event_count",
     "reduce_event_count",
 ]
+
+SweepProgressStage = Literal[
+    "prepared",
+    "variant_started",
+    "variant_completed",
+    "variant_failed",
+    "artifacts_finalizing",
+]
+
+
+@dataclass(frozen=True)
+class SweepProgressEvent:
+    stage: SweepProgressStage
+    current_variant_index: int | None
+    total_variants: int
+    variant_id: str | None = None
+    variant_name: str | None = None
+    message: str | None = None
+
+
+SweepProgressCallback = Callable[[SweepProgressEvent], None]
 
 
 class ParameterSweepError(ValueError):
@@ -368,11 +390,22 @@ class ParameterSweepService:
         *,
         output_dir: str | Path,
         fallback_base_config: dict[str, Any] | None = None,
+        progress_callback: SweepProgressCallback | None = None,
     ) -> dict[str, Any]:
         request = build_sweep_request(
             payload,
             fallback_base_config=fallback_base_config,
         )
+        total_variants = request["variant_count"]
+        if progress_callback is not None:
+            progress_callback(
+                SweepProgressEvent(
+                    stage="prepared",
+                    current_variant_index=None,
+                    total_variants=total_variants,
+                    message=f"Prepared {total_variants} sweep variants",
+                )
+            )
 
         results: list[dict[str, Any]] = []
         variant_root = Path(output_dir) / "variants"
@@ -380,6 +413,17 @@ class ParameterSweepService:
 
         for index, variant in enumerate(request["variants"], start=1):
             variant_dir = variant_root / f"{index:03d}_{variant['variant_id']}"
+            if progress_callback is not None:
+                progress_callback(
+                    SweepProgressEvent(
+                        stage="variant_started",
+                        current_variant_index=index,
+                        total_variants=total_variants,
+                        variant_id=variant["variant_id"],
+                        variant_name=variant["variant_name"],
+                        message=f"Running sweep variant {index} of {total_variants}",
+                    )
+                )
             try:
                 result = self.simulation_service.run_from_config(
                     variant["config"],
@@ -393,6 +437,17 @@ class ParameterSweepService:
                         artifact_dir=result.artifact_dir,
                     )
                 )
+                if progress_callback is not None:
+                    progress_callback(
+                        SweepProgressEvent(
+                            stage="variant_completed",
+                            current_variant_index=index,
+                            total_variants=total_variants,
+                            variant_id=variant["variant_id"],
+                            variant_name=variant["variant_name"],
+                            message=f"Completed sweep variant {index} of {total_variants}",
+                        )
+                    )
             except Exception as exc:
                 results.append(
                     _result_row(
@@ -401,6 +456,17 @@ class ParameterSweepService:
                         error=_public_error(exc),
                     )
                 )
+                if progress_callback is not None:
+                    progress_callback(
+                        SweepProgressEvent(
+                            stage="variant_failed",
+                            current_variant_index=index,
+                            total_variants=total_variants,
+                            variant_id=variant["variant_id"],
+                            variant_name=variant["variant_name"],
+                            message=f"Variant {index} of {total_variants} failed; continuing sweep",
+                        )
+                    )
 
         ranked_results = sort_sweep_results(results, request["ranking_metric"])
         best_variant = next(
@@ -419,6 +485,16 @@ class ParameterSweepService:
         if best_variant is not None:
             for metric in SUMMARY_METRICS:
                 summary[metric] = best_variant.get(metric)
+
+        if progress_callback is not None:
+            progress_callback(
+                SweepProgressEvent(
+                    stage="artifacts_finalizing",
+                    current_variant_index=None,
+                    total_variants=total_variants,
+                    message="Finalizing sweep artifacts",
+                )
+            )
 
         write_sweep_artifacts(
             output_dir=output_dir,

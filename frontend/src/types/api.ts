@@ -149,6 +149,16 @@ export interface RunResponse {
   updated_at: string;
 }
 
+export interface RunProgressResponse {
+  run_id: string;
+  status: string;
+  progress_pct: number;
+  progress_message: Nullable<string>;
+  heartbeat_at: Nullable<string>;
+  updated_at: string;
+  is_terminal: boolean;
+}
+
 export interface EquityCurvePoint {
   date: string;
   strategy_equity: number;

@@ -12,6 +12,7 @@ import type {
   RunComparisonResponse,
   RunDashboardListResponse,
   RunDashboardResponse,
+  RunProgressResponse,
   RunResponse,
   RunsDashboardQuery,
   SaveDraftRunAsStrategyRequest,
@@ -139,6 +140,10 @@ export async function fetchRunsDashboard(query: RunsDashboardQuery): Promise<Run
 
 export async function fetchRun(runId: string): Promise<RunResponse> {
   return request<RunResponse>(`/api/runs/${runId}`);
+}
+
+export async function fetchRunProgress(runId: string): Promise<RunProgressResponse> {
+  return request<RunProgressResponse>(`/api/runs/${runId}/progress`);
 }
 
 export async function fetchRunDashboard(runId: string): Promise<RunDashboardResponse> {
