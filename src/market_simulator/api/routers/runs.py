@@ -18,6 +18,7 @@ from market_simulator.api.schemas.runs import (
     RunDashboardListResponse,
     RunDashboardResponse,
     RunDashboardQueryParams,
+    RunProgressResponse,
     RunListResponse,
     RunResponse,
     SaveDraftRunAsStrategyRequest,
@@ -1056,6 +1057,31 @@ def get_run_api(
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return _build_run_response(run)
+
+
+@router.get("/{run_id}/progress", response_model=RunProgressResponse)
+def get_run_progress_api(
+    run_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    run = get_run_for_user(db, run_id, user["id"])
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    return RunProgressResponse(
+        run_id=str(run.id),
+        status=run.status,
+        progress_pct=run.progress_pct,
+        progress_message=run.progress_message,
+        heartbeat_at=run.heartbeat_at,
+        updated_at=run.updated_at,
+        is_terminal=run.status in {
+            RunStatus.SUCCEEDED,
+            RunStatus.FAILED,
+            RunStatus.CANCELED,
+        },
+    )
 
 
 @router.get("/{run_id}/dashboard", response_model=RunDashboardResponse)

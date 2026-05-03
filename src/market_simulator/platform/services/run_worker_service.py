@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from market_simulator.db.enums import RunStatus
+from market_simulator.db.models.run import Run
 from market_simulator.repositories.runs import (
     claim_next_queued_run,
     get_run,
@@ -23,7 +24,10 @@ from market_simulator.platform.services.artifact_store import (
     ArtifactStore,
     build_artifact_store,
 )
-from market_simulator.platform.services.parameter_sweep import ParameterSweepService
+from market_simulator.platform.services.parameter_sweep import (
+    ParameterSweepService,
+    SweepProgressEvent,
+)
 from market_simulator.platform.services.run_failure_policy import classify_run_exception
 
 
@@ -58,6 +62,66 @@ class RunWorkerService:
             return None, "Loaded sweep base_config"
         config_json, load_message = self._resolve_run_config(db, run)
         return config_json, load_message
+
+    def _sweep_progress_pct(self, event: SweepProgressEvent) -> int:
+        total_variants = max(event.total_variants, 1)
+        if event.stage == "prepared":
+            return 10
+        if event.stage == "artifacts_finalizing":
+            return 97
+        if event.current_variant_index is None:
+            return 10
+
+        current_index = max(1, min(event.current_variant_index, total_variants))
+        if event.stage == "variant_started":
+            return 10 + int(((current_index - 1) / total_variants) * 85)
+        return 10 + int((current_index / total_variants) * 85)
+
+    def _update_sweep_progress(
+        self,
+        db: Session,
+        run,
+        *,
+        progress_pct: int,
+        progress_message: str,
+        lease_seconds: int,
+    ) -> None:
+        progress_session_factory = sessionmaker(
+            bind=db.get_bind(),
+            autoflush=False,
+            autocommit=False,
+            future=True,
+        )
+        progress_db = progress_session_factory()
+        try:
+            latest_run = progress_db.get(Run, run.id)
+            if latest_run is None:
+                return
+            if latest_run.status != RunStatus.RUNNING:
+                return
+
+            next_progress_pct = max(latest_run.progress_pct or 0, progress_pct)
+            update_run_progress(
+                progress_db,
+                latest_run,
+                progress_pct=next_progress_pct,
+                progress_message=progress_message,
+            )
+            touch_run_heartbeat(progress_db, latest_run, lease_seconds=lease_seconds)
+        finally:
+            progress_db.close()
+
+        db.expire(
+            run,
+            ["progress_pct", "progress_message", "heartbeat_at", "leased_until"],
+        )
+        self._log_info(
+            "run progress checkpoint",
+            run_id=str(run.id),
+            worker_id=run.worker_id,
+            progress_pct=next_progress_pct,
+            progress_message=progress_message,
+        )
 
     def _handle_execution_failure(
         self,
@@ -155,7 +219,7 @@ class RunWorkerService:
                 update_run_progress(
                     db,
                     run,
-                    progress_pct=5,
+                    progress_pct=3,
                     progress_message="Worker started execution",
                 )
                 touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
@@ -163,14 +227,14 @@ class RunWorkerService:
                     "run progress checkpoint",
                     run_id=str(run.id),
                     worker_id=run.worker_id,
-                    progress_pct=5,
+                    progress_pct=3,
                     progress_message="Worker started execution",
                 )
 
                 update_run_progress(
                     db,
                     run,
-                    progress_pct=15,
+                    progress_pct=6,
                     progress_message=load_message,
                 )
                 touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
@@ -178,46 +242,41 @@ class RunWorkerService:
                     "run progress checkpoint",
                     run_id=str(run.id),
                     worker_id=run.worker_id,
-                    progress_pct=15,
+                    progress_pct=6,
                     progress_message=load_message,
-                )
-
-                update_run_progress(
-                    db,
-                    run,
-                    progress_pct=35,
-                    progress_message="Running parameter sweep",
-                )
-                touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
-                self._log_info(
-                    "run progress checkpoint",
-                    run_id=str(run.id),
-                    worker_id=run.worker_id,
-                    progress_pct=35,
-                    progress_message="Running parameter sweep",
                 )
 
                 sweep_service = ParameterSweepService()
+
+                def report_sweep_progress(event: SweepProgressEvent) -> None:
+                    self._update_sweep_progress(
+                        db,
+                        run,
+                        progress_pct=self._sweep_progress_pct(event),
+                        progress_message=event.message or "Running parameter sweep",
+                        lease_seconds=lease_seconds,
+                    )
+
                 result = sweep_service.run_sweep(
                     request_payload,
                     output_dir=run_artifact_dir,
                     fallback_base_config=fallback_base_config,
+                    progress_callback=report_sweep_progress,
                 )
 
-                update_run_progress(
-                    db,
-                    run,
-                    progress_pct=85,
-                    progress_message="Finalizing sweep artifacts",
-                )
-                touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
-                self._log_info(
-                    "run progress checkpoint",
-                    run_id=str(run.id),
-                    worker_id=run.worker_id,
-                    progress_pct=85,
-                    progress_message="Finalizing sweep artifacts",
-                )
+                if (
+                    (run.progress_pct or 0) < 97
+                    or run.progress_message != "Finalizing sweep artifacts"
+                ):
+                    self._update_sweep_progress(
+                        db,
+                        run,
+                        progress_pct=97,
+                        progress_message="Finalizing sweep artifacts",
+                        lease_seconds=lease_seconds,
+                    )
+                else:
+                    touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
 
                 artifact_result = self.artifact_store.finalize_sweep_artifacts(run.id)
 

@@ -10,12 +10,16 @@ import { RunInsightHero } from '../components/run-detail/RunInsightHero';
 import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
 import { StateCard } from '../components/shared/StateCard';
-import { fetchRun, fetchRunDashboard, saveDraftRunAsStrategy } from '../lib/api';
+import { fetchRun, fetchRunDashboard, fetchRunProgress, saveDraftRunAsStrategy } from '../lib/api';
 import { suggestStrategyNameFromConfig } from '../lib/suggestStrategyName';
 import type { RunDashboardResponse, RunResponse } from '../types/api';
 
 const ACTIVE_RUN_STATUSES = new Set(['PENDING', 'QUEUED', 'RUNNING']);
-const POLL_INTERVAL_MS = 2000;
+const ACTIVE_RUN_INITIAL_POLL_INTERVAL_MS = 750;
+const ACTIVE_RUN_STEADY_POLL_INTERVAL_MS = 1500;
+const ACTIVE_RUN_LONG_POLL_INTERVAL_MS = 3000;
+const HIDDEN_TAB_POLL_INTERVAL_MS = 5000;
+const FINALIZING_DASHBOARD_POLL_INTERVAL_MS = 2000;
 
 type NoticeTone = 'info' | 'success' | 'error';
 
@@ -90,6 +94,65 @@ export function RunDetailPage() {
   useEffect(() => {
     let ignore = false;
     let timeoutId: number | undefined;
+    let activePollStartedAt = Date.now();
+
+    function activeProgressPollIntervalMs() {
+      if (document.hidden) {
+        return HIDDEN_TAB_POLL_INTERVAL_MS;
+      }
+
+      const elapsedMs = Date.now() - activePollStartedAt;
+      if (elapsedMs < 10_000) {
+        return ACTIVE_RUN_INITIAL_POLL_INTERVAL_MS;
+      }
+      if (elapsedMs < 60_000) {
+        return ACTIVE_RUN_STEADY_POLL_INTERVAL_MS;
+      }
+      return ACTIVE_RUN_LONG_POLL_INTERVAL_MS;
+    }
+
+    function scheduleActiveProgressPoll() {
+      timeoutId = window.setTimeout(() => {
+        void pollProgress();
+      }, activeProgressPollIntervalMs());
+    }
+
+    async function pollProgress() {
+      if (!runId) return;
+
+      try {
+        const progressResponse = await fetchRunProgress(runId);
+        if (ignore) return;
+
+        setRun((currentRun) => {
+          if (!currentRun || currentRun.id !== progressResponse.run_id) {
+            return currentRun;
+          }
+          return {
+            ...currentRun,
+            status: progressResponse.status,
+            progress_pct: progressResponse.progress_pct,
+            progress_message: progressResponse.progress_message,
+            heartbeat_at: progressResponse.heartbeat_at,
+            updated_at: progressResponse.updated_at,
+            is_terminal: progressResponse.is_terminal
+          };
+        });
+
+        if (progressResponse.is_terminal || !ACTIVE_RUN_STATUSES.has(progressResponse.status)) {
+          void load();
+          return;
+        }
+
+        scheduleActiveProgressPoll();
+      } catch (error) {
+        if (ignore) return;
+        setData(null);
+        setIsFinalizing(false);
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to load result progress');
+        setLoading(false);
+      }
+    }
 
     async function load() {
       if (!runId) {
@@ -128,7 +191,7 @@ export function RunDetailPage() {
 
             timeoutId = window.setTimeout(() => {
               void load();
-            }, POLL_INTERVAL_MS);
+            }, FINALIZING_DASHBOARD_POLL_INTERVAL_MS);
 
             return;
           }
@@ -148,9 +211,8 @@ export function RunDetailPage() {
           setErrorMessage(null);
           setLoading(false);
 
-          timeoutId = window.setTimeout(() => {
-            void load();
-          }, POLL_INTERVAL_MS);
+          activePollStartedAt = Date.now();
+          scheduleActiveProgressPoll();
 
           return;
         }

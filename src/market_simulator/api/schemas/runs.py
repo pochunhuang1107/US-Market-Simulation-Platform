@@ -104,6 +104,16 @@ class RunExecutionSummary(BaseModel):
     is_terminal: bool
 
 
+class RunProgressResponse(BaseModel):
+    run_id: str
+    status: str
+    progress_pct: int
+    progress_message: str | None = None
+    heartbeat_at: datetime | None = None
+    updated_at: datetime
+    is_terminal: bool
+
+
 class RunArtifactSummary(BaseModel):
     artifact_dir: str | None = None
     artifact_root_uri: str | None = None

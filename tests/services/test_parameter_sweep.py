@@ -8,6 +8,7 @@ import pytest
 from market_simulator.platform.services.parameter_sweep import (
     ParameterSweepError,
     ParameterSweepService,
+    SweepProgressEvent,
     build_sweep_request,
     generate_variant_configs,
 )
@@ -185,6 +186,13 @@ class FakeSimulationService:
         )
 
 
+class FakePartiallyFailingSimulationService(FakeSimulationService):
+    def run_from_config(self, config: dict, output_dir):
+        if config["entry_rule"]["threshold"] == 25:
+            raise RuntimeError("data unavailable for variant")
+        return super().run_from_config(config, output_dir)
+
+
 def test_successful_small_rsi_sweep_writes_ranked_summary(tmp_path) -> None:
     service = ParameterSweepService(simulation_service=FakeSimulationService())
 
@@ -222,6 +230,61 @@ def test_successful_small_rsi_sweep_writes_ranked_summary(tmp_path) -> None:
     assert persisted["entry_event_count"] == 1
     assert persisted["add_event_count"] == 2
     assert persisted["reduce_event_count"] == 1
+
+
+def test_run_sweep_invokes_progress_callback_for_each_variant(tmp_path) -> None:
+    service = ParameterSweepService(simulation_service=FakeSimulationService())
+    events: list[SweepProgressEvent] = []
+
+    service.run_sweep(
+        {
+            "base_config": _base_rsi_config(),
+            "grid": {"entry_rule.threshold": [20, 25, 30]},
+        },
+        output_dir=tmp_path,
+        progress_callback=events.append,
+    )
+
+    assert events[0].stage == "prepared"
+    assert events[0].message == "Prepared 3 sweep variants"
+    assert [
+        (event.stage, event.current_variant_index, event.total_variants)
+        for event in events
+        if event.stage in {"variant_started", "variant_completed"}
+    ] == [
+        ("variant_started", 1, 3),
+        ("variant_completed", 1, 3),
+        ("variant_started", 2, 3),
+        ("variant_completed", 2, 3),
+        ("variant_started", 3, 3),
+        ("variant_completed", 3, 3),
+    ]
+    assert events[-1].stage == "artifacts_finalizing"
+    assert events[-1].message == "Finalizing sweep artifacts"
+
+
+def test_failed_sweep_variants_still_report_progress(tmp_path) -> None:
+    service = ParameterSweepService(
+        simulation_service=FakePartiallyFailingSimulationService()
+    )
+    events: list[SweepProgressEvent] = []
+
+    result = service.run_sweep(
+        {
+            "base_config": _base_rsi_config(),
+            "grid": {"entry_rule.threshold": [20, 25, 30]},
+        },
+        output_dir=tmp_path,
+        progress_callback=events.append,
+    )
+
+    assert result["summary"]["variant_count"] == 3
+    assert result["summary"]["succeeded_count"] == 2
+    assert result["summary"]["failed_count"] == 1
+    failed_event = next(event for event in events if event.stage == "variant_failed")
+    assert failed_event.current_variant_index == 2
+    assert failed_event.message == "Variant 2 of 3 failed; continuing sweep"
+    assert events[-1].stage == "artifacts_finalizing"
 
 
 def test_sweep_summary_sorted_by_ranking_metric_descending(tmp_path) -> None:
