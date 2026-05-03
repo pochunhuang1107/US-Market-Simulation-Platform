@@ -963,6 +963,16 @@ def _build_strategy_summary(
         else end_date.isoformat()
     )
 
+    is_add_reduce_overlay = (
+        any(
+            assumption.startswith("Interpreted buy-and-hold language as a core ")
+            or assumption.startswith("Interpreted core language as a core ")
+            for assumption in assumptions
+        )
+        and bool((config.get("core_overlay") or {}).get("enabled"))
+        and bool(config.get("position_management"))
+    )
+
     summary_parts = [
         _build_summary_intro(
             symbol=effective_symbol,
@@ -970,8 +980,16 @@ def _build_strategy_summary(
             end_date_str=summary_end_date,
             assumptions=assumptions,
         ),
-        f"Enter when {_describe_rule(effective_entry, effective_symbol)}.",
-        f"Exit when {_describe_rule(effective_exit, effective_symbol)}.",
+        (
+            f"Enter/add overlay when {_describe_rule(effective_entry, effective_symbol)}."
+            if is_add_reduce_overlay
+            else f"Enter when {_describe_rule(effective_entry, effective_symbol)}."
+        ),
+        (
+            f"Reduce overlay when {_describe_rule(effective_exit, effective_symbol)}."
+            if is_add_reduce_overlay
+            else f"Exit when {_describe_rule(effective_exit, effective_symbol)}."
+        ),
     ]
 
     if effective_benchmark != effective_symbol:
