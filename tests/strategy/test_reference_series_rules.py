@@ -388,6 +388,67 @@ def test_vix_add_reduce_reduces_on_exit_signal_without_profit_reduce() -> None:
     assert result.summary["reduce_event_count"] == 2
 
 
+def test_vix_add_reduce_uses_exact_reference_dates_without_forward_fill_or_lookahead() -> None:
+    dates = [
+        "2021-01-04",
+        "2021-01-05",
+        "2021-01-06",
+        "2021-01-07",
+        "2021-01-08",
+    ]
+    bundle = _bundle(
+        dates=dates,
+        closes=[100.0, 100.0, 100.0, 100.0, 100.0],
+        reference_df=_reference_series(
+            "VIX",
+            ["2021-01-04", "2021-01-06", "2021-01-08"],
+            values=[10.0, 10.0, 40.0],
+        ),
+    )
+    strategy = StrategyV2.model_validate(
+        _strategy_config(
+            {
+                "kind": "atomic",
+                "type": "series_below",
+                "symbol": "VIX",
+                "threshold": 15,
+            },
+            exit_rule={
+                "kind": "atomic",
+                "type": "series_above",
+                "symbol": "VIX",
+                "threshold": 35,
+            },
+            position_management={
+                "scale_in_fraction": 0.25,
+                "scale_out_fraction": 0.5,
+                "profit_reduce_threshold": None,
+            },
+        )
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+
+    assert [(trade["date"], trade["action"]) for trade in result.trade_log] == [
+        ("2021-01-04", "BUY"),
+        ("2021-01-06", "BUY_ADD"),
+        ("2021-01-08", "SELL_REDUCE"),
+    ]
+    assert [
+        (row["date"], row["entry_signal"], row["exit_signal"], row["action_taken"])
+        for row in result.timeline
+    ] == [
+        ("2021-01-04", True, False, "scale_in"),
+        ("2021-01-05", False, False, ""),
+        ("2021-01-06", True, False, "scale_in"),
+        ("2021-01-07", False, False, ""),
+        ("2021-01-08", False, True, "reduce"),
+    ]
+    assert "SELL_REDUCE_PROFIT" not in [
+        trade["action"] for trade in result.trade_log
+    ]
+
+
 def test_vix_add_reduce_only_profit_reduces_when_explicitly_configured() -> None:
     dates = ["2021-01-04", "2021-01-05", "2021-01-06"]
     bundle = _bundle(
