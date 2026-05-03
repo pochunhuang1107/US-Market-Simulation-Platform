@@ -1068,35 +1068,116 @@ def test_generate_strategy_builder_names_pure_vix_entry_exit_strategy_readably(c
     StrategyV2.model_validate(config)
 
 
-def test_generate_strategy_builder_rejects_unsupported_vix_add_reduce_allocation_prompt(client):
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Buy and hold QQQ. Reduce when VIX is over 35. Add when VIX below 15.",
+        "Buy and hold QQQ. Add when VIX is below 15. Reduce when VIX is above 35.",
+        "Hold QQQ core. Add when VIX below 15 and reduce when VIX above 35.",
+    ],
+)
+def test_generate_strategy_builder_parses_vix_add_reduce_core_overlay_prompt(
+    client,
+    prompt,
+):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": prompt},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["name"] == "QQQ VIX Add Reduce Strategy"
+    assert config["tradable_symbol"] == "QQQ"
+    assert "VIX" in config["reference_symbols"]
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "series_below",
+        "symbol": "VIX",
+        "threshold": 15.0,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "series_above",
+        "symbol": "VIX",
+        "threshold": 35.0,
+    }
+    assert config["core_overlay"] == {
+        "enabled": True,
+        "core_allocation_pct": 0.60,
+    }
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["scale_out_fraction"] == 0.50
+    assert config["allocation"]["max_position_pct"] == 1.0
+    assert "Enter/add overlay when VIX is below 15." in body["summary"]
+    assert "Reduce overlay when VIX is above 35." in body["summary"]
+    assert any(
+        assumption
+        in {
+            "Interpreted buy-and-hold language as a core QQQ sleeve.",
+            "Interpreted core language as a core QQQ sleeve.",
+        }
+        for assumption in body["assumptions"]
+    )
+    assert "Used 60% core and 40% tactical overlay by default." in body["assumptions"]
+    assert "Used 60.0% core allocation by default." not in body["assumptions"]
+    assert (
+        body["assumptions"].count("Used 60% core and 40% tactical overlay by default.")
+        == 1
+    )
+    assert "Used 25% scale-in and 50% scale-out by default." in body["assumptions"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_vix_add_reduce_keeps_explicit_core_allocation_assumption(
+    client,
+):
     response = client.post(
         "/strategy-builder/generate",
         json={
             "prompt": (
-                "Buy and hold QQQ. Reduce when VIX is over 35. "
-                "Add when VIX below 15."
+                "Buy and hold QQQ with core allocation at 55%. "
+                "Reduce when VIX is over 35. Add when VIX below 15."
             ),
         },
     )
 
     assert response.status_code == 200
     body = response.json()
+    config = body["config"]
 
-    assert body["response_type"] == "VALIDATION_ERROR"
-    assert body["config"] is None
-    assert body["summary"] is None
-    assert "rule-based add/reduce exposure" in body["message"]
-    assert "not supported yet" in body["message"]
-    assert "VIX and rates as entry, exit, or filter conditions" in body["message"]
-    assert "Only trade QQQ when VIX is below 25." in body["message"]
-    assert "Buy QQQ when VIX is below 15 and sell when VIX is above 35." in body["message"]
-    assert "Create a QQQ core-overlay strategy with an RSI overlay." in body["message"]
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["core_overlay"] == {
+        "enabled": True,
+        "core_allocation_pct": 0.55,
+    }
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "series_below",
+        "symbol": "VIX",
+        "threshold": 15.0,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "series_above",
+        "symbol": "VIX",
+        "threshold": 35.0,
+    }
+    assert "Used explicit 55% core allocation." in body["assumptions"]
+    assert "Used 60% core and 40% tactical overlay by default." not in body["assumptions"]
+    assert "Used 60.0% core allocation by default." not in body["assumptions"]
+    assert "Used 25% scale-in and 50% scale-out by default." in body["assumptions"]
+    StrategyV2.model_validate(config)
 
 
 @pytest.mark.parametrize(
     "prompt",
     [
         "Buy and hold QQQ.",
+        "Buy and hold QQQ. Add when VIX is calm and reduce when VIX is high.",
         "Reduce when VIX is over 35.",
         "Add when VIX below 15.",
         "Trim when VIX is over 35.",
@@ -1118,7 +1199,7 @@ def test_generate_strategy_builder_rejects_unsupported_allocation_adjustment_phr
 
     assert body["response_type"] == "VALIDATION_ERROR"
     assert body["config"] is None
-    assert "rule-based add/reduce exposure" in body["message"]
+    assert "explicit reference-series thresholds" in body["message"]
 
 
 def test_generate_strategy_builder_parses_composite_rsi_and_vix_filter(client):

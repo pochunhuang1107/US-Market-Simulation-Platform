@@ -243,11 +243,12 @@ def _requires_existing_draft_context(prompt: str) -> bool:
 
 _UNSUPPORTED_ALLOCATION_ADJUSTMENT_MESSAGE = (
     "I cannot build that draft faithfully yet. The deterministic builder can use "
-    "VIX and rates as entry, exit, or filter conditions, but rule-based add/reduce "
-    "exposure and position sizing are not supported yet. Try a supported version like "
+    "VIX and rates as entry, exit, filter, or supported add/reduce overlay conditions, "
+    "but I need explicit reference-series thresholds to build add/reduce exposure "
+    "faithfully. Try a supported version like "
     '"Only trade QQQ when VIX is below 25.", '
     '"Buy QQQ when VIX is below 15 and sell when VIX is above 35.", or '
-    '"Create a QQQ core-overlay strategy with an RSI overlay."'
+    '"Buy and hold QQQ. Add when VIX is below 15. Reduce when VIX is above 35."'
 )
 
 
@@ -259,6 +260,93 @@ def _looks_like_unsupported_allocation_adjustment_prompt(prompt: str) -> bool:
         r"\b(?:increase|decrease)\s+exposure\s+when\b",
     )
     return any(re.search(pattern, prompt, flags=re.IGNORECASE) for pattern in patterns)
+
+
+_ADD_REDUCE_ACTION_CLAUSE_PATTERN = re.compile(
+    r"\b(?P<action>add|increase|reduce|trim|decrease)"
+    r"(?:\s+(?:exposure|position|allocation))?\s+when\s+"
+    r"(?P<clause>.+?)"
+    r"(?=(?:\s*(?:[.;,]\s*|\band\s+)"
+    r"(?:add|increase|reduce|trim|decrease)\b)|[.;]|$)",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_reference_series_threshold_rule(rule: dict[str, Any] | None) -> bool:
+    if not isinstance(rule, dict):
+        return False
+
+    threshold = rule.get("threshold")
+    return (
+        rule.get("kind") == "atomic"
+        and rule.get("type") in {"series_below", "series_above"}
+        and isinstance(rule.get("symbol"), str)
+        and isinstance(threshold, (int, float))
+        and not isinstance(threshold, bool)
+    )
+
+
+def _extract_add_reduce_reference_series_setup(
+    prompt: str,
+    *,
+    tradable_symbol: str,
+    benchmark_symbol: str,
+) -> dict[str, Any] | None:
+    add_rule: dict[str, Any] | None = None
+    reduce_rule: dict[str, Any] | None = None
+
+    for match in _ADD_REDUCE_ACTION_CLAUSE_PATTERN.finditer(prompt):
+        action = match.group("action").lower()
+        clause = match.group("clause").strip(" .,")
+        try:
+            rule, _ = _build_rule_from_clause(
+                clause,
+                tradable_symbol=tradable_symbol,
+                fallback_reference_symbol=benchmark_symbol,
+                side="entry" if action in {"add", "increase"} else "exit",
+            )
+        except ValueError:
+            return None
+        if not _is_reference_series_threshold_rule(rule):
+            return None
+
+        if action in {"add", "increase"}:
+            if add_rule is not None:
+                return None
+            add_rule = rule
+        else:
+            if reduce_rule is not None:
+                return None
+            reduce_rule = rule
+
+    if add_rule is None or reduce_rule is None:
+        return None
+
+    return {
+        "entry_rule": add_rule,
+        "exit_rule": reduce_rule,
+        "reference_symbols": sorted(
+            {
+                str(add_rule["symbol"]).upper(),
+                str(reduce_rule["symbol"]).upper(),
+            }
+        ),
+    }
+
+
+def _build_add_reduce_strategy_name(
+    *,
+    tradable_symbol: str,
+    setup: dict[str, Any],
+) -> str:
+    labels = []
+    for symbol in setup.get("reference_symbols", []):
+        label = str(symbol).upper()
+        if label not in labels:
+            labels.append(label)
+
+    reference_label = " + ".join(labels) if labels else "Reference Series"
+    return f"{tradable_symbol.upper()} {reference_label} Add Reduce Strategy"
 
 
 def _resolve_effective_symbols(
@@ -2284,6 +2372,12 @@ def _generate_strategy_draft(
     core_overlay_enabled = risk_and_position["core_overlay_enabled"]
     overlay_allocation_pct = risk_and_position["overlay_allocation_pct"]
 
+    add_reduce_reference_series_setup = _extract_add_reduce_reference_series_setup(
+        prompt,
+        tradable_symbol=tradable_symbol,
+        benchmark_symbol=benchmark_symbol,
+    )
+
     rule_setup = _build_rule_setup(
         prompt=prompt,
         prompt_lower=prompt_lower,
@@ -2354,6 +2448,55 @@ def _generate_strategy_draft(
     remove_exit_sequence_first_step = rule_setup["remove_exit_sequence_first_step"]
     remove_exit_sequence_second_step = rule_setup["remove_exit_sequence_second_step"]
     has_nested_composite_removal_intent = rule_setup["has_nested_composite_removal_intent"]
+
+    if add_reduce_reference_series_setup is not None:
+        entry_rule = add_reduce_reference_series_setup["entry_rule"]
+        exit_rule = add_reduce_reference_series_setup["exit_rule"]
+        warnings = [
+            warning
+            for warning in warnings
+            if warning
+            not in {
+                "Entry rule defaulted to RSI(14) below 30.",
+                "Exit rule defaulted to RSI(14) above 70.",
+            }
+        ]
+
+        for reference_symbol in add_reduce_reference_series_setup["reference_symbols"]:
+            if reference_symbol not in reference_symbols:
+                reference_symbols.append(reference_symbol)
+
+        if re.search(r"\bbuy\s+and\s+hold\b", prompt, flags=re.IGNORECASE):
+            assumptions.append(
+                f"Interpreted buy-and-hold language as a core {tradable_symbol} sleeve."
+            )
+        else:
+            assumptions.append(
+                f"Interpreted core language as a core {tradable_symbol} sleeve."
+            )
+
+        if core_allocation_pct is None and overlay_allocation_pct is None:
+            core_allocation_pct = 0.60
+            assumptions.append("Used 60% core and 40% tactical overlay by default.")
+        elif overlay_allocation_pct is not None:
+            assumptions.append(
+                f"Used explicit {core_allocation_pct * 100:g}% core and "
+                f"{overlay_allocation_pct * 100:g}% tactical overlay allocation."
+            )
+        elif core_allocation_pct is not None:
+            assumptions.append(
+                f"Used explicit {core_allocation_pct * 100:g}% core allocation."
+            )
+
+        core_overlay_enabled = True
+        position_management_removed = False
+        if scale_in_fraction_edit is None and scale_out_fraction_edit is None:
+            assumptions.append("Used 25% scale-in and 50% scale-out by default.")
+        if scale_in_fraction_edit is None:
+            scale_in_fraction_edit = 0.25
+        if scale_out_fraction_edit is None:
+            scale_out_fraction_edit = 0.50
+        has_position_management_edit = True
 
     base_config = current_config if has_current_config else {}
 
@@ -2498,6 +2641,16 @@ def _generate_strategy_draft(
         )
 
     config = _sync_reference_symbols(_merge_dict(base_config, default_config))
+
+    if add_reduce_reference_series_setup is not None:
+        config["name"] = _build_add_reduce_strategy_name(
+            tradable_symbol=config.get("tradable_symbol", tradable_symbol),
+            setup=add_reduce_reference_series_setup,
+        )
+        if max_position_pct_edit is None:
+            allocation = dict(config.get("allocation") or {})
+            allocation["max_position_pct"] = 1.0
+            config["allocation"] = allocation
 
     summary = _build_strategy_summary(
         config=config,
@@ -3443,7 +3596,15 @@ def generate_strategy_builder_response(
             ),
         )
 
-    if _looks_like_unsupported_allocation_adjustment_prompt(prompt):
+    if (
+        _looks_like_unsupported_allocation_adjustment_prompt(prompt)
+        and _extract_add_reduce_reference_series_setup(
+            prompt,
+            tradable_symbol="QQQ",
+            benchmark_symbol="QQQ",
+        )
+        is None
+    ):
         message = _UNSUPPORTED_ALLOCATION_ADJUSTMENT_MESSAGE
         return _build_response(
             response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
