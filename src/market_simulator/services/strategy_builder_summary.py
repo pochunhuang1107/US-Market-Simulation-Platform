@@ -24,6 +24,14 @@ def _build_strategy_name(
     entry_rule: dict,
     exit_rule: dict,
 ) -> str:
+    reference_series_name = _build_reference_series_strategy_name(
+        symbol,
+        entry_rule,
+        exit_rule,
+    )
+    if reference_series_name is not None:
+        return reference_series_name
+
     reference_series_rsi_name = _build_reference_series_rsi_strategy_name(symbol, entry_rule)
     if reference_series_rsi_name is not None:
         return reference_series_rsi_name
@@ -110,6 +118,51 @@ def _build_reference_trend_filter_strategy_name(
         return f"{tradable_symbol.lower()}-rsi-with-{reference_symbol}-trend-filter"
 
     return None
+
+
+def _format_reference_series_strategy_label(symbol: str) -> str:
+    labels = {
+        "DGS10": "10Y Yield",
+        "DGS2": "2Y Yield",
+        "T10Y2Y": "Yield Curve",
+        "DFF": "Fed Funds",
+        "VIX": "VIX",
+        "VIX9D": "VIX9D",
+        "VXEEM": "VXEEM",
+    }
+    return labels.get(symbol.upper(), symbol.upper())
+
+
+def _build_reference_series_strategy_name(
+    symbol: str,
+    entry_rule: dict,
+    exit_rule: dict,
+) -> str | None:
+    tradable_symbol = symbol.upper()
+    all_rules = [*_collect_atomic_rules(entry_rule), *_collect_atomic_rules(exit_rule)]
+    if not all_rules:
+        return None
+
+    reference_rules = [
+        rule
+        for rule in all_rules
+        if rule.get("type") in {"series_below", "series_above"}
+        and isinstance(rule.get("symbol"), str)
+        and str(rule.get("symbol")).upper() != tradable_symbol
+    ]
+    if len(reference_rules) != len(all_rules):
+        return None
+
+    labels: list[str] = []
+    for rule in reference_rules:
+        label = _format_reference_series_strategy_label(str(rule["symbol"]))
+        if label not in labels:
+            labels.append(label)
+
+    if not labels:
+        return None
+
+    return f"{tradable_symbol} {' + '.join(labels)} Strategy"
 
 
 def _build_reference_series_rsi_strategy_name(symbol: str, entry_rule: dict) -> str | None:
