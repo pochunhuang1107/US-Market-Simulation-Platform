@@ -2098,7 +2098,7 @@ def _build_position_management(
         or {
             "scale_in_fraction": 0.25,
             "scale_out_fraction": 0.5,
-            "profit_reduce_threshold": 0.05,
+            "profit_reduce_threshold": None,
         }
     )
 

@@ -12,10 +12,10 @@ import {
 import {
   formatCurrency,
   formatDecimal,
-  formatNumber,
   formatPct,
   formatShortDate
 } from '../../lib/formatters';
+import { formatTradeActivity } from '../../lib/sweepVariants';
 import type { RunChartDataResponse, RunResponse } from '../../types/api';
 
 type MetricTone = 'default' | 'positive' | 'negative';
@@ -249,8 +249,8 @@ export function RunInsightHero({
       value: formatDecimal(sharpeRatio)
     },
     {
-      label: 'Trades',
-      value: formatNumber(tradeCount)
+      label: 'Activity',
+      value: formatTradeActivity(summary)
     }
   ];
 

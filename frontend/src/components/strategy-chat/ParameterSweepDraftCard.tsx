@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 
+import { formatParameterLabel } from '../../lib/sweepVariants';
 import { explainRule } from '../../lib/ruleSummaries';
 import type { StrategyBuilderGenerateResponse } from '../../types/api';
 
@@ -23,34 +24,11 @@ function formatMetric(value: string): string {
 
 function formatGridValue(path: string, value: unknown): string {
   if (typeof value === 'number') {
-    if (path.includes('_pct')) return `${(value * 100).toFixed(1)}%`;
+    if (path.includes('_pct') || path.includes('_fraction')) return `${(value * 100).toFixed(1)}%`;
     return Number.isInteger(value) ? `${value}` : `${value}`;
   }
   if (value === null) return 'None';
   return String(value);
-}
-
-function formatGridLabel(path: string): string {
-  if (/^entry_rule\..*\.threshold$/.test(path)) return 'Entry RSI threshold';
-  if (/^exit_rule\..*\.threshold$/.test(path)) return 'Exit RSI threshold';
-  if (/^entry_rule\..*\.fast_window$/.test(path)) return 'Entry fast window';
-  if (/^entry_rule\..*\.slow_window$/.test(path)) return 'Entry slow window';
-  if (/^exit_rule\..*\.fast_window$/.test(path)) return 'Exit fast window';
-  if (/^exit_rule\..*\.slow_window$/.test(path)) return 'Exit slow window';
-
-  const labels: Record<string, string> = {
-    'entry_rule.threshold': 'Entry RSI threshold',
-    'exit_rule.threshold': 'Exit RSI threshold',
-    'entry_rule.fast_window': 'Entry fast window',
-    'entry_rule.slow_window': 'Entry slow window',
-    'exit_rule.fast_window': 'Exit fast window',
-    'exit_rule.slow_window': 'Exit slow window',
-    'risk.stop_loss_pct': 'Stop loss',
-    'risk.take_profit_pct': 'Take profit',
-    'risk.cooldown_bars': 'Cooldown bars'
-  };
-
-  return labels[path] ?? titleCase(path.replaceAll('.', ' '));
 }
 
 function InfoPill({ label, value }: { label: string; value: string | number | null | undefined }) {
@@ -83,7 +61,7 @@ export function ParameterSweepDraftCard({
     const grid = sweep?.grid ?? {};
     const gridRows = Object.entries(grid).map(([path, values]) => ({
       path,
-      label: formatGridLabel(path),
+      label: formatParameterLabel(path, baseConfig),
       values: values.map((value) => formatGridValue(path, value)).join(', ')
     }));
 

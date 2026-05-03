@@ -12,17 +12,21 @@ from market_simulator.models.strategy_v2 import AtomicRule, StrategyV2
 from market_simulator.strategy.evaluator import evaluate_rule
 
 
-def _tradable(dates: list[str] | None = None) -> pd.DataFrame:
+def _tradable(
+    dates: list[str] | None = None,
+    closes: list[float] | None = None,
+) -> pd.DataFrame:
     dates = dates or ["2021-01-04", "2021-01-05", "2021-01-06"]
+    closes = closes or [100.0 + index for index in range(len(dates))]
     return pd.DataFrame(
         {
             "date": pd.to_datetime(dates),
             "symbol": ["QQQ"] * len(dates),
-            "open": [100.0 + index for index in range(len(dates))],
-            "high": [101.0 + index for index in range(len(dates))],
-            "low": [99.0 + index for index in range(len(dates))],
-            "close": [100.0 + index for index in range(len(dates))],
-            "rsi_14": [60.0, 40.0, 40.0][: len(dates)],
+            "open": closes,
+            "high": [close + 1.0 for close in closes],
+            "low": [close - 1.0 for close in closes],
+            "close": closes,
+            "rsi_14": [60.0] + [40.0] * max(len(dates) - 1, 0),
         }
     )
 
@@ -32,9 +36,10 @@ def _bundle(
     reference_symbol: str = "VIX",
     reference_df: pd.DataFrame,
     dates: list[str] | None = None,
+    closes: list[float] | None = None,
 ) -> MarketDataBundle:
     return MarketDataBundle(
-        tradable=_tradable(dates),
+        tradable=_tradable(dates, closes),
         references={reference_symbol: reference_df},
     )
 
@@ -56,7 +61,11 @@ def _reference_series(
     return pd.DataFrame(data)
 
 
-def _strategy_config(entry_rule: dict, exit_rule: dict | None = None) -> dict:
+def _strategy_config(
+    entry_rule: dict,
+    exit_rule: dict | None = None,
+    position_management: dict | None = None,
+) -> dict:
     return {
         "schema_version": "2.0",
         "name": "qqq-reference-series-test",
@@ -86,6 +95,7 @@ def _strategy_config(entry_rule: dict, exit_rule: dict | None = None) -> dict:
             "enabled": False,
             "core_allocation_pct": 0.0,
         },
+        "position_management": position_management,
     }
 
 
@@ -323,3 +333,96 @@ def test_runner_missing_reference_date_is_no_signal_on_valid_tradable_entry_day(
     assert [row["entry_signal"] for row in result.timeline] == [False, False, False]
     assert result.trade_log == []
     assert result.summary["ending_equity"] == pytest.approx(result.summary["initial_capital"])
+
+
+def test_vix_add_reduce_reduces_on_exit_signal_without_profit_reduce() -> None:
+    dates = ["2021-01-04", "2021-01-05", "2021-01-06", "2021-01-07"]
+    bundle = _bundle(
+        dates=dates,
+        closes=[100.0, 110.0, 120.0, 121.0],
+        reference_df=_reference_series(
+            "VIX",
+            dates,
+            values=[10.0, 10.0, 40.0, 40.0],
+        ),
+    )
+    strategy = StrategyV2.model_validate(
+        _strategy_config(
+            {
+                "kind": "atomic",
+                "type": "series_below",
+                "symbol": "VIX",
+                "threshold": 15,
+            },
+            exit_rule={
+                "kind": "atomic",
+                "type": "series_above",
+                "symbol": "VIX",
+                "threshold": 35,
+            },
+            position_management={
+                "scale_in_fraction": 0.25,
+                "scale_out_fraction": 0.5,
+                "profit_reduce_threshold": None,
+            },
+        )
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+    actions = [trade["action"] for trade in result.trade_log]
+
+    assert "SELL_REDUCE_PROFIT" not in actions
+    assert actions == ["BUY", "BUY_ADD", "SELL_REDUCE", "SELL_REDUCE"]
+    assert [
+        (row["date"], row["exit_signal"], row["action_taken"])
+        for row in result.timeline
+        if row["action_taken"] == "reduce"
+    ] == [
+        ("2021-01-06", True, "reduce"),
+        ("2021-01-07", True, "reduce"),
+    ]
+    assert result.summary["trade_event_count"] == 4
+    assert result.summary["full_exit_count"] == 0
+    assert result.summary["buy_event_count"] == 1
+    assert result.summary["add_event_count"] == 1
+    assert result.summary["reduce_event_count"] == 2
+
+
+def test_vix_add_reduce_only_profit_reduces_when_explicitly_configured() -> None:
+    dates = ["2021-01-04", "2021-01-05", "2021-01-06"]
+    bundle = _bundle(
+        dates=dates,
+        closes=[100.0, 110.0, 120.0],
+        reference_df=_reference_series(
+            "VIX",
+            dates,
+            values=[10.0, 10.0, 40.0],
+        ),
+    )
+    strategy = StrategyV2.model_validate(
+        _strategy_config(
+            {
+                "kind": "atomic",
+                "type": "series_below",
+                "symbol": "VIX",
+                "threshold": 15,
+            },
+            exit_rule={
+                "kind": "atomic",
+                "type": "series_above",
+                "symbol": "VIX",
+                "threshold": 35,
+            },
+            position_management={
+                "scale_in_fraction": 0.25,
+                "scale_out_fraction": 0.5,
+                "profit_reduce_threshold": 0.05,
+            },
+        )
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+    actions = [trade["action"] for trade in result.trade_log]
+
+    assert "SELL_REDUCE_PROFIT" in actions
+    assert actions[:2] == ["BUY", "SELL_REDUCE_PROFIT"]

@@ -43,6 +43,12 @@ SUMMARY_METRICS = [
     "sharpe_ratio",
     "max_drawdown_pct",
     "trade_count",
+    "trade_event_count",
+    "full_exit_count",
+    "buy_event_count",
+    "entry_event_count",
+    "add_event_count",
+    "reduce_event_count",
 ]
 
 
@@ -330,6 +336,12 @@ def write_sweep_artifacts(
         "sharpe_ratio",
         "max_drawdown_pct",
         "trade_count",
+        "trade_event_count",
+        "full_exit_count",
+        "buy_event_count",
+        "entry_event_count",
+        "add_event_count",
+        "reduce_event_count",
         "artifact_dir",
         "parameters",
     ]

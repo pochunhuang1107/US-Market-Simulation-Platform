@@ -174,6 +174,12 @@ class FakeSimulationService:
                 "sharpe_ratio": sharpe,
                 "max_drawdown_pct": -float(exit_threshold),
                 "trade_count": int(entry_threshold),
+                "trade_event_count": int(entry_threshold) + 4,
+                "full_exit_count": int(entry_threshold),
+                "buy_event_count": 1,
+                "entry_event_count": 1,
+                "add_event_count": 2,
+                "reduce_event_count": 1,
             },
             artifact_dir=str(output_dir),
         )
@@ -209,6 +215,13 @@ def test_successful_small_rsi_sweep_writes_ranked_summary(tmp_path) -> None:
     assert persisted["results"][0]["sharpe_ratio"] >= persisted["results"][1]["sharpe_ratio"]
     assert persisted["results"][0]["config"]["entry_rule"]["threshold"] == 25
     assert persisted["best_variant"]["config"]["exit_rule"]["threshold"] == 65
+    assert persisted["best_variant"]["trade_event_count"] == 29
+    assert persisted["trade_event_count"] == 29
+    assert persisted["full_exit_count"] == 25
+    assert persisted["buy_event_count"] == 1
+    assert persisted["entry_event_count"] == 1
+    assert persisted["add_event_count"] == 2
+    assert persisted["reduce_event_count"] == 1
 
 
 def test_sweep_summary_sorted_by_ranking_metric_descending(tmp_path) -> None:

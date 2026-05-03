@@ -15,6 +15,7 @@ from market_simulator.platform.services.parameter_sweep import (
     DEFAULT_MAX_VARIANTS,
     ParameterSweepError,
     build_sweep_request,
+    get_nested,
     normalize_ranking_metric,
     variant_count,
 )
@@ -2706,6 +2707,35 @@ _NUMBER_TOKEN = r"\d+(?:\.\d+)?%?"
 
 _SWEEP_PATH_SPECS = [
     (
+        "entry_rule.series_threshold",
+        [
+            r"vix\s+add\s+thresholds?",
+            r"add\s+vix\s+thresholds?",
+            r"add\s+thresholds?",
+            (
+                r"add\s+when\s+vix\s+(?:is\s+)?"
+                r"(?:below|under|less\s+than|lower\s+than|<)"
+            ),
+            r"vix\s+(?:is\s+)?(?:below|under|less\s+than|lower\s+than|<)",
+            r"vix\s+thresholds?",
+        ],
+        False,
+    ),
+    (
+        "exit_rule.series_threshold",
+        [
+            r"vix\s+reduce\s+thresholds?",
+            r"reduce\s+vix\s+thresholds?",
+            r"(?:reduce|trim)\s+thresholds?",
+            (
+                r"(?:reduce|trim)\s+when\s+vix\s+(?:is\s+)?"
+                r"(?:above|over|greater\s+than|higher\s+than|>)"
+            ),
+            r"vix\s+(?:is\s+)?(?:above|over|greater\s+than|higher\s+than|>)",
+        ],
+        False,
+    ),
+    (
         "entry_rule.threshold",
         [
             r"(?:entry\s+rsi|rsi\s+entry)\s+thresholds?",
@@ -2773,6 +2803,29 @@ _SWEEP_PATH_SPECS = [
         "risk.cooldown_bars",
         [r"cooldown(?:\s+bars?)?"],
         False,
+    ),
+    (
+        "core_overlay.core_allocation_pct",
+        [
+            r"core\s+allocations?",
+            r"core\s+allocation(?:\s+pct|\s+percent|\s+percentages?)?",
+        ],
+        True,
+    ),
+    (
+        "position_management.scale_in_fraction",
+        [
+            r"scale[-\s]+in(?:\s+fractions?|\s+pct|\s+percent|\s+percentages?)?",
+            r"overlay\s+sizing\s+with\s+scale\s+in",
+        ],
+        True,
+    ),
+    (
+        "position_management.scale_out_fraction",
+        [
+            r"scale[-\s]+out(?:\s+fractions?|\s+pct|\s+percent|\s+percentages?)?",
+        ],
+        True,
     ),
 ]
 
@@ -2943,11 +2996,31 @@ def _extract_sweep_ranking_metric(prompt: str) -> str:
 
 def _build_parameter_sweep_title(base_config: dict[str, Any], grid: dict[str, list[Any]]) -> str:
     symbol = str(base_config.get("tradable_symbol") or "ETF")
-    if any(path.endswith(".threshold") or path in {"entry_rule.threshold", "exit_rule.threshold"} for path in grid):
+    threshold_paths = [
+        path
+        for path in grid
+        if path.endswith(".threshold")
+        or path in {"entry_rule.threshold", "exit_rule.threshold"}
+    ]
+    if any(_is_reference_threshold_sweep_path(base_config, path) for path in threshold_paths):
+        return f"{symbol} VIX Threshold Sweep"
+    if threshold_paths:
         return f"{symbol} RSI Threshold Sweep"
     if any(path.endswith("_window") for path in grid):
         return f"{symbol} SMA Window Sweep"
+    if any(path.startswith(("core_overlay.", "position_management.")) for path in grid):
+        return f"{symbol} Sizing Sweep"
     return f"{symbol} Parameter Sweep"
+
+
+def _is_reference_threshold_sweep_path(base_config: dict[str, Any], path: str) -> bool:
+    if not path.endswith(".threshold"):
+        return False
+    try:
+        rule = get_nested(base_config, path.rsplit(".", 1)[0])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False
+    return _is_reference_series_threshold_rule(rule)
 
 
 def _build_parameter_sweep_summary(
@@ -2992,6 +3065,7 @@ def _parameter_path_guidance(base_config: dict[str, Any], path: str) -> str | No
     if path == "entry_rule.threshold" and not (
         _has_rsi_rule(entry_rule, rule_type="rsi_below")
         or _has_rsi_rule(entry_rule, rule_type="rsi_above")
+        or _has_reference_series_threshold_rule(entry_rule)
     ):
         return (
             "This draft does not use RSI rules yet. You can create an RSI strategy first, "
@@ -3001,6 +3075,7 @@ def _parameter_path_guidance(base_config: dict[str, Any], path: str) -> str | No
     if path == "exit_rule.threshold" and not (
         _has_rsi_rule(exit_rule, rule_type="rsi_below")
         or _has_rsi_rule(exit_rule, rule_type="rsi_above")
+        or _has_reference_series_threshold_rule(exit_rule)
     ):
         return (
             "This draft does not use RSI rules yet. You can create an RSI strategy first, "
@@ -3019,7 +3094,61 @@ def _parameter_path_guidance(base_config: dict[str, Any], path: str) -> str | No
             "or ask me to replace the entry/exit rules with SMA."
         )
 
+    if path == "core_overlay.core_allocation_pct" and not isinstance(
+        base_config.get("core_overlay"), dict
+    ):
+        return (
+            "This draft does not have core allocation settings yet. "
+            "Enable core allocation first, then I can sweep the core allocation values."
+        )
+
+    if path.startswith("position_management.") and not isinstance(
+        base_config.get("position_management"), dict
+    ):
+        return (
+            "This draft does not have add/reduce sizing settings yet. "
+            "Enable position management first, then I can sweep scale-in or scale-out values."
+        )
+
     return None
+
+
+def _has_reference_series_threshold_rule(rule: Any, *, symbol: str | None = None) -> bool:
+    if not isinstance(rule, dict):
+        return False
+
+    kind = rule.get("kind")
+    if kind == "atomic":
+        if rule.get("type") not in {"series_below", "series_above"}:
+            return False
+        if (
+            symbol is not None
+            and str(rule.get("symbol") or "").upper() != symbol.upper()
+        ):
+            return False
+        return isinstance(rule.get("threshold"), (int, float)) and not isinstance(
+            rule.get("threshold"), bool
+        )
+
+    if kind == "not":
+        return _has_reference_series_threshold_rule(rule.get("rule"), symbol=symbol)
+
+    if kind == "group":
+        return any(
+            _has_reference_series_threshold_rule(child_rule, symbol=symbol)
+            for child_rule in rule.get("rules", [])
+        )
+
+    if kind == "window":
+        return _has_reference_series_threshold_rule(rule.get("rule"), symbol=symbol)
+
+    if kind == "sequence":
+        return any(
+            _has_reference_series_threshold_rule(step, symbol=symbol)
+            for step in rule.get("steps", [])
+        )
+
+    return False
 
 
 def _collect_rule_parameter_paths(
@@ -3028,6 +3157,7 @@ def _collect_rule_parameter_paths(
     root_path: str,
     attribute: str,
     family: str,
+    symbol: str | None = None,
 ) -> list[str]:
     if not isinstance(rule, dict):
         return []
@@ -3038,8 +3168,20 @@ def _collect_rule_parameter_paths(
         rule_type = rule.get("type")
         if family == "rsi" and rule_type not in {"rsi_below", "rsi_above"}:
             return []
-        if family == "sma" and rule_type not in {"sma_cross_above", "sma_cross_below", "sma_above"}:
+        if family == "sma" and rule_type not in {
+            "sma_cross_above",
+            "sma_cross_below",
+            "sma_above",
+        }:
             return []
+        if family == "reference_series":
+            if rule_type not in {"series_below", "series_above"}:
+                return []
+            if (
+                symbol is not None
+                and str(rule.get("symbol") or "").upper() != symbol.upper()
+            ):
+                return []
         if attribute not in rule:
             return []
         return [f"{root_path}.{attribute}"]
@@ -3050,6 +3192,7 @@ def _collect_rule_parameter_paths(
             root_path=f"{root_path}.rule",
             attribute=attribute,
             family=family,
+            symbol=symbol,
         )
 
     if kind == "group":
@@ -3061,6 +3204,7 @@ def _collect_rule_parameter_paths(
                     root_path=f"{root_path}.rules[{index}]",
                     attribute=attribute,
                     family=family,
+                    symbol=symbol,
                 )
             )
         return paths
@@ -3071,6 +3215,7 @@ def _collect_rule_parameter_paths(
             root_path=f"{root_path}.rule",
             attribute=attribute,
             family=family,
+            symbol=symbol,
         )
 
     if kind == "sequence":
@@ -3082,6 +3227,7 @@ def _collect_rule_parameter_paths(
                     root_path=f"{root_path}.steps[{index}]",
                     attribute=attribute,
                     family=family,
+                    symbol=symbol,
                 )
             )
         return paths
@@ -3091,8 +3237,20 @@ def _collect_rule_parameter_paths(
 
 def _has_sweep_side_word(prompt: str, side: str) -> bool:
     if side == "entry":
-        return bool(re.search(r"\b(entry|buy|buying)\b", prompt, flags=re.IGNORECASE))
-    return bool(re.search(r"\b(exit|sell|selling)\b", prompt, flags=re.IGNORECASE))
+        return bool(
+            re.search(
+                r"\b(entry|buy|buying|add|adding)\b",
+                prompt,
+                flags=re.IGNORECASE,
+            )
+        )
+    return bool(
+        re.search(
+            r"\b(exit|sell|selling|reduce|reducing|trim|trimming)\b",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _has_sweep_family_word(prompt: str, family: str) -> bool:
@@ -3100,6 +3258,8 @@ def _has_sweep_family_word(prompt: str, family: str) -> bool:
         return bool(re.search(r"\brsi\b", prompt, flags=re.IGNORECASE))
     if family == "sma":
         return bool(re.search(r"\b(sma|moving\s+average)\b", prompt, flags=re.IGNORECASE))
+    if family == "reference_series":
+        return bool(re.search(r"\bvix\b", prompt, flags=re.IGNORECASE))
     return False
 
 
@@ -3154,17 +3314,25 @@ def _resolve_semantic_sweep_target(
     family: str,
     label: str,
     strict_ambiguity: bool,
+    symbol: str | None = None,
 ) -> tuple[str | None, str | None]:
     requested_root = _root_key_for_sweep_path(path) or root_key
     prompt_has_requested_side = _has_sweep_side_word(
         prompt,
         "entry" if requested_root == "entry_rule" else "exit",
     )
-    prompt_has_any_side = _has_sweep_side_word(prompt, "entry") or _has_sweep_side_word(prompt, "exit")
+    prompt_has_any_side = _has_sweep_side_word(prompt, "entry") or _has_sweep_side_word(
+        prompt, "exit"
+    )
     prompt_has_family = _has_sweep_family_word(prompt, family)
 
     search_roots = [requested_root]
-    if strict_ambiguity and prompt_has_family and not prompt_has_requested_side and not prompt_has_any_side:
+    if (
+        strict_ambiguity
+        and prompt_has_family
+        and not prompt_has_requested_side
+        and not prompt_has_any_side
+    ):
         search_roots = ["entry_rule", "exit_rule"]
 
     if family == "sma" and attribute == "fast_window" and _has_generic_sma_window_intent(prompt):
@@ -3179,6 +3347,7 @@ def _resolve_semantic_sweep_target(
                 root_path=search_root,
                 attribute=attribute,
                 family=family,
+                symbol=symbol,
             )
         )
 
@@ -3211,16 +3380,49 @@ def _resolve_legacy_sweep_path(
     legacy_specs = {
         "entry_rule.threshold": ("entry_rule", "threshold", "rsi", "entry RSI threshold"),
         "exit_rule.threshold": ("exit_rule", "threshold", "rsi", "exit RSI threshold"),
-        "entry_rule.fast_window": ("entry_rule", "fast_window", "sma", "entry SMA fast window"),
-        "entry_rule.slow_window": ("entry_rule", "slow_window", "sma", "entry SMA slow window"),
-        "exit_rule.fast_window": ("exit_rule", "fast_window", "sma", "exit SMA fast window"),
-        "exit_rule.slow_window": ("exit_rule", "slow_window", "sma", "exit SMA slow window"),
+        "entry_rule.series_threshold": (
+            "entry_rule",
+            "threshold",
+            "reference_series",
+            "entry VIX threshold",
+        ),
+        "exit_rule.series_threshold": (
+            "exit_rule",
+            "threshold",
+            "reference_series",
+            "exit VIX threshold",
+        ),
+        "entry_rule.fast_window": (
+            "entry_rule",
+            "fast_window",
+            "sma",
+            "entry SMA fast window",
+        ),
+        "entry_rule.slow_window": (
+            "entry_rule",
+            "slow_window",
+            "sma",
+            "entry SMA slow window",
+        ),
+        "exit_rule.fast_window": (
+            "exit_rule",
+            "fast_window",
+            "sma",
+            "exit SMA fast window",
+        ),
+        "exit_rule.slow_window": (
+            "exit_rule",
+            "slow_window",
+            "sma",
+            "exit SMA slow window",
+        ),
     }
     spec = legacy_specs.get(path)
     if spec is None:
         return path, None
 
     root_key, attribute, family, label = spec
+    symbol = "VIX" if family == "reference_series" else None
     explicit_root = (
         _explicit_sweep_root_for_conflicting_path(prompt, path, family)
         if strict_ambiguity
@@ -3236,10 +3438,21 @@ def _resolve_legacy_sweep_path(
             family=family,
             label=label,
             strict_ambiguity=strict_ambiguity,
+            symbol=symbol,
         )
 
     rule = base_config.get(root_key)
-    if isinstance(rule, dict) and rule.get("kind") == "atomic":
+    if (
+        isinstance(rule, dict)
+        and rule.get("kind") == "atomic"
+        and (
+            family != "reference_series"
+            or (
+                rule.get("type") in {"series_below", "series_above"}
+                and str(rule.get("symbol") or "").upper() == "VIX"
+            )
+        )
+    ):
         if (
             family == "sma"
             and attribute == "fast_window"
@@ -3259,7 +3472,10 @@ def _resolve_legacy_sweep_path(
                 family=family,
                 label=label,
                 strict_ambiguity=strict_ambiguity,
+                symbol=symbol,
             )
+        if path.endswith(".series_threshold"):
+            return f"{root_key}.{attribute}", None
         return path, None
 
     return _resolve_semantic_sweep_target(
@@ -3271,7 +3487,56 @@ def _resolve_legacy_sweep_path(
         family=family,
         label=label,
         strict_ambiguity=strict_ambiguity,
+        symbol=symbol,
     )
+
+
+def _prefer_entry_group_for_vix_rsi_sweep(
+    *,
+    base_config: dict[str, Any],
+    grid: dict[str, list[Any]],
+    prompt: str,
+) -> bool:
+    entry_rule = base_config.get("entry_rule")
+    return (
+        isinstance(entry_rule, dict)
+        and entry_rule.get("kind") == "group"
+        and entry_rule.get("operator") == "AND"
+        and "entry_rule.series_threshold" in grid
+        and "entry_rule.threshold" in grid
+        and _has_sweep_family_word(prompt, "reference_series")
+        and _has_sweep_family_word(prompt, "rsi")
+        and _has_reference_series_threshold_rule(entry_rule, symbol="VIX")
+        and _has_rsi_rule(entry_rule, rule_type="rsi_below")
+    )
+
+
+def _has_explicit_vix_sweep_direction(prompt: str, path: str) -> bool:
+    if path == "entry_rule.series_threshold":
+        return bool(
+            re.search(
+                (
+                    r"\b(?:vix\s+(?:is\s+)?"
+                    r"(?:below|under|less\s+than|lower\s+than|<)|"
+                    r"add(?:\s+when)?\s+vix)"
+                ),
+                prompt,
+                flags=re.IGNORECASE,
+            )
+        )
+    if path == "exit_rule.series_threshold":
+        return bool(
+            re.search(
+                (
+                    r"\b(?:vix\s+(?:is\s+)?"
+                    r"(?:above|over|greater\s+than|higher\s+than|>)|"
+                    r"(?:reduce|trim)(?:\s+when)?\s+vix)"
+                ),
+                prompt,
+                flags=re.IGNORECASE,
+            )
+        )
+    return False
 
 
 def _resolve_follow_up_sweep_grid_paths(
@@ -3283,13 +3548,26 @@ def _resolve_follow_up_sweep_grid_paths(
     strict_ambiguity: bool,
 ) -> tuple[dict[str, list[Any]] | None, dict[str, Any] | None]:
     resolved_grid: dict[str, list[Any]] = {}
+    prefer_entry_group = _prefer_entry_group_for_vix_rsi_sweep(
+        base_config=base_config,
+        grid=grid,
+        prompt=prompt,
+    )
 
     for path, values in grid.items():
+        path_strict_ambiguity = strict_ambiguity
+        if prefer_entry_group and path in {
+            "entry_rule.series_threshold",
+            "entry_rule.threshold",
+        }:
+            path_strict_ambiguity = False
+        if _has_explicit_vix_sweep_direction(prompt, path):
+            path_strict_ambiguity = False
         resolved_path, guidance = _resolve_legacy_sweep_path(
             base_config,
             path,
             prompt=prompt,
-            strict_ambiguity=strict_ambiguity,
+            strict_ambiguity=path_strict_ambiguity,
         )
         if guidance is not None:
             return None, _build_response(

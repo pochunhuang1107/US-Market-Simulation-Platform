@@ -33,7 +33,7 @@ class CoreOverlaySpec(BaseModel):
 class PositionManagementSpec(BaseModel):
     scale_in_fraction: float = Field(default=0.25, gt=0.0, le=1.0)
     scale_out_fraction: float = Field(default=0.5, gt=0.0, le=1.0)
-    profit_reduce_threshold: float = Field(default=0.05, gt=0.0, lt=1.0)
+    profit_reduce_threshold: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
 
 
 class AtomicRule(BaseModel):

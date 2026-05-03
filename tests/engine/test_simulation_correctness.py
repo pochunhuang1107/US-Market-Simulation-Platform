@@ -661,6 +661,54 @@ def test_allocation_entry_value_scales_in_until_max_position_cap() -> None:
     ]
     assert max(row["overlay_position_shares"] for row in result.timeline) == 5
     assert result.timeline[-1]["overlay_position_market_value"] == pytest.approx(500.0)
+    assert result.summary["trade_count"] == 0
+    assert result.summary["full_exit_count"] == 0
+    assert result.summary["trade_event_count"] == 3
+    assert result.summary["buy_event_count"] == 1
+    assert result.summary["entry_event_count"] == 1
+    assert result.summary["add_event_count"] == 2
+    assert result.summary["reduce_event_count"] == 0
+
+
+def test_summary_trade_activity_counts_position_management_events() -> None:
+    timeline = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2021-01-04", "2021-01-05"]),
+            "strategy_equity": [1000.0, 1040.0],
+            "benchmark_equity": [1000.0, 1030.0],
+            "cash": [500.0, 540.0],
+            "core_cash": [0.0, 0.0],
+            "overlay_cash": [500.0, 540.0],
+        }
+    )
+    trades = pd.DataFrame(
+        [
+            {"action": "BUY", "net_pnl": 0.0},
+            {"action": "BUY_ADD", "net_pnl": 0.0},
+            {"action": "SELL_REDUCE", "net_pnl": 12.0},
+            {"action": "SELL_REDUCE_PROFIT", "net_pnl": 8.0},
+            {"action": "SELL_ALL", "net_pnl": 20.0},
+        ]
+    )
+
+    summary = runner.build_summary(
+        timeline,
+        trades,
+        SimpleNamespace(
+            initial_capital=1000.0,
+            name="synthetic-position-management",
+            tradable_symbol="SPY",
+            benchmark_symbol="SPY",
+        ),
+    )
+
+    assert summary["trade_count"] == 1
+    assert summary["full_exit_count"] == 1
+    assert summary["trade_event_count"] == 5
+    assert summary["buy_event_count"] == 1
+    assert summary["entry_event_count"] == 1
+    assert summary["add_event_count"] == 1
+    assert summary["reduce_event_count"] == 2
 
 
 def test_written_artifacts_are_consistent_with_completed_simulation(tmp_path: Path) -> None:
@@ -684,6 +732,8 @@ def test_written_artifacts_are_consistent_with_completed_simulation(tmp_path: Pa
 
     assert summary["ending_equity"] == pytest.approx(timeline.iloc[-1]["strategy_equity"])
     assert summary["trade_count"] == int(trades["action"].isin(FULL_EXIT_ACTIONS).sum())
+    assert summary["full_exit_count"] == summary["trade_count"]
+    assert summary["trade_event_count"] == len(trades)
     expected_benchmark_return = (
         timeline.iloc[-1]["benchmark_equity"] / summary["initial_capital"] - 1.0
     ) * 100
@@ -789,6 +839,8 @@ def test_parameter_sweep_rows_match_variant_summaries_and_rank_by_metric(tmp_pat
     persisted_rows = pd.read_csv(tmp_path / "sweep_results.csv")
     assert persisted_summary["variant_count"] == 4
     assert len(persisted_rows) == persisted_summary["variant_count"]
+    assert "trade_event_count" in persisted_rows.columns
+    assert "full_exit_count" in persisted_rows.columns
     assert persisted_summary["best_variant"]["variant_id"] == rows[0]["variant_id"]
     assert Path(persisted_summary["best_variant"]["artifact_dir"], "timeline.csv").exists()
 
