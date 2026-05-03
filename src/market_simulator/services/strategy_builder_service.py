@@ -241,6 +241,26 @@ def _requires_existing_draft_context(prompt: str) -> bool:
     return False
 
 
+_UNSUPPORTED_ALLOCATION_ADJUSTMENT_MESSAGE = (
+    "I cannot build that draft faithfully yet. The deterministic builder can use "
+    "VIX and rates as entry, exit, or filter conditions, but rule-based add/reduce "
+    "exposure and position sizing are not supported yet. Try a supported version like "
+    '"Only trade QQQ when VIX is below 25.", '
+    '"Buy QQQ when VIX is below 15 and sell when VIX is above 35.", or '
+    '"Create a QQQ core-overlay strategy with an RSI overlay."'
+)
+
+
+def _looks_like_unsupported_allocation_adjustment_prompt(prompt: str) -> bool:
+    patterns = (
+        r"\bbuy\s+and\s+hold\b",
+        r"\b(?:add|reduce|trim)\s+when\b",
+        r"\b(?:add|reduce|trim)\s+(?:exposure|position|allocation)\s+when\b",
+        r"\b(?:increase|decrease)\s+exposure\s+when\b",
+    )
+    return any(re.search(pattern, prompt, flags=re.IGNORECASE) for pattern in patterns)
+
+
 def _resolve_effective_symbols(
     *,
     tradable_symbol: str,
@@ -3420,6 +3440,20 @@ def generate_strategy_builder_response(
                     answer_type=answer_data.get("answer_type"),
                 )
                 else None
+            ),
+        )
+
+    if _looks_like_unsupported_allocation_adjustment_prompt(prompt):
+        message = _UNSUPPORTED_ALLOCATION_ADJUSTMENT_MESSAGE
+        return _build_response(
+            response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+            message=message,
+            validation_data=build_validation_data(
+                message=message,
+                max_backtest_years=max_backtest_years,
+            ),
+            guidance_data=_build_guidance_data(
+                guidance_type=StrategyBuilderGuidanceType.GENERAL_GUIDANCE,
             ),
         )
 

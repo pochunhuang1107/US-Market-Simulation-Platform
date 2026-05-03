@@ -1038,6 +1038,89 @@ def test_generate_strategy_builder_parses_vix_entry_filter(client):
     StrategyV2.model_validate(config)
 
 
+def test_generate_strategy_builder_names_pure_vix_entry_exit_strategy_readably(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Buy QQQ when VIX is below 15 and sell when VIX is above 35.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["name"] == "QQQ VIX Strategy"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "series_below",
+        "symbol": "VIX",
+        "threshold": 15.0,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "series_above",
+        "symbol": "VIX",
+        "threshold": 35.0,
+    }
+    assert "VIX" in config["reference_symbols"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_rejects_unsupported_vix_add_reduce_allocation_prompt(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Buy and hold QQQ. Reduce when VIX is over 35. "
+                "Add when VIX below 15."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["config"] is None
+    assert body["summary"] is None
+    assert "rule-based add/reduce exposure" in body["message"]
+    assert "not supported yet" in body["message"]
+    assert "VIX and rates as entry, exit, or filter conditions" in body["message"]
+    assert "Only trade QQQ when VIX is below 25." in body["message"]
+    assert "Buy QQQ when VIX is below 15 and sell when VIX is above 35." in body["message"]
+    assert "Create a QQQ core-overlay strategy with an RSI overlay." in body["message"]
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Buy and hold QQQ.",
+        "Reduce when VIX is over 35.",
+        "Add when VIX below 15.",
+        "Trim when VIX is over 35.",
+        "Increase exposure when VIX below 15.",
+        "Decrease exposure when VIX over 35.",
+    ],
+)
+def test_generate_strategy_builder_rejects_unsupported_allocation_adjustment_phrases(
+    client,
+    prompt,
+):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": prompt},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["config"] is None
+    assert "rule-based add/reduce exposure" in body["message"]
+
+
 def test_generate_strategy_builder_parses_composite_rsi_and_vix_filter(client):
     response = client.post(
         "/strategy-builder/generate",
