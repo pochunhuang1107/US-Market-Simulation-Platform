@@ -16,6 +16,7 @@ This app has separate expectations for local development and protected beta or p
 
 - Use `ENV=beta` or `ENV=production`.
 - Do not use dev auth in protected environments. The app resolves beta and production auth as required even if `AUTH_MODE=dev` is configured.
+- Do not use `DEV_ADMIN` override in beta or protected environments. Invited founder and QA accounts should use the DB-backed `BETA_TESTER` plan instead.
 - Use `AUTH_MODE=oidc` to validate `Authorization: Bearer <JWT>` against an OIDC-compatible provider. `AUTH_MODE=required` also enables OIDC when `OIDC_JWKS_URL` is configured.
 - Beta and production must not trust client-provided `X-User-Id`; that header remains local/dev/test only.
 - Configure the OIDC issuer metadata used by the backend:
@@ -29,6 +30,7 @@ This app has separate expectations for local development and protected beta or p
   - `OIDC_ALLOW_EMAIL_LINKING` defaults to `true` for the beta MVP. When enabled, the first valid OIDC login for a provisioned email can create the durable provider+subject link. Set it to `false` once beta users are pre-linked by subject.
 - The preferred OIDC mapping is durable provider+subject identity, for example `provider=oidc` plus the JWT `sub` claim. Email is only a bootstrap fallback for provisioned users.
 - Users must already exist in the app database before beta access is granted; automatic onboarding is intentionally not enabled.
+- `BETA_TESTER` is the zero-dollar plan for invited beta/founder QA accounts. It keeps beta access explicit in the database and enables generous QA limits, parameter sweeps, comparison runs, portfolio runs, AI builder, and strategy history without relying on local development overrides.
 - Auth0 backend example:
 
 ```bash
@@ -42,19 +44,24 @@ OIDC_PROVIDER_NAME=auth0
 - Provision OIDC beta users with the external provider and subject when those values are known:
 
 ```bash
-python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE --external-provider oidc --external-subject abc123
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code BETA_TESTER --external-provider oidc --external-subject abc123
 ```
 
 - Provision Auth0 beta users with the Auth0 subject when available:
 
 ```bash
-python scripts/provision_user.py --email user@example.com --external-provider auth0 --external-subject <auth0-sub>
+python scripts/provision_user.py \
+  --email pochun.huang1107@gmail.com \
+  --display-name "Po-Chun Huang" \
+  --plan-code BETA_TESTER \
+  --external-provider auth0 \
+  --external-subject "google-oauth2|112608715746802455074"
 ```
 
 - If the provider subject is not known yet, provision by email and allow the first valid login to link the subject while `OIDC_ALLOW_EMAIL_LINKING=true`:
 
 ```bash
-python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code BETA_TESTER
 ```
 
 - Re-running the provisioning command is idempotent. Existing users keep their current status unless `--status` or `--deactivate` is explicitly provided.

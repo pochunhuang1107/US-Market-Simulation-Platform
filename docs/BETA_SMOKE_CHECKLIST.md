@@ -13,6 +13,17 @@ python scripts/seed_plans.py
 python scripts/seed_user.py
 ```
 
+- [ ] Before full beta QA, provision invited founder/tester accounts on the DB-backed `BETA_TESTER` plan instead of relying on `DEV_ADMIN` override:
+
+```bash
+python scripts/provision_user.py \
+  --email pochun.huang1107@gmail.com \
+  --display-name "Po-Chun Huang" \
+  --plan-code BETA_TESTER \
+  --external-provider auth0 \
+  --external-subject "google-oauth2|112608715746802455074"
+```
+
 - [ ] For `docker-compose.beta-local.yml` smoke, skip manual seed commands; compose runs migrations and local dev seeding during API startup.
 - [ ] Optionally run the packaged compose helper to start the beta-local stack and verify `/health`, `/health/readiness`, and seeded local dev entitlements:
 
@@ -142,16 +153,16 @@ scripts/smoke_local_api.sh
 
 Run this against a protected beta or production backend, not local dev. Protected environments must not trust `X-User-Id`; user-scoped routes should require a valid bearer JWT when `AUTH_MODE=oidc` is configured.
 
-- [ ] Provision the beta tester with an external identity subject when known:
+- [ ] Provision the beta tester as `BETA_TESTER` with an external identity subject when known:
 
 ```bash
-python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE --external-provider oidc --external-subject abc123
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code BETA_TESTER --external-provider oidc --external-subject abc123
 ```
 
 - [ ] If the subject is not known before first login, confirm `OIDC_ALLOW_EMAIL_LINKING=true` and provision the tester email as a temporary bootstrap path:
 
 ```bash
-python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code BETA_TESTER
 ```
 
 ```bash
