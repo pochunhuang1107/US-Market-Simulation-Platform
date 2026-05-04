@@ -111,7 +111,7 @@ scripts/smoke_local_api.sh
 
 ## Protected Auth Check
 
-Run this against a protected beta or production backend, not local dev. Protected environments must not trust `X-User-Id`; until the real auth provider is integrated, user-scoped routes should return `401` with `Authenticated user provider is not configured.`
+Run this against a protected beta or production backend, not local dev. Protected environments must not trust `X-User-Id`; user-scoped routes should require a valid bearer JWT when `AUTH_MODE=oidc` is configured.
 
 ```bash
 PROTECTED_API_BASE=https://your-beta-api.example.com
@@ -121,7 +121,7 @@ curl -i \
 ```
 
 - [ ] Confirm the response status is `401`.
-- [ ] Confirm the body includes `Authenticated user provider is not configured.`
+- [ ] Confirm the response is `401`; with OIDC configured, the body should report a missing bearer token, not accept `X-User-Id`.
 
 ## Release Gate
 
