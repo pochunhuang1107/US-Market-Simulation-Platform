@@ -96,6 +96,13 @@ class Settings(BaseModel):
 
     env: str = os.getenv("ENV", "local")
     auth_mode: str | None = os.getenv("AUTH_MODE")
+    oidc_issuer: str | None = os.getenv("OIDC_ISSUER")
+    oidc_audience: str | None = os.getenv("OIDC_AUDIENCE")
+    oidc_jwks_url: str | None = os.getenv("OIDC_JWKS_URL")
+    oidc_email_claim: str = os.getenv("OIDC_EMAIL_CLAIM", "email")
+    oidc_subject_claim: str = os.getenv("OIDC_SUBJECT_CLAIM", "sub")
+    oidc_display_name_claim: str | None = os.getenv("OIDC_DISPLAY_NAME_CLAIM", "name")
+    oidc_jwks_cache_seconds: int = int(os.getenv("OIDC_JWKS_CACHE_SECONDS", "300"))
 
     dev_default_user_id: str | None = os.getenv(
         "DEV_DEFAULT_USER_ID",
@@ -197,11 +204,22 @@ class Settings(BaseModel):
 
     @property
     def resolved_auth_mode(self) -> str:
+        requested_mode = self.auth_mode.strip().lower() if self.auth_mode else None
+
         if self.is_protected_env:
+            if requested_mode in {"dev", "local", "test"}:
+                requested_mode = "required"
+            if requested_mode == "oidc" or (
+                requested_mode == "required" and self.oidc_jwks_url
+            ):
+                return "oidc"
             return "required"
 
-        if self.auth_mode:
-            return self.auth_mode.strip().lower()
+        if requested_mode == "required" and self.oidc_jwks_url:
+            return "oidc"
+
+        if requested_mode:
+            return requested_mode
 
         if self.normalized_env in {"local", "dev", "development", "test", "testing"}:
             return "dev"
@@ -211,6 +229,10 @@ class Settings(BaseModel):
     @property
     def is_dev_auth_enabled(self) -> bool:
         return self.resolved_auth_mode in {"dev", "local", "test"}
+
+    @property
+    def is_oidc_auth_enabled(self) -> bool:
+        return self.resolved_auth_mode == "oidc"
 
 
 _settings: Settings | None = None

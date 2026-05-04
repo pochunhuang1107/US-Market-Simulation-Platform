@@ -9,8 +9,14 @@ from market_simulator.settings import get_settings
 
 
 def get_current_user(
+    authorization: str | None = Header(default=None, alias="Authorization"),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
     db: Session = Depends(get_db),
 ) -> CurrentUser:
     settings = get_settings()
-    return resolve_current_user(db=db, settings=settings, x_user_id=x_user_id)
+    return resolve_current_user(
+        db=db,
+        settings=settings,
+        authorization=authorization,
+        x_user_id=x_user_id,
+    )

@@ -15,8 +15,18 @@ This app has separate expectations for local development and protected beta or p
 
 - Use `ENV=beta` or `ENV=production`.
 - Do not use dev auth in protected environments. The app resolves beta and production auth as required even if `AUTH_MODE=dev` is configured.
-- Requests must have a real authenticated `current_user` context from the auth boundary. Beta and production must not trust client-provided `X-User-Id`.
-- Until a real auth provider is integrated, protected environments return `401` with `Authenticated user provider is not configured.` for user-scoped routes.
+- Use `AUTH_MODE=oidc` to validate `Authorization: Bearer <JWT>` against an OIDC-compatible provider. `AUTH_MODE=required` also enables OIDC when `OIDC_JWKS_URL` is configured.
+- Beta and production must not trust client-provided `X-User-Id`; that header remains local/dev/test only.
+- Configure the OIDC issuer metadata used by the backend:
+  - `OIDC_JWKS_URL` is required for OIDC mode and should point to the provider JWKS endpoint.
+  - `OIDC_ISSUER` is optional but recommended; when set, the JWT `iss` claim must match exactly.
+  - `OIDC_AUDIENCE` is optional but recommended; when set, the JWT `aud` claim must include this value.
+  - `OIDC_EMAIL_CLAIM` defaults to `email`.
+  - `OIDC_SUBJECT_CLAIM` defaults to `sub`.
+  - `OIDC_DISPLAY_NAME_CLAIM` defaults to `name`.
+- The MVP maps validated tokens to existing app users by email. Users must already exist in the app database before beta access is granted; automatic onboarding can be added later.
+- There is no external subject/provider column yet, so changing a user's email at the identity provider can break mapping until the app schema gains provider subject binding.
+- If OIDC is not configured, protected environments return `401` with `Authenticated user provider is not configured.` for user-scoped routes.
 - Use a durable Postgres database in `DATABASE_URL`.
 - Use S3 artifact storage for persisted run outputs.
 

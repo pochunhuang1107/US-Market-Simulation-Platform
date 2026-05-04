@@ -34,7 +34,12 @@ def _set_auth_settings(
     monkeypatch.setattr(
         settings_module,
         "_settings",
-        Settings(env=env, auth_mode=auth_mode, dev_default_user_id=dev_user_id),
+        Settings(
+            env=env,
+            auth_mode=auth_mode,
+            dev_default_user_id=dev_user_id,
+            oidc_jwks_url=None,
+        ),
     )
 
 
@@ -191,13 +196,21 @@ def test_auth_settings_keep_dev_convenient_but_force_required_in_protected_envs(
     assert Settings(env="test", auth_mode=None).resolved_auth_mode == "dev"
     assert Settings(env="local", auth_mode=None).is_dev_auth_enabled is True
 
-    production_settings = Settings(env="production", auth_mode="dev")
+    production_settings = Settings(env="production", auth_mode="dev", oidc_jwks_url=None)
     assert production_settings.resolved_auth_mode == "required"
     assert production_settings.is_dev_auth_enabled is False
 
-    beta_settings = Settings(env="beta", auth_mode="dev")
+    beta_settings = Settings(env="beta", auth_mode="dev", oidc_jwks_url=None)
     assert beta_settings.resolved_auth_mode == "required"
     assert beta_settings.is_dev_auth_enabled is False
+
+    oidc_settings = Settings(
+        env="beta",
+        auth_mode="required",
+        oidc_jwks_url="https://issuer.example.test/jwks.json",
+    )
+    assert oidc_settings.resolved_auth_mode == "oidc"
+    assert oidc_settings.is_oidc_auth_enabled is True
 
 
 def test_dev_mode_default_user_fallback_still_works(real_auth_client, create_user, monkeypatch):
