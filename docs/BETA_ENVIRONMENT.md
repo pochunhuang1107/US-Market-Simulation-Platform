@@ -47,3 +47,5 @@ pytest
 cd frontend
 npm run build
 ```
+
+For a concise manual product-loop pass, use [Beta Smoke Checklist](BETA_SMOKE_CHECKLIST.md).
