@@ -3,10 +3,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
 from statistics import stdev
 from typing import Any
 
+from market_simulator.platform.services.artifact_manifest import build_variant_artifact_manifest
 from market_simulator.platform.services.run_chart_service import RunChartService
 
 FULL_PERIOD_METRICS = "FULL_PERIOD_METRICS"
@@ -94,21 +94,7 @@ def _metric_value(source: dict[str, Any], key: str) -> Any:
 
 
 def _variant_artifact_manifest(variant: dict[str, Any]) -> dict[str, str] | None:
-    artifact_dir = variant.get("artifact_dir")
-    if not isinstance(artifact_dir, str) or not artifact_dir.strip():
-        return None
-
-    variant_dir = Path(artifact_dir)
-    return {
-        "summary": str(variant_dir / "summary.json"),
-        "sleeve_summary": str(variant_dir / "sleeve_summary.json"),
-        "yearly_report": str(variant_dir / "yearly_report.csv"),
-        "trade_log": str(variant_dir / "trade_log.csv"),
-        "timeline": str(variant_dir / "timeline.csv"),
-        "events": str(variant_dir / "events.csv"),
-        "monthly_returns": str(variant_dir / "monthly_returns.csv"),
-        "report_bundle": str(variant_dir / "report_bundle.json"),
-    }
+    return build_variant_artifact_manifest(variant.get("artifact_dir"))
 
 
 def _format_parameter_value(value: Any) -> str:

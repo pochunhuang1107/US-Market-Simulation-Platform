@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 import hashlib
 import json
-from pathlib import Path
 
 from market_simulator.api.deps import get_current_user, get_db
 from market_simulator.api.schemas.runs import (
@@ -28,6 +27,7 @@ from market_simulator.api.schemas.runs import (
 from market_simulator.db.enums import RunStatus
 from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.platform.services.artifact_store import build_artifact_store
+from market_simulator.platform.services.artifact_manifest import build_variant_artifact_manifest
 from market_simulator.platform.services.parameter_sweep import (
     ParameterSweepError,
     build_sweep_request,
@@ -225,27 +225,10 @@ def _get_sweep_variant_config(run, variant: dict, variant_id: str) -> dict:
 
 
 def _variant_artifact_manifest(variant: dict) -> dict[str, str] | None:
-    artifact_dir = variant.get("artifact_dir")
-    if not isinstance(artifact_dir, str) or not artifact_dir.strip():
-        return None
-
-    variant_dir = Path(artifact_dir)
-    manifest = {
-        "summary": str(variant_dir / "summary.json"),
-        "sleeve_summary": str(variant_dir / "sleeve_summary.json"),
-        "yearly_report": str(variant_dir / "yearly_report.csv"),
-        "trade_log": str(variant_dir / "trade_log.csv"),
-        "timeline": str(variant_dir / "timeline.csv"),
-        "events": str(variant_dir / "events.csv"),
-        "monthly_returns": str(variant_dir / "monthly_returns.csv"),
-        "report_bundle": str(variant_dir / "report_bundle.json"),
-    }
-
-    required = ["timeline", "monthly_returns", "trade_log"]
-    if not all(Path(manifest[key]).exists() for key in required):
-        return None
-
-    return manifest
+    return build_variant_artifact_manifest(
+        variant.get("artifact_dir"),
+        require_local_required_files=True,
+    )
 
 
 def _sweep_variant_summary_json(variant: dict, variant_id: str) -> dict:
