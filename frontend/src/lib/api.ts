@@ -69,7 +69,7 @@ function formatErrorBody(body: ErrorBody): string {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  const token = getAccessToken();
+  const token = await getAccessToken();
 
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json');

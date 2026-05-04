@@ -1,7 +1,8 @@
 import type { MouseEvent } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
+import { useAppAuth } from '../../auth/AppAuthProvider';
 import { fetchMeEntitlements, isUnauthorizedError } from '../../lib/api';
 import { useTheme } from '../../theme';
 import { AuthRequiredState } from '../shared/AuthRequiredState';
@@ -15,22 +16,28 @@ const navItems = [
 ];
 
 export function AppShell() {
+  const auth = useAppAuth();
   const { themeMode, setThemeMode } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const [authRequiredMessage, setAuthRequiredMessage] = useState<string | null>(null);
   const [isRetryingAuth, setIsRetryingAuth] = useState(false);
+  const authCheckRequestIdRef = useRef(0);
 
   const checkAuthRequired = useCallback(async (shouldApply: () => boolean = () => true) => {
+    const requestId = authCheckRequestIdRef.current + 1;
+    authCheckRequestIdRef.current = requestId;
+    const shouldApplyLatest = () => shouldApply() && authCheckRequestIdRef.current === requestId;
+
     setIsRetryingAuth(true);
 
     try {
       await fetchMeEntitlements();
 
-      if (!shouldApply()) return;
+      if (!shouldApplyLatest()) return;
       setAuthRequiredMessage(null);
     } catch (error) {
-      if (!shouldApply()) return;
+      if (!shouldApplyLatest()) return;
 
       if (isUnauthorizedError(error)) {
         setAuthRequiredMessage(error.message);
@@ -38,7 +45,7 @@ export function AppShell() {
         setAuthRequiredMessage(null);
       }
     } finally {
-      if (shouldApply()) {
+      if (shouldApplyLatest()) {
         setIsRetryingAuth(false);
       }
     }
@@ -47,12 +54,21 @@ export function AppShell() {
   useEffect(() => {
     let isMounted = true;
 
+    if (auth.isAuth0Mode && (auth.isLoading || !auth.isAuthenticated)) {
+      authCheckRequestIdRef.current += 1;
+      setAuthRequiredMessage(null);
+      setIsRetryingAuth(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
     void checkAuthRequired(() => isMounted);
 
     return () => {
       isMounted = false;
     };
-  }, [checkAuthRequired]);
+  }, [auth.isAuthenticated, auth.isAuth0Mode, auth.isLoading, checkAuthRequired]);
 
   function handleNavClick(event: MouseEvent<HTMLAnchorElement>, to: string) {
     if (to === '/' && (location.pathname === '/' || location.pathname === '/chat')) {
@@ -116,12 +132,34 @@ export function AppShell() {
                 <option value="light">Light</option>
               </select>
             </label>
+
+            {auth.isAuth0Mode ? (
+              <div className="app-surface-soft flex items-center gap-2 rounded-2xl border px-3 py-2">
+                {auth.isAuthenticated && auth.userLabel ? (
+                  <span className="hidden max-w-40 truncate text-xs font-medium app-text-muted md:inline">
+                    {auth.userLabel}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    void (auth.isAuthenticated ? auth.logout() : auth.login());
+                  }}
+                  disabled={auth.isLoading}
+                  className="app-button-secondary rounded-xl px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {auth.isLoading ? 'Checking...' : auth.isAuthenticated ? 'Sign out' : 'Sign in'}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-8 lg:px-8">
-        {authRequiredMessage ? (
+        {auth.isAuth0Mode && !auth.isLoading && !auth.isAuthenticated ? (
+          <AuthRequiredState />
+        ) : authRequiredMessage ? (
           <AuthRequiredState
             errorMessage={authRequiredMessage}
             loading={isRetryingAuth}

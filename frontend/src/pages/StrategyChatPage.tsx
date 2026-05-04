@@ -5,6 +5,7 @@ import { ChatMessageList } from '../components/strategy-chat/ChatMessageList';
 import { ExamplePromptChips } from '../components/strategy-chat/ExamplePromptChips';
 import { PromptComposer } from '../components/strategy-chat/PromptComposer';
 import type { ChatMessage } from '../components/strategy-chat/types';
+import { useAppAuth } from '../auth/AppAuthProvider';
 import {
   ApiRequestError,
   createRun,
@@ -301,6 +302,31 @@ function EntitlementSummary({
   loading: boolean;
   error: string | null;
 }) {
+  if (entitlements) {
+    const { plan, usage, limits } = entitlements;
+
+    return (
+      <div className="app-surface-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs">
+        <div>
+          <span className="app-text-muted">Plan</span>{' '}
+          <span className="font-semibold app-title">{plan.name}</span>
+        </div>
+        <div>
+          <span className="app-text-muted">Prompts left today</span>{' '}
+          <span className="font-semibold app-title">{usage.builder_prompts_remaining_today}</span>
+        </div>
+        <div>
+          <span className="app-text-muted">Results left today</span>{' '}
+          <span className="font-semibold app-title">{usage.daily_runs_remaining}</span>
+        </div>
+        <div>
+          <span className="app-text-muted">Max chars</span>{' '}
+          <span className="font-semibold app-title">{limits.builder_prompt_max_chars}</span>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="app-surface-soft rounded-2xl border px-4 py-3 text-xs app-text-muted">
@@ -317,30 +343,7 @@ function EntitlementSummary({
     );
   }
 
-  if (!entitlements) return null;
-
-  const { plan, usage, limits } = entitlements;
-
-  return (
-    <div className="app-surface-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs">
-      <div>
-        <span className="app-text-muted">Plan</span>{' '}
-        <span className="font-semibold app-title">{plan.name}</span>
-      </div>
-      <div>
-        <span className="app-text-muted">Prompts left today</span>{' '}
-        <span className="font-semibold app-title">{usage.builder_prompts_remaining_today}</span>
-      </div>
-      <div>
-        <span className="app-text-muted">Results left today</span>{' '}
-        <span className="font-semibold app-title">{usage.daily_runs_remaining}</span>
-      </div>
-      <div>
-        <span className="app-text-muted">Max chars</span>{' '}
-        <span className="font-semibold app-title">{limits.builder_prompt_max_chars}</span>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 const HOME_GUIDANCE_ITEMS = [
@@ -375,6 +378,7 @@ function HomeGuidancePanel() {
 }
 
 export function StrategyChatPage() {
+  const auth = useAppAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -404,6 +408,12 @@ export function StrategyChatPage() {
     let isMounted = true;
 
     async function loadEntitlements() {
+      if (auth.isAuth0Mode && (auth.isLoading || !auth.isAuthenticated)) {
+        setIsLoadingEntitlements(auth.isLoading);
+        setEntitlementError(null);
+        return;
+      }
+
       setIsLoadingEntitlements(true);
       setEntitlementError(null);
 
@@ -412,8 +422,10 @@ export function StrategyChatPage() {
 
         if (!isMounted) return;
         setEntitlements(data);
+        setEntitlementError(null);
       } catch (error) {
         if (!isMounted) return;
+        setEntitlements(null);
         setEntitlementError(formatLimitError(error));
       } finally {
         if (isMounted) {
@@ -427,7 +439,7 @@ export function StrategyChatPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [auth.isAuthenticated, auth.isAuth0Mode, auth.isLoading]);
 
   useEffect(() => {
     if (!hasMessages) return;

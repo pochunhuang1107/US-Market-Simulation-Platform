@@ -7,6 +7,7 @@ This app has separate expectations for local development and protected beta or p
 - `ENV=local` with `AUTH_MODE=dev` is acceptable for local development and tests.
 - A copied `.env.example` should run locally with minimal edits if the default Postgres URL matches your local database.
 - `DEV_DEFAULT_USER_ID`, `DEV_ADMIN_USER_IDS`, and `X-User-Id` are development conveniences only.
+- The frontend stays in local/manual token mode when `VITE_AUTH_PROVIDER` is unset or set to `dev`.
 - `ENABLE_DEV_ADMIN_OVERRIDE=false` is the default. Enable it only for local entitlement/admin testing.
 - `ARTIFACT_STORAGE_BACKEND=LOCAL` is the default and writes run artifacts under `ARTIFACTS_DIR`.
 - Local data access should still point at curated app-ready datasets, not raw market-data inputs.
@@ -24,14 +25,30 @@ This app has separate expectations for local development and protected beta or p
   - `OIDC_EMAIL_CLAIM` defaults to `email`.
   - `OIDC_SUBJECT_CLAIM` defaults to `sub`.
   - `OIDC_DISPLAY_NAME_CLAIM` defaults to `name`.
-  - `OIDC_PROVIDER_NAME` defaults to `oidc` and is stored with the token subject when linking an external identity.
+  - `OIDC_PROVIDER_NAME` defaults to `oidc` and is stored with the token subject when linking an external identity. Use `auth0` for Auth0-specific beta identity links, or `oidc` for provider-neutral links.
   - `OIDC_ALLOW_EMAIL_LINKING` defaults to `true` for the beta MVP. When enabled, the first valid OIDC login for a provisioned email can create the durable provider+subject link. Set it to `false` once beta users are pre-linked by subject.
 - The preferred OIDC mapping is durable provider+subject identity, for example `provider=oidc` plus the JWT `sub` claim. Email is only a bootstrap fallback for provisioned users.
 - Users must already exist in the app database before beta access is granted; automatic onboarding is intentionally not enabled.
+- Auth0 backend example:
+
+```bash
+AUTH_MODE=oidc
+OIDC_JWKS_URL=https://your-tenant.region.auth0.com/.well-known/jwks.json
+OIDC_ISSUER=https://your-tenant.region.auth0.com/
+OIDC_AUDIENCE=your-api-audience
+OIDC_PROVIDER_NAME=auth0
+```
+
 - Provision OIDC beta users with the external provider and subject when those values are known:
 
 ```bash
 python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE --external-provider oidc --external-subject abc123
+```
+
+- Provision Auth0 beta users with the Auth0 subject when available:
+
+```bash
+python scripts/provision_user.py --email user@example.com --external-provider auth0 --external-subject <auth0-sub>
 ```
 
 - If the provider subject is not known yet, provision by email and allow the first valid login to link the subject while `OIDC_ALLOW_EMAIL_LINKING=true`:
@@ -50,9 +67,20 @@ python scripts/provision_user.py --email user@example.com --display-name "User N
 
 - The React API client attaches `Authorization: Bearer <token>` only when a frontend access token is available.
 - Local development remains unchanged: `ENV=local` with `AUTH_MODE=dev` can still use the backend dev-auth defaults and does not require a browser token.
-- Protected beta frontend deployments must obtain an access token from the future auth provider and supply it through the frontend token provider boundary. No provider SDK or login redirect flow is wired in yet.
-- For manual beta API-client testing, developers can set `localStorage.market_simulator_access_token` in the browser. The helper also exposes `setAccessTokenForDevelopment(token)` and `clearAccessToken()` for console-driven testing.
-- The frontend now shows an auth-required state when `/api/me/entitlements` returns `401`, preserving the backend response and allowing testers to clear a saved local token and retry. Real login-provider UI remains future work.
+- Protected beta frontend deployments should use Auth0 Universal Login through the Auth0 React SDK:
+
+```bash
+VITE_AUTH_PROVIDER=auth0
+VITE_AUTH0_DOMAIN=your-tenant.region.auth0.com
+VITE_AUTH0_CLIENT_ID=your-spa-client-id
+VITE_AUTH0_AUDIENCE=your-api-audience
+# Optional when the deployed callback differs from window.location.origin:
+VITE_AUTH0_REDIRECT_URI=https://your-frontend.example.com
+```
+
+- In Auth0 mode, the frontend shows sign-in and sign-out controls, acquires access tokens silently with the SDK, and passes them through the existing bearer-token request boundary. The SDK manages its token cache internally; do not store Auth0 tokens in app localStorage.
+- For manual local or API-client testing only, developers can set `localStorage.market_simulator_access_token` in the browser. The helper also exposes `setAccessTokenForDevelopment(token)` and `clearAccessToken()` for console-driven testing.
+- The auth-required state shows a Sign in action in Auth0 mode, preserves backend `401` responses, and still allows testers to clear a saved manual dev token and retry when applicable.
 
 ## Curated Data Paths
 
