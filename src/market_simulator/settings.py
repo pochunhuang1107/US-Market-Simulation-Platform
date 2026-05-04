@@ -63,19 +63,19 @@ class Settings(BaseModel):
 
     market_data_path: str = os.getenv(
         "MARKET_DATA_PATH",
-        "s3://us-market-data-casper/curated/etf_daily_prices/**/*.parquet",
+        "s3://your-market-data-bucket/curated/etf_daily_prices/**/*.parquet",
     )
     etf_metadata_s3_uri: str = os.getenv(
         "ETF_METADATA_S3_URI",
-        "s3://us-market-data-casper/curated/reference/etf_symbol_metadata/data.parquet",
+        "s3://your-market-data-bucket/curated/reference/etf_symbol_metadata/data.parquet",
     )
     reference_series_data_path: str = os.getenv(
         "REFERENCE_SERIES_DATA_PATH",
-        "s3://us-market-data-casper/curated/reference_series",
+        "s3://your-market-data-bucket/curated/reference_series",
     )
     reference_series_metadata_s3_uri: str = os.getenv(
         "REFERENCE_SERIES_METADATA_S3_URI",
-        "s3://us-market-data-casper/curated/reference/reference_series_metadata/data.parquet",
+        "s3://your-market-data-bucket/curated/reference/reference_series_metadata/data.parquet",
     )
     duckdb_database: str = os.getenv("DUCKDB_DATABASE", ":memory:")
     s3_region: str = os.getenv("S3_REGION", "us-west-2")
