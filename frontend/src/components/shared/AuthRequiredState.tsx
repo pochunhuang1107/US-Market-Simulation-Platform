@@ -16,6 +16,18 @@ export function AuthRequiredState({
 }: AuthRequiredStateProps) {
   const auth = useAppAuth();
   const [hasSavedToken, setHasSavedToken] = useState(() => Boolean(getDevelopmentAccessToken()));
+  const isSignedInAuth0Error = auth.isAuth0Mode && auth.isAuthenticated && Boolean(errorMessage);
+  const title = 'Sign in to continue';
+  const intro = isSignedInAuth0Error
+    ? 'Your Auth0 account is signed in, but it has not been provisioned for this workspace yet.'
+    : auth.isAuth0Mode
+      ? 'This beta workspace requires Auth0 sign-in before the research tools can load.'
+      : 'The API needs a local development identity before it can load account entitlements.';
+  const guidance = isSignedInAuth0Error
+    ? 'If access was just granted, retry the account check. Otherwise, sign out and use the beta account that was provisioned for this workspace.'
+    : auth.isAuth0Mode
+      ? 'Use the beta account that was invited or provisioned for this workspace.'
+      : 'For local development, run the backend with dev auth enabled. Saved manual tokens are only local testing helpers.';
 
   useEffect(() => {
     setHasSavedToken(Boolean(getDevelopmentAccessToken()));
@@ -40,24 +52,15 @@ export function AuthRequiredState({
             <p className="app-eyebrow text-xs font-semibold uppercase tracking-[0.26em]">
               Authentication
             </p>
-            <h2 className="mt-2 text-2xl font-semibold app-title">Sign-in required</h2>
+            <h2 className="mt-2 text-2xl font-semibold app-title">{title}</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 app-text-muted">
-              This beta environment requires an authenticated account.
+              {intro}
             </p>
-            {auth.isAuth0Mode ? (
-              <p className="mt-2 max-w-2xl text-sm leading-6 app-text-muted">
-                Sign in with your beta account to continue. If access was just granted, retry after signing in.
-              </p>
-            ) : (
-              <p className="mt-2 max-w-2xl text-sm leading-6 app-text-muted">
-                If you are testing locally, use <code className="app-code rounded px-1.5 py-0.5">ENV=local</code>{' '}
-                and <code className="app-code rounded px-1.5 py-0.5">AUTH_MODE=dev</code>.
-              </p>
-            )}
+            <p className="mt-2 max-w-2xl text-sm leading-6 app-text-muted">{guidance}</p>
 
             {errorMessage ? (
               <div className="app-alert-warning mt-5 rounded-2xl px-4 py-3 text-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em]">Backend response</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em]">API detail</p>
                 <p className="mt-1 break-words">{errorMessage}</p>
               </div>
             ) : null}
@@ -72,7 +75,18 @@ export function AuthRequiredState({
                   disabled={auth.isLoading}
                   className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {auth.isLoading ? 'Checking...' : 'Sign in'}
+                  {auth.isLoading ? 'Checking...' : 'Sign in with Auth0'}
+                </button>
+              ) : null}
+
+              {onRetry ? (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  disabled={loading}
+                  className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? 'Retrying...' : 'Retry account check'}
                 </button>
               ) : null}
 
@@ -94,18 +108,7 @@ export function AuthRequiredState({
                   onClick={handleClearToken}
                   className="app-button-secondary rounded-xl px-4 py-2 text-sm font-semibold transition"
                 >
-                  Clear saved token
-                </button>
-              ) : null}
-
-              {onRetry ? (
-                <button
-                  type="button"
-                  onClick={onRetry}
-                  disabled={loading}
-                  className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loading ? 'Retrying...' : 'Retry'}
+                  Clear local token
                 </button>
               ) : null}
             </div>
