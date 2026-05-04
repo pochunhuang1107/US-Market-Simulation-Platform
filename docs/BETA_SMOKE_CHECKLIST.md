@@ -54,6 +54,14 @@ DEV_USER_ID=00000000-0000-0000-0000-000000000001
 curl -fsS "$API_BASE/health" | jq .
 ```
 
+- [ ] Readiness reports database/auth/artifact/data-path preflight status before deeper smoke:
+
+```bash
+curl -fsS "$API_BASE/health/readiness" | jq .
+```
+
+- [ ] Confirm `overall_status` is `ready` before beta testing, or review any `warning` / `not_ready` checks and fix the environment configuration.
+
 - [ ] Local dev entitlements load for the seeded user:
 
 ```bash

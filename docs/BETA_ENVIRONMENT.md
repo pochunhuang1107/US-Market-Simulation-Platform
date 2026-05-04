@@ -63,6 +63,12 @@ Use a private market-data bucket in local `.env` or protected environment config
 
 `SUPPORTED_DATA_END_DATE` is optional. When omitted, the app defaults it to today's date.
 
+## Readiness Preflight
+
+Use `GET /health/readiness` before beta testing to verify the deployed environment without exposing secrets or requiring AWS credentials. The endpoint always returns HTTP 200 and includes `overall_status` plus structured checks for app environment, resolved auth mode, database connectivity, artifact storage configuration, curated data paths, and supported ETF/reference-series symbol counts.
+
+Treat `overall_status=ready` as the expected beta starting point. Investigate `warning` or `not_ready` checks before testers begin, especially placeholder curated-data paths, missing `OIDC_JWKS_URL` in protected environments, or missing `ARTIFACT_S3_BUCKET` when S3 artifact storage is selected.
+
 ## Verification
 
 Run these before promoting beta environment changes:
