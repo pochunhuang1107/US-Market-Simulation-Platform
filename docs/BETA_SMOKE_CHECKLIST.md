@@ -14,6 +14,18 @@ python scripts/seed_user.py
 ```
 
 - [ ] For `docker-compose.beta-local.yml` smoke, skip manual seed commands; compose runs migrations and local dev seeding during API startup.
+- [ ] Optionally run the packaged compose helper to start the beta-local stack and verify `/health`, `/health/readiness`, and seeded local dev entitlements:
+
+```bash
+bash scripts/smoke_compose_local.sh
+```
+
+Stop the helper-started stack when finished:
+
+```bash
+docker compose -f docker-compose.beta-local.yml down
+```
+
 - [ ] Confirm curated ETF and reference-series paths are configured for the environment under test.
 - [ ] Confirm artifact storage is local for local smoke (`ARTIFACT_STORAGE_BACKEND=LOCAL`) or S3 only for the protected beta environment.
 
