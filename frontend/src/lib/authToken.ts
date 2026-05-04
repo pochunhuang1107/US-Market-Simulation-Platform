@@ -1,6 +1,8 @@
 export const ACCESS_TOKEN_STORAGE_KEY = 'market_simulator_access_token';
 
-export type AccessTokenProvider = () => string | null;
+type MaybePromise<T> = T | Promise<T>;
+
+export type AccessTokenProvider = () => MaybePromise<string | null>;
 
 function readStoredAccessToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -15,9 +17,13 @@ function readStoredAccessToken(): string | null {
 
 let accessTokenProvider: AccessTokenProvider = readStoredAccessToken;
 
-export function getAccessToken(): string | null {
-  const token = accessTokenProvider();
+export async function getAccessToken(): Promise<string | null> {
+  const token = await accessTokenProvider();
   return token?.trim() ? token : null;
+}
+
+export function getDevelopmentAccessToken(): string | null {
+  return readStoredAccessToken();
 }
 
 export function setAccessTokenProvider(provider: AccessTokenProvider): void {

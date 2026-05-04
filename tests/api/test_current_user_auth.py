@@ -90,6 +90,7 @@ def _oidc_settings(**overrides) -> Settings:
         "oidc_issuer": OIDC_ISSUER,
         "oidc_audience": OIDC_AUDIENCE,
         "oidc_jwks_url": OIDC_JWKS_URL,
+        "oidc_provider_name": "oidc",
         "dev_default_user_id": DEV_USER_ID,
     }
     values.update(overrides)

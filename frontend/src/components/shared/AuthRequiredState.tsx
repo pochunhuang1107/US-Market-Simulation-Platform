@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
-import { clearAccessToken, getAccessToken } from '../../lib/authToken';
+import { useAppAuth } from '../../auth/AppAuthProvider';
+import { clearAccessToken, getDevelopmentAccessToken } from '../../lib/authToken';
 
 interface AuthRequiredStateProps {
   errorMessage?: string | null;
@@ -13,10 +14,11 @@ export function AuthRequiredState({
   loading = false,
   onRetry
 }: AuthRequiredStateProps) {
-  const [hasSavedToken, setHasSavedToken] = useState(() => Boolean(getAccessToken()));
+  const auth = useAppAuth();
+  const [hasSavedToken, setHasSavedToken] = useState(() => Boolean(getDevelopmentAccessToken()));
 
   useEffect(() => {
-    setHasSavedToken(Boolean(getAccessToken()));
+    setHasSavedToken(Boolean(getDevelopmentAccessToken()));
   }, [errorMessage]);
 
   function handleClearToken() {
@@ -42,10 +44,16 @@ export function AuthRequiredState({
             <p className="mt-3 max-w-2xl text-sm leading-6 app-text-muted">
               This beta environment requires an authenticated account.
             </p>
-            <p className="mt-2 max-w-2xl text-sm leading-6 app-text-muted">
-              If you are testing locally, use <code className="app-code rounded px-1.5 py-0.5">ENV=local</code>{' '}
-              and <code className="app-code rounded px-1.5 py-0.5">AUTH_MODE=dev</code>.
-            </p>
+            {auth.isAuth0Mode ? (
+              <p className="mt-2 max-w-2xl text-sm leading-6 app-text-muted">
+                Sign in with your beta account to continue. If access was just granted, retry after signing in.
+              </p>
+            ) : (
+              <p className="mt-2 max-w-2xl text-sm leading-6 app-text-muted">
+                If you are testing locally, use <code className="app-code rounded px-1.5 py-0.5">ENV=local</code>{' '}
+                and <code className="app-code rounded px-1.5 py-0.5">AUTH_MODE=dev</code>.
+              </p>
+            )}
 
             {errorMessage ? (
               <div className="app-alert-warning mt-5 rounded-2xl px-4 py-3 text-sm">
@@ -55,6 +63,31 @@ export function AuthRequiredState({
             ) : null}
 
             <div className="mt-6 flex flex-wrap items-center gap-3">
+              {auth.isAuth0Mode && !auth.isAuthenticated ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void auth.login();
+                  }}
+                  disabled={auth.isLoading}
+                  className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {auth.isLoading ? 'Checking...' : 'Sign in'}
+                </button>
+              ) : null}
+
+              {auth.isAuth0Mode && auth.isAuthenticated ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void auth.logout();
+                  }}
+                  className="app-button-secondary rounded-xl px-4 py-2 text-sm font-semibold transition"
+                >
+                  Sign out
+                </button>
+              ) : null}
+
               {hasSavedToken ? (
                 <button
                   type="button"
