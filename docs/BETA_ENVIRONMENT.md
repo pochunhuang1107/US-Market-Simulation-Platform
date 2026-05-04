@@ -25,6 +25,13 @@ This app has separate expectations for local development and protected beta or p
   - `OIDC_SUBJECT_CLAIM` defaults to `sub`.
   - `OIDC_DISPLAY_NAME_CLAIM` defaults to `name`.
 - The MVP maps validated tokens to existing app users by email. Users must already exist in the app database before beta access is granted; automatic onboarding can be added later.
+- Provision OIDC beta users by email before their first login. The email in the OIDC token must match the app user email after lowercase normalization.
+
+```bash
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE
+```
+
+- Re-running the provisioning command is idempotent. Existing users keep their current status unless `--status` or `--deactivate` is explicitly provided.
 - There is no external subject/provider column yet, so changing a user's email at the identity provider can break mapping until the app schema gains provider subject binding.
 - If OIDC is not configured, protected environments return `401` with `Authenticated user provider is not configured.` for user-scoped routes.
 - Use a durable Postgres database in `DATABASE_URL`.
