@@ -76,9 +76,14 @@ VITE_AUTH0_CLIENT_ID=your-spa-client-id
 VITE_AUTH0_AUDIENCE=your-api-audience
 # Optional when the deployed callback differs from window.location.origin:
 VITE_AUTH0_REDIRECT_URI=https://your-frontend.example.com
+# Optional session persistence controls. Defaults are shown:
+VITE_AUTH0_CACHE_LOCATION=memory
+VITE_AUTH0_USE_REFRESH_TOKENS=false
 ```
 
-- In Auth0 mode, the frontend shows sign-in and sign-out controls, acquires access tokens silently with the SDK, and passes them through the existing bearer-token request boundary. The SDK manages its token cache internally; do not store Auth0 tokens in app localStorage.
+- In Auth0 mode, the frontend shows sign-in and sign-out controls, acquires access tokens silently with the SDK, and passes them through the existing bearer-token request boundary.
+- `VITE_AUTH0_CACHE_LOCATION=memory` is the default and keeps tokens out of persistent browser storage. It is safer, but after a browser refresh the SDK may need silent auth, and some tenant/session settings may require the user to sign in again.
+- `VITE_AUTH0_CACHE_LOCATION=localstorage` can improve refresh persistence, but it stores Auth0 tokens in browser local storage and should be enabled only when that security tradeoff is intentional. `VITE_AUTH0_USE_REFRESH_TOKENS=true` should only be used with the matching Auth0 tenant/application refresh-token settings.
 - For manual local or API-client testing only, developers can set `localStorage.market_simulator_access_token` in the browser. The helper also exposes `setAccessTokenForDevelopment(token)` and `clearAccessToken()` for console-driven testing.
 - The auth-required state shows a Sign in action in Auth0 mode, preserves backend `401` responses, and still allows testers to clear a saved manual dev token and retry when applicable.
 

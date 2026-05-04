@@ -38,12 +38,12 @@ def test_run_detail_polls_active_runs_more_responsively():
     assert "`/api/runs/${runId}/progress`" in api_source
 
 
-def test_navigation_and_results_page_use_research_results_language():
+def test_navigation_shortens_results_label_while_results_page_uses_research_results_language():
     nav_source = (ROOT / "frontend/src/components/layout/AppShell.tsx").read_text()
     page_source = (ROOT / "frontend/src/pages/RunsPage.tsx").read_text()
     table_source = (ROOT / "frontend/src/components/runs/RunsTable.tsx").read_text()
 
-    assert "label: 'Research Results'" in nav_source
+    assert "label: 'Results'" in nav_source
     assert 'title="Research Results"' in page_source
     assert 'eyebrow="Results"' in page_source
     assert 'label="Visible results"' in page_source

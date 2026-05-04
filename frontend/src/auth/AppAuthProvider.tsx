@@ -7,6 +7,7 @@ import {
 } from '../lib/authToken';
 
 type AuthProviderMode = 'auth0' | 'dev';
+type Auth0CacheLocation = 'memory' | 'localstorage';
 
 interface AppAuthContextValue {
   mode: AuthProviderMode;
@@ -25,6 +26,9 @@ const authProviderMode: AuthProviderMode = rawAuthProvider === 'auth0' ? 'auth0'
 const auth0Domain = import.meta.env.VITE_AUTH0_DOMAIN?.trim() ?? '';
 const auth0ClientId = import.meta.env.VITE_AUTH0_CLIENT_ID?.trim() ?? '';
 const auth0Audience = import.meta.env.VITE_AUTH0_AUDIENCE?.trim() ?? '';
+const rawAuth0CacheLocation = import.meta.env.VITE_AUTH0_CACHE_LOCATION?.trim().toLowerCase();
+const auth0CacheLocation: Auth0CacheLocation = rawAuth0CacheLocation === 'localstorage' ? 'localstorage' : 'memory';
+const auth0UseRefreshTokens = import.meta.env.VITE_AUTH0_USE_REFRESH_TOKENS?.trim().toLowerCase() === 'true';
 
 function getRedirectUri(): string {
   const configuredRedirectUri = import.meta.env.VITE_AUTH0_REDIRECT_URI?.trim();
@@ -198,7 +202,8 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
     <Auth0Provider
       domain={auth0Domain}
       clientId={auth0ClientId}
-      cacheLocation="memory"
+      cacheLocation={auth0CacheLocation}
+      useRefreshTokens={auth0UseRefreshTokens}
       authorizationParams={{
         audience: auth0Audience,
         redirect_uri: getRedirectUri()
