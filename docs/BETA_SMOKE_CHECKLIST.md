@@ -6,13 +6,14 @@ Use this as a concise manual pass before handing a beta build to testers. Keep t
 
 - [ ] Copy `.env.example` to `.env` and keep `ENV=local` with `AUTH_MODE=dev`.
 - [ ] Confirm local Postgres is reachable through `DATABASE_URL`.
-- [ ] Seed the local dev user if needed:
+- [ ] Seed the local dev user if needed for the non-Docker workflow:
 
 ```bash
 python scripts/seed_plans.py
 python scripts/seed_user.py
 ```
 
+- [ ] For `docker-compose.beta-local.yml` smoke, skip manual seed commands; compose runs migrations and local dev seeding during API startup.
 - [ ] Confirm curated ETF and reference-series paths are configured for the environment under test.
 - [ ] Confirm artifact storage is local for local smoke (`ARTIFACT_STORAGE_BACKEND=LOCAL`) or S3 only for the protected beta environment.
 

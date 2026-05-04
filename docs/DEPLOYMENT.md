@@ -21,11 +21,11 @@ Start the packaged local stack:
 docker compose -f docker-compose.beta-local.yml up --build
 ```
 
-The compose stack starts Postgres, runs Alembic migrations before the API starts, runs the worker from the backend image, and serves the frontend at `http://localhost:5173`. The frontend nginx config mirrors Vite dev behavior by accepting `/api/*` browser calls and proxying them to the backend with the `/api` prefix stripped.
+The compose stack starts Postgres, runs Alembic migrations before the API starts, seeds local plans plus the default dev user, runs the worker from the backend image, and serves the frontend at `http://localhost:5173`. The frontend nginx config mirrors Vite dev behavior by accepting `/api/*` browser calls and proxying them to the backend with the `/api` prefix stripped.
 
 `docker-compose.beta-local.yml` intentionally does not load private `.env` values. It is self-contained and uses local dev auth, the compose Postgres service, local artifact storage, and placeholder curated-data S3 paths such as `s3://your-market-data-bucket/curated/...`. This compose file is for packaging/process smoke only; readiness may report warnings for placeholder data paths.
 
-For real local market-data or S3 artifact testing, use the non-Docker local workflow with your private `.env`, or create a private compose override file that is not committed.
+The automatic seed step is only for local beta-like smoke with dev auth. It initializes the fixed local dev user so user-scoped routes such as `/me/entitlements` work on a fresh compose Postgres volume; it does not provision real beta testers. For real local market-data or S3 artifact testing, use the non-Docker local workflow with your private `.env`, or create a private compose override file that is not committed.
 
 Stop the stack with:
 
@@ -100,6 +100,8 @@ python scripts/provision_user.py --email user@example.com --display-name "User N
 ```
 
 The command is idempotent. Use the same deployed `DATABASE_URL` context that the API uses.
+
+Do not rely on the compose local seed for beta or production users. Protected beta/prod environments should provision users explicitly with `scripts/provision_user.py`.
 
 ## Smoke Checklist
 
