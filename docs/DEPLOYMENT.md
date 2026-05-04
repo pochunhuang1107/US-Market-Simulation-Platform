@@ -37,6 +37,18 @@ docker compose -f docker-compose.beta-local.yml down
 
 Use `--volumes` only when you intentionally want to delete the local compose Postgres and artifact volumes.
 
+For a repeatable packaging smoke from a fresh local compose environment, run:
+
+```bash
+bash scripts/smoke_compose_local.sh
+```
+
+The helper starts `docker-compose.beta-local.yml` with `up --build -d`, waits for `/health` to return `{"status":"ok"}`, checks `/health/readiness`, and verifies `/me/entitlements` returns the seeded default dev user on the `FREE` plan. It leaves the stack running by default; pass `--down` to stop the stack after the smoke check without deleting volumes:
+
+```bash
+bash scripts/smoke_compose_local.sh --down
+```
+
 ## Required Beta Environment
 
 For beta, configure these values in the target runtime environment or secret manager:
@@ -120,6 +132,7 @@ docker build -f frontend/Dockerfile -t us-market-platform-frontend ./frontend
 docker compose -f docker-compose.beta-local.yml up --build
 curl -fsS http://127.0.0.1:8000/health
 curl -fsS http://127.0.0.1:8000/health/readiness
+bash scripts/smoke_compose_local.sh
 ```
 
 For a product-loop pass, use [Beta Smoke Checklist](BETA_SMOKE_CHECKLIST.md).
