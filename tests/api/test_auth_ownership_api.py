@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from market_simulator import settings as settings_module
+from market_simulator.auth.current_user import PROVIDER_NOT_CONFIGURED_DETAIL
 from market_simulator.db.enums import (
     ArtifactStorageType,
     ExecutorType,
@@ -225,12 +226,12 @@ def test_x_user_id_works_only_when_dev_auth_is_enabled(
     _set_auth_settings(monkeypatch, env="local", auth_mode="required")
     required_response = real_auth_client.get("/me/entitlements", headers={"X-User-Id": user_id})
     assert required_response.status_code == 401
-    assert required_response.json()["detail"] == "Missing authenticated user"
+    assert required_response.json()["detail"] == PROVIDER_NOT_CONFIGURED_DETAIL
 
     _set_auth_settings(monkeypatch, env="beta", auth_mode="dev")
     beta_response = real_auth_client.get("/me/entitlements", headers={"X-User-Id": user_id})
     assert beta_response.status_code == 401
-    assert beta_response.json()["detail"] == "Missing authenticated user"
+    assert beta_response.json()["detail"] == PROVIDER_NOT_CONFIGURED_DETAIL
 
 
 def test_production_beta_mode_rejects_unauthenticated_and_x_user_id_only(
@@ -242,11 +243,16 @@ def test_production_beta_mode_rejects_unauthenticated_and_x_user_id_only(
     create_user(user_id=user_id, email="beta-user@example.com")
     _set_auth_settings(monkeypatch, env="beta", auth_mode="required")
 
-    assert real_auth_client.get("/me/entitlements").status_code == 401
-    assert (
-        real_auth_client.get("/me/entitlements", headers={"X-User-Id": user_id}).status_code
-        == 401
+    beta_missing_response = real_auth_client.get("/me/entitlements")
+    assert beta_missing_response.status_code == 401
+    assert beta_missing_response.json()["detail"] == PROVIDER_NOT_CONFIGURED_DETAIL
+
+    beta_header_response = real_auth_client.get(
+        "/me/entitlements",
+        headers={"X-User-Id": user_id},
     )
+    assert beta_header_response.status_code == 401
+    assert beta_header_response.json()["detail"] == PROVIDER_NOT_CONFIGURED_DETAIL
 
     _set_auth_settings(monkeypatch, env="production", auth_mode="dev")
     production_response = real_auth_client.get(
@@ -254,7 +260,7 @@ def test_production_beta_mode_rejects_unauthenticated_and_x_user_id_only(
         headers={"X-User-Id": user_id},
     )
     assert production_response.status_code == 401
-    assert production_response.json()["detail"] == "Missing authenticated user"
+    assert production_response.json()["detail"] == PROVIDER_NOT_CONFIGURED_DETAIL
 
 
 def test_current_user_rejects_invalid_x_user_id(real_auth_client, monkeypatch):
