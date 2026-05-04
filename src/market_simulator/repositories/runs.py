@@ -1,10 +1,10 @@
-import uuid
 import json
 import hashlib
+import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from market_simulator.db.enums import ArtifactStorageType, RunStatus
@@ -253,6 +253,81 @@ def count_runs(
         include_derived_results=include_derived_results,
     )
     return query.scalar() or 0
+
+
+def get_run_queue_health(
+    db: Session,
+    *,
+    running_stale_seconds: int = 300,
+) -> dict:
+    now = utc_now()
+    stale_cutoff = now - timedelta(seconds=running_stale_seconds)
+    stale_running_condition = (
+        (Run.status == RunStatus.RUNNING)
+        & (
+            (Run.leased_until < now)
+            | (
+                Run.leased_until.is_(None)
+                & (
+                    Run.heartbeat_at.is_(None)
+                    | (Run.heartbeat_at < stale_cutoff)
+                )
+            )
+            | (Run.heartbeat_at < stale_cutoff)
+        )
+    )
+
+    row = db.execute(
+        select(
+            func.coalesce(
+                func.sum(case((Run.status == RunStatus.PENDING, 1), else_=0)),
+                0,
+            ).label("pending_count"),
+            func.coalesce(
+                func.sum(case((Run.status == RunStatus.QUEUED, 1), else_=0)),
+                0,
+            ).label("queued_count"),
+            func.coalesce(
+                func.sum(case((Run.status == RunStatus.RUNNING, 1), else_=0)),
+                0,
+            ).label("running_count"),
+            func.coalesce(
+                func.sum(case((stale_running_condition, 1), else_=0)),
+                0,
+            ).label("stale_running_count"),
+            func.min(
+                case((Run.status == RunStatus.QUEUED, Run.queued_at), else_=None)
+            ).label("oldest_queued_at"),
+            func.min(
+                case((Run.status == RunStatus.RUNNING, Run.heartbeat_at), else_=None)
+            ).label("oldest_running_heartbeat_at"),
+        )
+    ).one()
+
+    oldest_queued_age_seconds = _age_seconds(row.oldest_queued_at, now)
+    oldest_running_heartbeat_age_seconds = _age_seconds(
+        row.oldest_running_heartbeat_at,
+        now,
+    )
+
+    return {
+        "pending_count": int(row.pending_count),
+        "queued_count": int(row.queued_count),
+        "running_count": int(row.running_count),
+        "stale_running_count": int(row.stale_running_count),
+        "oldest_queued_age_seconds": oldest_queued_age_seconds,
+        "oldest_running_heartbeat_age_seconds": (
+            oldest_running_heartbeat_age_seconds
+        ),
+    }
+
+
+def _age_seconds(value: datetime | None, now: datetime) -> int | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return max(0, int((now - value).total_seconds()))
 
 
 def enqueue_run(db: Session, run: Run):

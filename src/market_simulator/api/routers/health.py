@@ -9,6 +9,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from market_simulator.db.session import get_db
+from market_simulator.repositories.runs import get_run_queue_health
 from market_simulator.settings import Settings, get_settings
 
 router = APIRouter()
@@ -31,6 +32,7 @@ def readiness(db: Session = Depends(get_db)):
         "artifact_storage": _artifact_storage_check(settings),
         "data_paths": _data_paths_check(settings),
         "supported_symbols": _supported_symbols_check(settings),
+        "run_queue": _run_queue_check(db, settings),
     }
     return {
         "overall_status": _overall_status(checks),
@@ -179,6 +181,43 @@ def _supported_symbols_check(settings: Settings) -> CheckResult:
         ),
         "etf_symbol_count": etf_count,
         "reference_series_symbol_count": reference_series_count,
+    }
+
+
+def _run_queue_check(db: Session, settings: Settings) -> CheckResult:
+    try:
+        queue_health = get_run_queue_health(
+            db,
+            running_stale_seconds=settings.running_stale_seconds,
+        )
+    except Exception as exc:
+        return {
+            "status": "not_ready",
+            "message": "Run queue aggregate check failed.",
+            "error_type": exc.__class__.__name__,
+        }
+
+    status = "ready"
+    message = "Run queue has no stale running runs or suspiciously old queued runs."
+    oldest_queued_age_seconds = queue_health["oldest_queued_age_seconds"]
+
+    if queue_health["stale_running_count"] > 0:
+        status = "not_ready"
+        message = "One or more running runs appear stale."
+    elif (
+        oldest_queued_age_seconds is not None
+        and oldest_queued_age_seconds > settings.queue_oldest_warning_seconds
+    ):
+        status = "warning"
+        message = "Old queued runs may indicate the worker is not claiming work."
+
+    return {
+        "status": status,
+        "message": message,
+        **queue_health,
+        "queue_oldest_warning_seconds": settings.queue_oldest_warning_seconds,
+        "running_stale_seconds": settings.running_stale_seconds,
+        "stale_recovery_available": True,
     }
 
 

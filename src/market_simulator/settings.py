@@ -161,6 +161,10 @@ class Settings(BaseModel):
         "SUPPORTED_REFERENCE_SERIES_SYMBOLS",
         DEFAULT_SUPPORTED_REFERENCE_SERIES_SYMBOLS,
     )
+    queue_oldest_warning_seconds: int = int(
+        os.getenv("QUEUE_OLDEST_WARNING_SECONDS", "600")
+    )
+    running_stale_seconds: int = int(os.getenv("RUNNING_STALE_SECONDS", "300"))
 
     @property
     def dev_admin_user_ids(self) -> tuple[str, ...]:
