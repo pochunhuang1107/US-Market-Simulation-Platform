@@ -1,7 +1,10 @@
 import type { MouseEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
+import { fetchMeEntitlements, isUnauthorizedError } from '../../lib/api';
 import { useTheme } from '../../theme';
+import { AuthRequiredState } from '../shared/AuthRequiredState';
 
 const navItems = [
   { to: '/', label: 'Home', end: true },
@@ -15,6 +18,41 @@ export function AppShell() {
   const { themeMode, setThemeMode } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
+  const [authRequiredMessage, setAuthRequiredMessage] = useState<string | null>(null);
+  const [isRetryingAuth, setIsRetryingAuth] = useState(false);
+
+  const checkAuthRequired = useCallback(async (shouldApply: () => boolean = () => true) => {
+    setIsRetryingAuth(true);
+
+    try {
+      await fetchMeEntitlements();
+
+      if (!shouldApply()) return;
+      setAuthRequiredMessage(null);
+    } catch (error) {
+      if (!shouldApply()) return;
+
+      if (isUnauthorizedError(error)) {
+        setAuthRequiredMessage(error.message);
+      } else {
+        setAuthRequiredMessage(null);
+      }
+    } finally {
+      if (shouldApply()) {
+        setIsRetryingAuth(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void checkAuthRequired(() => isMounted);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [checkAuthRequired]);
 
   function handleNavClick(event: MouseEvent<HTMLAnchorElement>, to: string) {
     if (to === '/' && (location.pathname === '/' || location.pathname === '/chat')) {
@@ -83,7 +121,17 @@ export function AppShell() {
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-8 lg:px-8">
-        <Outlet />
+        {authRequiredMessage ? (
+          <AuthRequiredState
+            errorMessage={authRequiredMessage}
+            loading={isRetryingAuth}
+            onRetry={() => {
+              void checkAuthRequired();
+            }}
+          />
+        ) : (
+          <Outlet />
+        )}
       </main>
     </div>
   );
