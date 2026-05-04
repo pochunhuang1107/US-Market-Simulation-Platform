@@ -18,6 +18,7 @@ __MACOSX/
 venv/
 .env
 config/app.yaml
+frontend/.env.local
 
 # Test / local outputs
 .pytest_cache/
