@@ -102,6 +102,13 @@ class Settings(BaseModel):
     oidc_email_claim: str = os.getenv("OIDC_EMAIL_CLAIM", "email")
     oidc_subject_claim: str = os.getenv("OIDC_SUBJECT_CLAIM", "sub")
     oidc_display_name_claim: str | None = os.getenv("OIDC_DISPLAY_NAME_CLAIM", "name")
+    oidc_provider_name: str = os.getenv("OIDC_PROVIDER_NAME", "oidc")
+    oidc_allow_email_linking: bool = os.getenv("OIDC_ALLOW_EMAIL_LINKING", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     oidc_jwks_cache_seconds: int = int(os.getenv("OIDC_JWKS_CACHE_SECONDS", "300"))
 
     dev_default_user_id: str | None = os.getenv(

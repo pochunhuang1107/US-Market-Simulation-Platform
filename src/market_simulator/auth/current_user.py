@@ -18,12 +18,19 @@ from sqlalchemy.orm import Session
 
 from market_simulator.db.enums import UserStatus
 from market_simulator.db.models.user import User
+from market_simulator.services.external_identities import (
+    ExternalIdentityError,
+    find_external_identity,
+    link_external_identity,
+    normalize_provider,
+)
 from market_simulator.settings import Settings
 
 
 PROVIDER_NOT_CONFIGURED_DETAIL = "Authenticated user provider is not configured."
 MISSING_BEARER_TOKEN_DETAIL = "Missing bearer token"
 INVALID_BEARER_TOKEN_DETAIL = "Invalid bearer token"
+USER_NOT_PROVISIONED_DETAIL = "Authenticated user is not provisioned."
 
 _SUPPORTED_JWT_ALGORITHMS = {"RS256"}
 _SHA256_DIGEST_INFO_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
@@ -137,22 +144,57 @@ def _resolve_oidc_current_user(
     subject = _claim_as_string(claims, settings.oidc_subject_claim)
     if not subject:
         raise HTTPException(status_code=401, detail="Token subject claim is missing")
+
+    display_name = _claim_as_string(claims, settings.oidc_display_name_claim)
+    try:
+        provider = normalize_provider(settings.oidc_provider_name)
+    except ExternalIdentityError as exc:
+        raise HTTPException(status_code=401, detail=PROVIDER_NOT_CONFIGURED_DETAIL) from exc
+
+    identity = find_external_identity(db, provider=provider, subject=subject)
+    if identity is not None:
+        user = identity.user
+        if user is None:
+            raise HTTPException(status_code=401, detail=USER_NOT_PROVISIONED_DETAIL)
+        if not _is_active_user(user):
+            raise HTTPException(status_code=403, detail="User is not active")
+        return _current_user_from_user(user, token_display_name=display_name)
+
+    if not settings.oidc_allow_email_linking:
+        raise HTTPException(status_code=401, detail=USER_NOT_PROVISIONED_DETAIL)
+
     if not email:
         raise HTTPException(status_code=401, detail="Token email claim is missing")
 
     normalized_email = email.strip().lower()
-    display_name = _claim_as_string(claims, settings.oidc_display_name_claim)
     user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
     if user is None:
-        raise HTTPException(status_code=401, detail="Authenticated user is not provisioned")
+        raise HTTPException(status_code=401, detail=USER_NOT_PROVISIONED_DETAIL)
 
     if not _is_active_user(user):
         raise HTTPException(status_code=403, detail="User is not active")
 
+    try:
+        link_external_identity(
+            db,
+            user=user,
+            provider=provider,
+            subject=subject,
+            email_at_link_time=normalized_email,
+        )
+        db.commit()
+    except ExternalIdentityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=401, detail=USER_NOT_PROVISIONED_DETAIL) from exc
+
+    return _current_user_from_user(user, token_display_name=display_name)
+
+
+def _current_user_from_user(user: User, *, token_display_name: str | None = None) -> CurrentUser:
     return CurrentUser(
         id=str(user.id),
         email=user.email,
-        display_name=user.display_name or display_name,
+        display_name=user.display_name or token_display_name,
         status=_status_value(user.status),
     )
 

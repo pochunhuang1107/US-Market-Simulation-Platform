@@ -134,10 +134,16 @@ scripts/smoke_local_api.sh
 
 Run this against a protected beta or production backend, not local dev. Protected environments must not trust `X-User-Id`; user-scoped routes should require a valid bearer JWT when `AUTH_MODE=oidc` is configured.
 
-- [ ] Provision the beta tester email before protected auth smoke:
+- [ ] Provision the beta tester with an external identity subject when known:
 
 ```bash
-python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE --provider oidc
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE --external-provider oidc --external-subject abc123
+```
+
+- [ ] If the subject is not known before first login, confirm `OIDC_ALLOW_EMAIL_LINKING=true` and provision the tester email as a temporary bootstrap path:
+
+```bash
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE
 ```
 
 ```bash

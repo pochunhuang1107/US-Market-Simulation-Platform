@@ -62,6 +62,8 @@ For beta, configure these values in the target runtime environment or secret man
 - `OIDC_EMAIL_CLAIM`: defaults to `email`.
 - `OIDC_SUBJECT_CLAIM`: defaults to `sub`.
 - `OIDC_DISPLAY_NAME_CLAIM`: defaults to `name`.
+- `OIDC_PROVIDER_NAME`: defaults to `oidc`.
+- `OIDC_ALLOW_EMAIL_LINKING`: defaults to `true` for beta email-to-subject bootstrap.
 - `MARKET_DATA_PATH`: curated ETF parquet path.
 - `ETF_METADATA_S3_URI`: curated ETF metadata parquet URI.
 - `REFERENCE_SERIES_DATA_PATH`: curated reference-series path.
@@ -110,10 +112,10 @@ The endpoint returns `overall_status` plus checks for app environment, database 
 OIDC beta users must exist in the app database before first login:
 
 ```bash
-python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE --provider oidc
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE --external-provider oidc --external-subject abc123
 ```
 
-The command is idempotent. Use the same deployed `DATABASE_URL` context that the API uses.
+The command is idempotent. Use the same deployed `DATABASE_URL` context that the API uses. If the external subject is not known yet, provision by email only and keep `OIDC_ALLOW_EMAIL_LINKING=true` for the first login bootstrap.
 
 Do not rely on the compose local seed for beta or production users. Protected beta/prod environments should provision users explicitly with `scripts/provision_user.py`.
 

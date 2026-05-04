@@ -1,7 +1,7 @@
 from datetime import datetime
 
 import uuid
-from sqlalchemy import String, Boolean, Numeric, Integer, ForeignKey, TIMESTAMP
+from sqlalchemy import String, Boolean, Numeric, Integer, ForeignKey, TIMESTAMP, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
@@ -25,10 +25,46 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
     subscriptions = relationship("UserPlanSubscription", back_populates="user")
+    external_identities = relationship(
+        "UserExternalIdentity",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     strategies = relationship("Strategy", back_populates="user")
     runs = relationship("Run", back_populates="user")
     tracked_strategies = relationship("TrackedStrategy", back_populates="user")
     builder_prompt_events = relationship("BuilderPromptEvent", back_populates="user")
+
+
+class UserExternalIdentity(Base):
+    __tablename__ = "user_external_identities"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "subject",
+            name="uq_user_external_identities_provider_subject",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    email_at_link_time: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    user = relationship("User", back_populates="external_identities")
 
 
 class Plan(Base):
