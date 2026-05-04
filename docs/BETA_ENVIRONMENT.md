@@ -43,6 +43,7 @@ python scripts/provision_user.py --email user@example.com --display-name "User N
 - Local development remains unchanged: `ENV=local` with `AUTH_MODE=dev` can still use the backend dev-auth defaults and does not require a browser token.
 - Protected beta frontend deployments must obtain an access token from the future auth provider and supply it through the frontend token provider boundary. No provider SDK or login redirect flow is wired in yet.
 - For manual beta API-client testing, developers can set `localStorage.market_simulator_access_token` in the browser. The helper also exposes `setAccessTokenForDevelopment(token)` and `clearAccessToken()` for console-driven testing.
+- The frontend now shows an auth-required state when `/api/me/entitlements` returns `401`, preserving the backend response and allowing testers to clear a saved local token and retry. Real login-provider UI remains future work.
 
 ## Curated Data Paths
 
