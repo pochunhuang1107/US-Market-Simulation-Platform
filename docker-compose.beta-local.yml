@@ -1,0 +1,102 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: market_simulator
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d market_simulator"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/market_simulator
+      ENV: local
+      AUTH_MODE: dev
+      ENABLE_DEV_ADMIN_OVERRIDE: "false"
+      DEV_DEFAULT_USER_ID: 00000000-0000-0000-0000-000000000001
+      MARKET_DATA_PATH: s3://your-market-data-bucket/curated/etf_daily_prices/**/*.parquet
+      ETF_METADATA_S3_URI: s3://your-market-data-bucket/curated/reference/etf_symbol_metadata/data.parquet
+      REFERENCE_SERIES_DATA_PATH: s3://your-market-data-bucket/curated/reference_series
+      REFERENCE_SERIES_METADATA_S3_URI: s3://your-market-data-bucket/curated/reference/reference_series_metadata/data.parquet
+      DUCKDB_DATABASE: ":memory:"
+      S3_REGION: us-west-2
+      ARTIFACT_STORAGE_BACKEND: LOCAL
+      ARTIFACTS_DIR: /app/data/local_artifacts
+    command:
+      [
+        "sh",
+        "-c",
+        "alembic upgrade head && uvicorn market_simulator.api.main:app --host 0.0.0.0 --port 8000",
+      ]
+    ports:
+      - "8000:8000"
+    volumes:
+      - local-artifacts:/app/data/local_artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/market_simulator
+      ENV: local
+      AUTH_MODE: dev
+      ENABLE_DEV_ADMIN_OVERRIDE: "false"
+      DEV_DEFAULT_USER_ID: 00000000-0000-0000-0000-000000000001
+      MARKET_DATA_PATH: s3://your-market-data-bucket/curated/etf_daily_prices/**/*.parquet
+      ETF_METADATA_S3_URI: s3://your-market-data-bucket/curated/reference/etf_symbol_metadata/data.parquet
+      REFERENCE_SERIES_DATA_PATH: s3://your-market-data-bucket/curated/reference_series
+      REFERENCE_SERIES_METADATA_S3_URI: s3://your-market-data-bucket/curated/reference/reference_series_metadata/data.parquet
+      DUCKDB_DATABASE: ":memory:"
+      S3_REGION: us-west-2
+      ARTIFACT_STORAGE_BACKEND: LOCAL
+      ARTIFACTS_DIR: /app/data/local_artifacts
+    command:
+      [
+        "python",
+        "-m",
+        "market_simulator.platform.worker",
+        "--recover-stale",
+      ]
+    volumes:
+      - local-artifacts:/app/data/local_artifacts
+    depends_on:
+      api:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  local-artifacts:

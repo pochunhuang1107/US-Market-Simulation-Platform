@@ -136,6 +136,8 @@ The backend will typically be available at:
 http://127.0.0.1:8000
 ```
 
+For beta-oriented Docker packaging and deployment notes, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ---
 
 ## Running a Simulation from the CLI
