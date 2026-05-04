@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 
 from market_simulator.db.enums import SubscriptionStatus, UserStatus
-from market_simulator.db.models.user import Plan, User, UserPlanSubscription
+from market_simulator.db.models.user import Plan, User, UserExternalIdentity, UserPlanSubscription
 from market_simulator.services.user_provisioning import ProvisioningError, provision_user
 
 
@@ -142,3 +142,71 @@ def test_provision_user_dry_run_rolls_back_changes(db_session):
     assert result.plan_action == "assigned"
     assert db_session.query(User).count() == 0
     assert db_session.query(UserPlanSubscription).count() == 0
+
+
+def test_provision_user_creates_external_identity_when_subject_provider_provided(db_session):
+    _create_free_plan(db_session)
+
+    result = provision_user(
+        db_session,
+        email="beta@example.com",
+        plan_code="FREE",
+        external_provider="OIDC",
+        external_subject="abc123",
+    )
+
+    user = db_session.query(User).filter(User.email == "beta@example.com").one()
+    identity = db_session.query(UserExternalIdentity).one()
+    assert result.external_identity_action == "created"
+    assert identity.user_id == user.id
+    assert identity.provider == "oidc"
+    assert identity.subject == "abc123"
+    assert identity.email_at_link_time == "beta@example.com"
+
+
+def test_provision_user_is_idempotent_for_existing_external_identity(db_session):
+    _create_free_plan(db_session)
+
+    first = provision_user(
+        db_session,
+        email="beta@example.com",
+        plan_code="FREE",
+        external_provider="oidc",
+        external_subject="abc123",
+    )
+    second = provision_user(
+        db_session,
+        email="beta@example.com",
+        plan_code="FREE",
+        external_provider="oidc",
+        external_subject="abc123",
+    )
+
+    assert first.external_identity_action == "created"
+    assert second.external_identity_action == "existing"
+    assert db_session.query(UserExternalIdentity).count() == 1
+
+
+def test_provision_user_rejects_duplicate_external_identity_for_another_user(db_session):
+    _create_free_plan(db_session)
+    provision_user(
+        db_session,
+        email="first@example.com",
+        plan_code="FREE",
+        external_provider="oidc",
+        external_subject="abc123",
+    )
+
+    with pytest.raises(
+        ProvisioningError,
+        match="External identity oidc/abc123 is already linked to another user",
+    ):
+        provision_user(
+            db_session,
+            email="second@example.com",
+            plan_code="FREE",
+            external_provider="oidc",
+            external_subject="abc123",
+        )
+
+    assert db_session.query(UserExternalIdentity).count() == 1

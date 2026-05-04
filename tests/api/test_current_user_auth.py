@@ -14,9 +14,11 @@ from market_simulator.auth.current_user import (
     INVALID_BEARER_TOKEN_DETAIL,
     MISSING_BEARER_TOKEN_DETAIL,
     PROVIDER_NOT_CONFIGURED_DETAIL,
+    USER_NOT_PROVISIONED_DETAIL,
     resolve_current_user,
 )
 from market_simulator.db.enums import UserStatus
+from market_simulator.db.models.user import UserExternalIdentity
 from market_simulator.settings import Settings
 
 
@@ -288,14 +290,23 @@ def test_oidc_mode_rejects_invalid_token(db_session, monkeypatch):
     _assert_auth_error(exc_info, status_code=401, detail=INVALID_BEARER_TOKEN_DETAIL)
 
 
-def test_oidc_mode_maps_valid_signed_jwt_to_existing_active_user(
+def test_oidc_mode_maps_valid_signed_jwt_by_provider_subject(
     db_session,
     create_user,
     monkeypatch,
 ):
     _mock_jwks(monkeypatch)
-    user = create_user(email="oidc-user@example.com", display_name="Database Name")
-    token = _signed_test_jwt()
+    user = create_user(email="linked-user@example.com", display_name="Database Name")
+    db_session.add(
+        UserExternalIdentity(
+            user_id=user.id,
+            provider="oidc",
+            subject="oidc-subject-123",
+            email_at_link_time="old-email@example.com",
+        )
+    )
+    db_session.commit()
+    token = _signed_test_jwt(email=None)
 
     current_user = resolve_current_user(
         db=db_session,
@@ -305,8 +316,55 @@ def test_oidc_mode_maps_valid_signed_jwt_to_existing_active_user(
     )
 
     assert current_user.id == str(user.id)
-    assert current_user.email == "oidc-user@example.com"
+    assert current_user.email == "linked-user@example.com"
     assert current_user.display_name == "Database Name"
+
+
+def test_oidc_mode_links_existing_email_user_when_email_linking_enabled(
+    db_session,
+    create_user,
+    monkeypatch,
+):
+    _mock_jwks(monkeypatch)
+    user = create_user(email="oidc-user@example.com")
+    token = _signed_test_jwt()
+
+    current_user = resolve_current_user(
+        db=db_session,
+        settings=_oidc_settings(),
+        authorization=f"Bearer {token}",
+    )
+
+    identity = db_session.query(UserExternalIdentity).one()
+    assert current_user.id == str(user.id)
+    assert identity.user_id == user.id
+    assert identity.provider == "oidc"
+    assert identity.subject == "oidc-subject-123"
+    assert identity.email_at_link_time == "oidc-user@example.com"
+
+
+def test_oidc_mode_rejects_email_fallback_when_linking_disabled(
+    db_session,
+    create_user,
+    monkeypatch,
+):
+    _mock_jwks(monkeypatch)
+    create_user(email="oidc-user@example.com")
+    token = _signed_test_jwt()
+
+    with pytest.raises(HTTPException) as exc_info:
+        resolve_current_user(
+            db=db_session,
+            settings=_oidc_settings(oidc_allow_email_linking=False),
+            authorization=f"Bearer {token}",
+        )
+
+    _assert_auth_error(
+        exc_info,
+        status_code=401,
+        detail=USER_NOT_PROVISIONED_DETAIL,
+    )
+    assert db_session.query(UserExternalIdentity).count() == 0
 
 
 def test_oidc_mode_uses_required_auth_mode_when_jwks_is_configured(
@@ -341,14 +399,22 @@ def test_oidc_mode_rejects_unprovisioned_email(db_session, monkeypatch):
     _assert_auth_error(
         exc_info,
         status_code=401,
-        detail="Authenticated user is not provisioned",
+        detail=USER_NOT_PROVISIONED_DETAIL,
     )
 
 
-def test_oidc_mode_rejects_inactive_mapped_user(db_session, create_user, monkeypatch):
+def test_oidc_mode_rejects_inactive_linked_user(db_session, create_user, monkeypatch):
     _mock_jwks(monkeypatch)
     user = create_user(email="oidc-user@example.com")
     user.status = UserStatus.SUSPENDED
+    db_session.add(
+        UserExternalIdentity(
+            user_id=user.id,
+            provider="oidc",
+            subject="oidc-subject-123",
+            email_at_link_time="oidc-user@example.com",
+        )
+    )
     db_session.commit()
     token = _signed_test_jwt()
 

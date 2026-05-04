@@ -23,6 +23,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plan-code", default="FREE", help="Plan code to assign if missing.")
     parser.add_argument("--user-id", help="Optional UUID to use when creating the user.")
     parser.add_argument("--provider", help="Optional provider label for newly assigned subscriptions.")
+    parser.add_argument("--external-provider", help="Optional external identity provider to link.")
+    parser.add_argument("--external-subject", help="Optional external identity subject to link.")
     parser.add_argument("--dry-run", action="store_true", help="Report changes without committing them.")
     parser.add_argument(
         "--deactivate",
@@ -54,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
             plan_code=args.plan_code,
             user_id=args.user_id,
             provider=args.provider,
+            external_provider=args.external_provider,
+            external_subject=args.external_subject,
             dry_run=args.dry_run,
         )
     except ProvisioningError as exc:

@@ -9,6 +9,12 @@ from sqlalchemy.orm import Session
 
 from market_simulator.db.enums import SubscriptionStatus, UserStatus
 from market_simulator.db.models.user import Plan, User, UserPlanSubscription
+from market_simulator.services.external_identities import (
+    ExternalIdentityError,
+    link_external_identity,
+    normalize_provider,
+    normalize_subject,
+)
 
 
 class ProvisioningError(ValueError):
@@ -22,6 +28,7 @@ class ProvisioningResult:
     user_action: str
     plan_code: str
     plan_action: str
+    external_identity_action: str | None = None
     dry_run: bool = False
 
 
@@ -36,12 +43,26 @@ def provision_user(
     plan_code: str = "FREE",
     user_id: str | None = None,
     provider: str | None = None,
+    external_provider: str | None = None,
+    external_subject: str | None = None,
     dry_run: bool = False,
 ) -> ProvisioningResult:
     normalized_email = _normalize_email(email)
     normalized_plan_code = _normalize_plan_code(plan_code)
     user_uuid = _parse_user_id(user_id) if user_id else None
     normalized_status = _normalize_user_status(status)
+    normalized_external_provider: str | None = None
+    normalized_external_subject: str | None = None
+    if external_provider or external_subject:
+        if not external_provider or not external_subject:
+            raise ProvisioningError(
+                "--external-provider and --external-subject must be provided together"
+            )
+        try:
+            normalized_external_provider = normalize_provider(external_provider)
+            normalized_external_subject = normalize_subject(external_subject)
+        except ExternalIdentityError as exc:
+            raise ProvisioningError(str(exc)) from exc
 
     plan = db.query(Plan).filter(Plan.code == normalized_plan_code).first()
     if plan is None:
@@ -110,12 +131,27 @@ def provision_user(
         db.flush()
         plan_action = "assigned"
 
+    external_identity_action = None
+    if normalized_external_provider and normalized_external_subject:
+        try:
+            _, external_identity_action = link_external_identity(
+                db,
+                user=user,
+                provider=normalized_external_provider,
+                subject=normalized_external_subject,
+                email_at_link_time=normalized_email,
+            )
+        except ExternalIdentityError as exc:
+            db.rollback()
+            raise ProvisioningError(str(exc)) from exc
+
     result = ProvisioningResult(
         user_id=str(user.id),
         email=normalized_email,
         user_action=user_action,
         plan_code=normalized_plan_code,
         plan_action=plan_action,
+        external_identity_action=external_identity_action,
         dry_run=dry_run,
     )
 
@@ -129,10 +165,13 @@ def provision_user(
 
 def format_provisioning_result(result: ProvisioningResult) -> str:
     prefix = "dry-run " if result.dry_run else ""
-    return (
+    formatted = (
         f"{prefix}user={result.user_action} user_id={result.user_id} "
         f"email={result.email} plan={result.plan_action} plan_code={result.plan_code}"
     )
+    if result.external_identity_action:
+        formatted = f"{formatted} external_identity={result.external_identity_action}"
+    return formatted
 
 
 def _normalize_email(email: str) -> str:

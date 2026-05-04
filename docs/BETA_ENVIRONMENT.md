@@ -24,15 +24,24 @@ This app has separate expectations for local development and protected beta or p
   - `OIDC_EMAIL_CLAIM` defaults to `email`.
   - `OIDC_SUBJECT_CLAIM` defaults to `sub`.
   - `OIDC_DISPLAY_NAME_CLAIM` defaults to `name`.
-- The MVP maps validated tokens to existing app users by email. Users must already exist in the app database before beta access is granted; automatic onboarding can be added later.
-- Provision OIDC beta users by email before their first login. The email in the OIDC token must match the app user email after lowercase normalization.
+  - `OIDC_PROVIDER_NAME` defaults to `oidc` and is stored with the token subject when linking an external identity.
+  - `OIDC_ALLOW_EMAIL_LINKING` defaults to `true` for the beta MVP. When enabled, the first valid OIDC login for a provisioned email can create the durable provider+subject link. Set it to `false` once beta users are pre-linked by subject.
+- The preferred OIDC mapping is durable provider+subject identity, for example `provider=oidc` plus the JWT `sub` claim. Email is only a bootstrap fallback for provisioned users.
+- Users must already exist in the app database before beta access is granted; automatic onboarding is intentionally not enabled.
+- Provision OIDC beta users with the external provider and subject when those values are known:
+
+```bash
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE --external-provider oidc --external-subject abc123
+```
+
+- If the provider subject is not known yet, provision by email and allow the first valid login to link the subject while `OIDC_ALLOW_EMAIL_LINKING=true`:
 
 ```bash
 python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE
 ```
 
 - Re-running the provisioning command is idempotent. Existing users keep their current status unless `--status` or `--deactivate` is explicitly provided.
-- There is no external subject/provider column yet, so changing a user's email at the identity provider can break mapping until the app schema gains provider subject binding.
+- Email fallback linking depends on the token email matching an existing app user after lowercase normalization. It should be treated as a migration bridge, not the long-term account binding.
 - If OIDC is not configured, protected environments return `401` with `Authenticated user provider is not configured.` for user-scoped routes.
 - Use a durable Postgres database in `DATABASE_URL`.
 - Use S3 artifact storage for persisted run outputs.
