@@ -563,3 +563,99 @@ def test_claim_and_execute_next_run_succeeds_for_parameter_sweep(
         (95, "Completed sweep variant 2 of 2"),
         (97, "Finalizing sweep artifacts"),
     ]
+
+
+def test_parameter_sweep_persists_rewritten_artifact_summary_from_store(
+    monkeypatch,
+    db_session,
+    create_user,
+):
+    user = create_user(email="worker-sweep-s3-summary@example.com")
+
+    class FakeParameterSweepService:
+        def run_sweep(
+            self,
+            payload,
+            output_dir,
+            fallback_base_config=None,
+            progress_callback=None,
+        ):
+            return {
+                "summary": {
+                    "run_type": "PARAMETER_SWEEP",
+                    "variant_count": 1,
+                    "best_variant": {
+                        "variant_id": "variant-1",
+                        "artifact_dir": "/tmp/fake-run-dir/variants/001_variant-1",
+                    },
+                    "results": [
+                        {
+                            "variant_id": "variant-1",
+                            "artifact_dir": "/tmp/fake-run-dir/variants/001_variant-1",
+                        }
+                    ],
+                },
+                "results": [],
+            }
+
+    class FakeRewritingArtifactStore(FakeArtifactStore):
+        def finalize_sweep_artifacts(self, run_id):
+            class Result:
+                storage_type = "S3"
+                artifact_dir = f"/tmp/runs/{run_id}"
+                artifact_root_uri = f"s3://unit-test-bucket/artifacts/runs/{run_id}"
+                manifest_json = {
+                    "sweep_summary": f"s3://unit-test-bucket/artifacts/runs/{run_id}/sweep_summary.json",
+                    "sweep_results": f"s3://unit-test-bucket/artifacts/runs/{run_id}/sweep_results.csv",
+                }
+                summary_json = {
+                    "run_type": "PARAMETER_SWEEP",
+                    "variant_count": 1,
+                    "best_variant": {
+                        "variant_id": "variant-1",
+                        "artifact_dir": f"s3://unit-test-bucket/artifacts/runs/{run_id}/variants/001_variant-1",
+                    },
+                    "results": [
+                        {
+                            "variant_id": "variant-1",
+                            "artifact_dir": f"s3://unit-test-bucket/artifacts/runs/{run_id}/variants/001_variant-1",
+                        }
+                    ],
+                }
+
+            return Result()
+
+    monkeypatch.setattr(
+        "market_simulator.platform.services.run_worker_service.ParameterSweepService",
+        FakeParameterSweepService,
+    )
+
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {
+            "base_config": {
+                "name": "qqq-rsi",
+            },
+            "grid": {"entry_rule.threshold": [20]},
+        },
+        max_attempts=3,
+    )
+    enqueue_run(db_session, run)
+
+    service = RunWorkerService(artifact_store=FakeRewritingArtifactStore())
+    result = service.claim_and_execute_next_run(
+        db_session,
+        worker_id="worker-sweep-s3-summary",
+        lease_seconds=300,
+    )
+
+    refreshed = get_run(db_session, run.id)
+
+    assert result["summary"]["results"][0]["artifact_dir"].startswith("s3://")
+    assert refreshed.summary_json["results"][0]["artifact_dir"].startswith("s3://")
+    assert "/tmp/fake-run-dir" not in str(refreshed.summary_json)

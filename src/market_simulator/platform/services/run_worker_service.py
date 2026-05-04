@@ -279,11 +279,12 @@ class RunWorkerService:
                     touch_run_heartbeat(db, run, lease_seconds=lease_seconds)
 
                 artifact_result = self.artifact_store.finalize_sweep_artifacts(run.id)
+                summary_json = getattr(artifact_result, "summary_json", None) or result["summary"]
 
                 mark_run_succeeded(
                     db=db,
                     run=run,
-                    summary_json=result["summary"],
+                    summary_json=summary_json,
                     artifact_dir=artifact_result.artifact_dir,
                     artifact_manifest_json=artifact_result.manifest_json,
                     artifact_storage_type=artifact_result.storage_type,
@@ -302,7 +303,7 @@ class RunWorkerService:
                 return {
                     "run_id": str(run.id),
                     "status": "SUCCEEDED",
-                    "summary": result["summary"],
+                    "summary": summary_json,
                     "artifact_dir": artifact_result.artifact_dir,
                     "artifact_manifest": artifact_result.manifest_json,
                 }
