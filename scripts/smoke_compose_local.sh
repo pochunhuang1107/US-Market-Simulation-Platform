@@ -119,6 +119,17 @@ if [[ -z "$readiness_status" ]]; then
   fail "/health/readiness did not include overall_status"
 fi
 echo "PASS /health/readiness overall_status=${readiness_status}"
+run_queue_status="$(jq -r '.checks.run_queue.status // empty' <<<"$readiness_body")"
+if [[ -n "$run_queue_status" ]]; then
+  queued_count="$(jq -r '.checks.run_queue.queued_count // 0' <<<"$readiness_body")"
+  running_count="$(jq -r '.checks.run_queue.running_count // 0' <<<"$readiness_body")"
+  stale_running_count="$(jq -r '.checks.run_queue.stale_running_count // 0' <<<"$readiness_body")"
+  echo "PASS /health/readiness run_queue status=${run_queue_status} queued=${queued_count} running=${running_count} stale_running=${stale_running_count}"
+  if [[ "$run_queue_status" == "not_ready" ]]; then
+    echo "$readiness_body" | jq '.checks.run_queue' >&2 || echo "$readiness_body" >&2
+    fail "/health/readiness run_queue is not_ready"
+  fi
+fi
 
 echo "Checking seeded local dev entitlements..."
 entitlements_body="$(curl -fsS -H "X-User-Id: ${DEV_USER_ID}" "${API_BASE}/me/entitlements")" \

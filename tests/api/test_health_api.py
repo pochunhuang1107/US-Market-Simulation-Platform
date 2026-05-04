@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
+from market_simulator.db.enums import ExecutorType, RunStatus, RunType
+from market_simulator.repositories.runs import create_run, enqueue_run, utc_now
 from market_simulator import settings as settings_module
 from market_simulator.settings import Settings
 
@@ -39,6 +43,10 @@ def test_readiness_reports_database_ready_in_local_mode(client, monkeypatch, tmp
     assert body["checks"]["app"]["environment"] == "local"
     assert body["checks"]["app"]["auth_mode"] == "dev"
     assert body["checks"]["database"]["status"] == "ready"
+    assert body["checks"]["run_queue"]["status"] == "ready"
+    assert body["checks"]["run_queue"]["queued_count"] == 0
+    assert body["checks"]["run_queue"]["running_count"] == 0
+    assert body["checks"]["run_queue"]["stale_running_count"] == 0
 
 
 def test_readiness_warns_for_placeholder_market_data_paths(
@@ -141,3 +149,159 @@ def test_readiness_does_not_leak_secrets(client, monkeypatch, tmp_path):
     assert "postgresql+psycopg://db_user" not in payload
     assert "secret-beta-artifacts" not in payload
     assert "issuer.example.test" not in payload
+
+
+def test_readiness_reports_fresh_queued_run_ready(
+    client,
+    monkeypatch,
+    tmp_path,
+    db_session,
+    create_user,
+):
+    _set_readiness_settings(monkeypatch, artifacts_dir=tmp_path / "artifacts")
+    user = create_user(email="queue-fresh@example.com")
+    run = _create_health_run(db_session, user_id=user.id)
+    enqueue_run(db_session, run)
+
+    response = client.get("/health/readiness")
+
+    assert response.status_code == 200
+    run_queue = response.json()["checks"]["run_queue"]
+    assert run_queue["status"] == "ready"
+    assert run_queue["queued_count"] == 1
+    assert run_queue["pending_count"] == 0
+    assert run_queue["running_count"] == 0
+    assert run_queue["oldest_queued_age_seconds"] is not None
+
+
+def test_readiness_warns_for_old_queued_run(
+    client,
+    monkeypatch,
+    tmp_path,
+    db_session,
+    create_user,
+):
+    _set_readiness_settings(
+        monkeypatch,
+        artifacts_dir=tmp_path / "artifacts",
+        queue_oldest_warning_seconds=60,
+    )
+    user = create_user(email="queue-old@example.com")
+    run = _create_health_run(db_session, user_id=user.id)
+    enqueue_run(db_session, run)
+    old_timestamp = utc_now() - timedelta(seconds=120)
+    run.queued_at = old_timestamp
+    run.heartbeat_at = old_timestamp
+    db_session.commit()
+
+    response = client.get("/health/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    run_queue = body["checks"]["run_queue"]
+    assert body["overall_status"] == "warning"
+    assert run_queue["status"] == "warning"
+    assert run_queue["queued_count"] == 1
+    assert run_queue["oldest_queued_age_seconds"] >= 60
+
+
+def test_readiness_reports_fresh_running_run_ready(
+    client,
+    monkeypatch,
+    tmp_path,
+    db_session,
+    create_user,
+):
+    _set_readiness_settings(monkeypatch, artifacts_dir=tmp_path / "artifacts")
+    user = create_user(email="queue-running@example.com")
+    run = _create_health_run(db_session, user_id=user.id)
+    now = utc_now()
+    run.status = RunStatus.RUNNING
+    run.started_at = now
+    run.heartbeat_at = now
+    run.leased_until = now + timedelta(seconds=300)
+    db_session.commit()
+
+    response = client.get("/health/readiness")
+
+    assert response.status_code == 200
+    run_queue = response.json()["checks"]["run_queue"]
+    assert run_queue["status"] == "ready"
+    assert run_queue["running_count"] == 1
+    assert run_queue["stale_running_count"] == 0
+    assert run_queue["oldest_running_heartbeat_age_seconds"] is not None
+
+
+def test_readiness_reports_stale_running_run_not_ready(
+    client,
+    monkeypatch,
+    tmp_path,
+    db_session,
+    create_user,
+):
+    _set_readiness_settings(
+        monkeypatch,
+        artifacts_dir=tmp_path / "artifacts",
+        running_stale_seconds=300,
+    )
+    user = create_user(email="queue-stale@example.com")
+    run = _create_health_run(db_session, user_id=user.id)
+    stale_timestamp = utc_now() - timedelta(seconds=600)
+    run.status = RunStatus.RUNNING
+    run.started_at = stale_timestamp
+    run.heartbeat_at = stale_timestamp
+    run.leased_until = utc_now() - timedelta(seconds=1)
+    db_session.commit()
+
+    response = client.get("/health/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    run_queue = body["checks"]["run_queue"]
+    assert body["overall_status"] == "not_ready"
+    assert run_queue["status"] == "not_ready"
+    assert run_queue["running_count"] == 1
+    assert run_queue["stale_running_count"] == 1
+    assert run_queue["oldest_running_heartbeat_age_seconds"] >= 300
+
+
+def test_readiness_queue_check_does_not_expose_run_or_user_details(
+    client,
+    monkeypatch,
+    tmp_path,
+    db_session,
+    create_user,
+):
+    _set_readiness_settings(monkeypatch, artifacts_dir=tmp_path / "artifacts")
+    user = create_user(email="private-queue-user@example.com")
+    run = _create_health_run(
+        db_session,
+        user_id=user.id,
+        payload={
+            "strategy_name": "Private Momentum Strategy",
+            "private_note": "never expose this payload",
+        },
+    )
+    enqueue_run(db_session, run)
+
+    response = client.get("/health/readiness")
+
+    assert response.status_code == 200
+    payload = response.text
+    assert str(run.id) not in payload
+    assert str(user.id) not in payload
+    assert "private-queue-user@example.com" not in payload
+    assert "Private Momentum Strategy" not in payload
+    assert "never expose this payload" not in payload
+
+
+def _create_health_run(db_session, *, user_id, payload: dict | None = None):
+    return create_run(
+        db_session,
+        user_id=user_id,
+        strategy_id=None,
+        strategy_version_id=None,
+        run_type=RunType.SIMULATION,
+        executor_type=ExecutorType.SIMULATION_EXECUTOR,
+        payload=payload or {"source": "health-readiness-test"},
+    )

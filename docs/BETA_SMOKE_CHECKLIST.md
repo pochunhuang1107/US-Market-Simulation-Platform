@@ -73,7 +73,15 @@ curl -fsS "$API_BASE/health" | jq .
 curl -fsS "$API_BASE/health/readiness" | jq .
 ```
 
-- [ ] Confirm `overall_status` is `ready` before beta testing, or review any `warning` / `not_ready` checks and fix the environment configuration.
+- [ ] Confirm queue/worker readiness is not blocked. `checks.run_queue.status` may be `ready` with zero jobs; `not_ready` means stale running work needs worker/recovery attention before product-loop QA:
+
+```bash
+curl -fsS "$API_BASE/health/readiness" | jq '.checks.run_queue'
+```
+
+- [ ] Confirm the worker process is running before product-loop QA so newly queued runs can be claimed and heartbeat during execution.
+
+- [ ] Confirm `overall_status` is `ready` before beta testing, or review any `warning` / `not_ready` checks and fix the environment configuration. Placeholder market-data paths in beta-local compose may produce `warning`; do not proceed if `checks.run_queue.status` is `not_ready`.
 
 - [ ] Local dev entitlements load for the seeded user:
 
