@@ -13,6 +13,8 @@ The app is packaged as four runtime processes:
 
 The backend image is intentionally reusable for the API and worker. Runtime environment variables come from the deploy environment; the Dockerfiles do not bake `.env` files, access tokens, bucket names, or OIDC secrets into images.
 
+CI validates that the backend image, frontend image, and beta-local compose configuration still build or parse successfully. That validation does not push images to a registry, deploy infrastructure, or require secrets or AWS credentials.
+
 ## Local Beta-Like Compose
 
 Start the packaged local stack:
