@@ -23,6 +23,7 @@ import type {
   StrategyDashboardResponse,
   StrategyListItem
 } from '../types/api';
+import { getAccessToken } from './authToken';
 
 type ErrorBody = {
   detail?: unknown;
@@ -40,6 +41,10 @@ export class ApiRequestError extends Error {
     this.status = status;
     this.body = body;
   }
+}
+
+export function isUnauthorizedError(error: unknown): error is ApiRequestError {
+  return error instanceof ApiRequestError && error.status === 401;
 }
 
 function formatErrorBody(body: ErrorBody): string {
@@ -63,12 +68,22 @@ function formatErrorBody(body: ErrorBody): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  const token = getAccessToken();
+
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
+  if (init?.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const response = await fetch(path, {
-    headers: {
-      Accept: 'application/json',
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {})
-    },
-    ...init
+    ...init,
+    headers
   });
 
   const contentType = response.headers.get('content-type') ?? '';
