@@ -118,3 +118,25 @@ jobs:
       - name: Build frontend
         run: |
           npm run build
+
+  docker-packaging:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        run: |
+          docker build -f Dockerfile.backend -t us-market-platform-api:ci .
+
+      - name: Build frontend image
+        run: |
+          docker build -f frontend/Dockerfile -t us-market-platform-frontend:ci ./frontend
+
+      - name: Validate compose config
+        run: |
+          docker compose -f docker-compose.beta-local.yml config
