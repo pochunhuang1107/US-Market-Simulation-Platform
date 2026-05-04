@@ -113,6 +113,12 @@ scripts/smoke_local_api.sh
 
 Run this against a protected beta or production backend, not local dev. Protected environments must not trust `X-User-Id`; user-scoped routes should require a valid bearer JWT when `AUTH_MODE=oidc` is configured.
 
+- [ ] Provision the beta tester email before protected auth smoke:
+
+```bash
+python scripts/provision_user.py --email user@example.com --display-name "User Name" --plan-code FREE --provider oidc
+```
+
 ```bash
 PROTECTED_API_BASE=https://your-beta-api.example.com
 curl -i \
