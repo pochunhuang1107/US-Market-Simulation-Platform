@@ -293,6 +293,24 @@ class TradeMarkerPoint(BaseModel):
     reason: str | None = None
 
 
+class TradeEventContext(BaseModel):
+    id: str
+    date: str | None = None
+    action: str
+    side: str
+    price: float | None = None
+    shares: float | None = None
+    event_category: str | None = None
+    values_on_date: dict[str, Any] = Field(default_factory=dict)
+    rule_summary: str | None = None
+    explanation: str
+
+
+class TradeEventContextResponse(BaseModel):
+    total_count: int
+    events: list[TradeEventContext]
+
+
 class RunChartDataResponse(BaseModel):
     run_id: str
     equity_curve: list[EquityCurvePoint]

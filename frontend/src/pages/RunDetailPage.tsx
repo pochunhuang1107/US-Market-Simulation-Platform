@@ -9,6 +9,7 @@ import { RunInsightBreakdown } from '../components/run-detail/RunInsightBreakdow
 import { RunInsightHero } from '../components/run-detail/RunInsightHero';
 import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
+import { TradeEventInspector } from '../components/run-detail/TradeEventInspector';
 import { StateCard } from '../components/shared/StateCard';
 import { fetchRun, fetchRunDashboard, fetchRunProgress, saveDraftRunAsStrategy } from '../lib/api';
 import { suggestStrategyNameFromConfig } from '../lib/suggestStrategyName';
@@ -366,6 +367,8 @@ export function RunDetailPage() {
             <RunInsightBreakdown run={data.run} />
 
             <RunCharts chartData={data.chart_data} run={data.run} />
+
+            <TradeEventInspector runId={data.run.id} />
           </>
         )}
 

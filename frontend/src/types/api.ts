@@ -196,6 +196,24 @@ export interface TradeMarkerPoint {
   reason: Nullable<string>;
 }
 
+export interface TradeEventContext {
+  id: string;
+  date: Nullable<string>;
+  action: string;
+  side: string;
+  price: Nullable<number>;
+  shares: Nullable<number>;
+  event_category: Nullable<string>;
+  values_on_date: Record<string, string | number | boolean>;
+  rule_summary: Nullable<string>;
+  explanation: string;
+}
+
+export interface TradeEventContextResponse {
+  total_count: number;
+  events: TradeEventContext[];
+}
+
 export interface RunChartDataResponse {
   run_id: string;
   equity_curve: EquityCurvePoint[];
