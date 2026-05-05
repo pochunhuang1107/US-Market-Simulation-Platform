@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 from datetime import date, datetime
 from functools import lru_cache
@@ -47,6 +48,17 @@ class TradeEventInspectorService:
         text = self._read_text(uri)
         return list(csv.DictReader(io.StringIO(text)))
 
+    def _load_trade_signal_snapshots(self, uri: str | None) -> list[dict[str, Any]]:
+        if not uri:
+            return []
+        try:
+            payload = json.loads(self._read_text(uri))
+        except Exception:
+            return []
+        if not isinstance(payload, list):
+            return []
+        return [item for item in payload if isinstance(item, dict)]
+
     def load_trade_events(
         self,
         artifact_manifest_json: dict[str, str],
@@ -59,6 +71,15 @@ class TradeEventInspectorService:
 
         trade_rows = self._load_csv_rows(trade_log_uri)
         timeline_rows = self._load_csv_rows(timeline_uri)
+        snapshots = self._load_trade_signal_snapshots(
+            artifact_manifest_json.get("trade_signal_snapshots")
+            or artifact_manifest_json.get("trade_signals")
+        )
+        snapshots_by_index = {
+            event_index: snapshot
+            for snapshot in snapshots
+            if (event_index := _optional_int(snapshot.get("event_index"))) is not None
+        }
         timeline_by_date = {
             normalized_date: row
             for row in timeline_rows
@@ -82,7 +103,12 @@ class TradeEventInspectorService:
             )
             values_on_date = _values_on_date(timeline_row or {})
             rule_summary = _rule_summary_for_event(action, timeline_row or {}, config)
-            rule_context = _rule_context_for_event(action, timeline_row or {}, values_on_date, config)
+            snapshot = snapshots_by_index.get(index)
+            rule_context = (
+                _rule_context_from_snapshot(snapshot)
+                if snapshot is not None
+                else _rule_context_for_event(action, timeline_row or {}, values_on_date, config)
+            )
             explanation = _explanation_for_event(
                 action,
                 timeline_row or {},
@@ -157,6 +183,15 @@ def _optional_float(value: Any) -> float | None:
         return None
 
 
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _optional_bool(value: Any) -> bool | None:
     if isinstance(value, bool):
         return value
@@ -186,7 +221,7 @@ def _coerce_value(value: Any) -> float | bool | str | None:
 
 def _column_priority(column: str) -> int:
     lowered = column.lower()
-    if lowered in {"signal_series_vix", "vix", "close_vix"}:
+    if lowered in {"signal_series_vix", "vix", "close_vix", "vix_value"}:
         return 0
     if "rsi" in lowered and "threshold" not in lowered:
         return 1
@@ -201,6 +236,8 @@ def _column_priority(column: str) -> int:
     if "threshold" in lowered:
         return 9
     if lowered.startswith("signal_series_") or lowered.startswith("reference_"):
+        return 6
+    if lowered.endswith("_value"):
         return 6
     if "realized_volatility" in lowered or lowered.startswith("return_"):
         return 7
@@ -253,7 +290,12 @@ def _is_relevant_value_column(column: str) -> bool:
         "close",
         "price",
     )
-    return lowered in {"k", "d", "kd", "stochastic"} or lowered.startswith(("kd_", "stoch_")) or any(token in lowered for token in tokens)
+    return (
+        lowered in {"k", "d", "kd", "stochastic"}
+        or lowered.startswith(("kd_", "stoch_"))
+        or lowered.endswith("_value")
+        or any(token in lowered for token in tokens)
+    )
 
 
 def _label_for_column(column: str) -> str:
@@ -297,6 +339,10 @@ def _label_for_column(column: str) -> str:
         lookback = normalized[len("realized_volatility_"):]
         return f"Realized Volatility({lookback})"
 
+    realized_match = re.search(r"(?:^|_)realized_volatility_?(\d+)$", normalized)
+    if realized_match:
+        return f"Realized Volatility({realized_match.group(1)})"
+
     if normalized.startswith("return_"):
         lookback = normalized[len("return_"):]
         return f"Return({lookback})"
@@ -308,14 +354,14 @@ def _label_for_column(column: str) -> str:
     if normalized in {"macd_hist", "macd_histogram"} or normalized.endswith("_macd_hist"):
         return "MACD histogram"
 
-    if normalized in {"k", "kd_k", "stoch_k", "stochastic_k"}:
+    if normalized in {"k", "kd_k", "stoch_k", "stochastic_k"} or normalized.endswith("_kd_k"):
         return "KD K"
-    if normalized in {"d", "kd_d", "stoch_d", "stochastic_d"}:
+    if normalized in {"d", "kd_d", "stoch_d", "stochastic_d"} or normalized.endswith("_kd_d"):
         return "KD D"
     if normalized in {"kd", "stochastic"}:
         return "KD"
 
-    for suffix in ("_close", "_price"):
+    for suffix in ("_value", "_close", "_price"):
         if lowered.endswith(suffix):
             prefix = column[: -len(suffix)]
             if prefix.upper() in REFERENCE_SERIES_LABELS:
@@ -521,8 +567,49 @@ def _compare_result(actual: Any, operator: str | None, threshold: Any) -> str:
         return "unknown"
 
     if operator == "below":
-        return "matched" if actual_float < threshold_float else "not matched"
-    return "matched" if actual_float > threshold_float else "not matched"
+        return "matched" if actual_float < threshold_float else "not_matched"
+    return "matched" if actual_float > threshold_float else "not_matched"
+
+
+def _rule_context_from_snapshot(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    contexts: list[dict[str, Any]] = []
+    signals = snapshot.get("signals")
+    if not isinstance(signals, list):
+        return contexts
+
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+
+        actual_value = _coerce_value(
+            signal.get("actual_value") if "actual_value" in signal else signal.get("actual")
+        )
+        threshold = _coerce_value(signal.get("threshold"))
+        status = str(signal.get("status") or "").strip() or "unavailable"
+        if actual_value is None:
+            status = "unavailable"
+
+        label = str(signal.get("label") or "Signal")
+        contexts.append(
+            {
+                "label": label,
+                "summary": label,
+                "actual_label": label if actual_value is not None else None,
+                "actual_value": actual_value,
+                "operator": signal.get("operator"),
+                "threshold": threshold,
+                "result": status,
+                "status": status,
+                "source": signal.get("source"),
+                "limitation": (
+                    "Actual value was not present in signal snapshot for this date."
+                    if actual_value is None
+                    else None
+                ),
+            }
+        )
+
+    return contexts
 
 
 def _rule_context_for_event(

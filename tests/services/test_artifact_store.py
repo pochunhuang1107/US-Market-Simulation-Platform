@@ -46,6 +46,10 @@ def _write_variant_artifacts(variant_dir: Path) -> None:
         encoding="utf-8",
     )
     (variant_dir / "trade_log.csv").write_text("date,action\n2024-01-02,BUY\n", encoding="utf-8")
+    (variant_dir / "trade_signal_snapshots.json").write_text(
+        '[{"event_index":0,"signals":[]}]\n',
+        encoding="utf-8",
+    )
     (variant_dir / "timeline.csv").write_text(
         "date,strategy_equity,benchmark_equity\n2024-01-01,100,100\n2024-01-02,112.5,108\n",
         encoding="utf-8",
@@ -121,6 +125,7 @@ def test_s3_finalize_sweep_artifacts_uploads_root_and_variant_files_and_rewrites
         f"artifacts/runs/{run_id}/variants/001_variant-a/summary.json",
         f"artifacts/runs/{run_id}/variants/001_variant-a/timeline.csv",
         f"artifacts/runs/{run_id}/variants/001_variant-a/trade_log.csv",
+        f"artifacts/runs/{run_id}/variants/001_variant-a/trade_signal_snapshots.json",
         f"artifacts/runs/{run_id}/variants/001_variant-a/monthly_returns.csv",
     }.issubset(uploaded_keys)
 
@@ -163,6 +168,10 @@ def test_variant_artifact_manifest_supports_s3_without_local_path_checks() -> No
         ),
         "trade_log": "s3://unit-test-bucket/artifacts/runs/run-123/variants/001_variant-a/trade_log.csv",
         "timeline": "s3://unit-test-bucket/artifacts/runs/run-123/variants/001_variant-a/timeline.csv",
+        "trade_signal_snapshots": (
+            "s3://unit-test-bucket/artifacts/runs/run-123/variants/001_variant-a/"
+            "trade_signal_snapshots.json"
+        ),
         "events": "s3://unit-test-bucket/artifacts/runs/run-123/variants/001_variant-a/events.csv",
         "monthly_returns": (
             "s3://unit-test-bucket/artifacts/runs/run-123/variants/001_variant-a/"

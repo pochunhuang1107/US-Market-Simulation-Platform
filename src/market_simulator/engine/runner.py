@@ -67,6 +67,86 @@ def _safe_timeline_value(row, column: str):
     return value
 
 
+def _rule_symbol(rule: AtomicRule, strategy) -> str:
+    return (rule.symbol or strategy.tradable_symbol or "").upper()
+
+
+def _status_from_comparison(actual, operator: str | None, threshold) -> str:
+    if actual is None or threshold is None or operator not in {"below", "above"}:
+        return "unavailable"
+    try:
+        actual_float = float(actual)
+        threshold_float = float(threshold)
+    except (TypeError, ValueError):
+        return "unavailable"
+
+    matched = actual_float < threshold_float if operator == "below" else actual_float > threshold_float
+    return "matched" if matched else "not_matched"
+
+
+def _rule_text(operator: str | None, threshold) -> str | None:
+    if operator is None or threshold is None:
+        return None
+    symbol = "<" if operator == "below" else ">" if operator == "above" else operator
+    return f"{symbol} {threshold}"
+
+
+def _rule_source_label(source: str) -> str:
+    if source == "entry_rule":
+        return "entry_rule"
+    if source == "exit_rule":
+        return "exit_rule"
+    return source
+
+
+def _side_for_trade_action(action: str) -> str:
+    upper = action.upper()
+    if upper.startswith("BUY"):
+        return "BUY"
+    if upper.startswith("SELL"):
+        return "SELL"
+    return action
+
+
+def _signal_column_values(rule: AtomicRule, row, symbol: str) -> dict[str, object]:
+    values: dict[str, object] = {}
+
+    if rule.type in {"rsi_below", "rsi_above"}:
+        column = f"rsi_{rule.lookback}"
+        value = _safe_timeline_value(row, column)
+        values[f"{symbol}_RSI_{rule.lookback}"] = value
+    elif rule.type in {"series_below", "series_above"}:
+        value = _safe_timeline_value(row, "value")
+        if value is None:
+            value = _safe_timeline_value(row, "close")
+        values[f"{symbol}_value"] = value
+    elif rule.type in {"sma_cross_above", "sma_cross_below", "sma_above"}:
+        for window in (rule.fast_window, rule.slow_window):
+            column = f"sma_{window}"
+            value = _safe_timeline_value(row, column)
+            values[f"{symbol}_SMA_{window}"] = value
+    elif rule.type in {"macd_bullish_cross", "macd_bearish_cross"}:
+        for source_column, output_column in (
+            ("macd", f"{symbol}_MACD"),
+            ("macd_signal", f"{symbol}_MACD_signal"),
+        ):
+            value = _safe_timeline_value(row, source_column)
+            values[output_column] = value
+    elif rule.type in {"kd_golden_cross", "kd_dead_cross"}:
+        for source_column, output_column in (
+            ("k", f"{symbol}_KD_K"),
+            ("d", f"{symbol}_KD_D"),
+        ):
+            value = _safe_timeline_value(row, source_column)
+            values[output_column] = value
+    elif rule.type in {"realized_volatility_below", "realized_volatility_above"}:
+        column = f"realized_volatility_{rule.lookback}"
+        value = _safe_timeline_value(row, column)
+        values[f"{symbol}_realized_volatility_{rule.lookback}"] = value
+
+    return values
+
+
 def _timeline_rule_values(bundle, strategy, index: int) -> dict:
     values: dict = {}
     current_date = pd.Timestamp(bundle.tradable.iloc[index]["date"])
@@ -89,42 +169,104 @@ def _timeline_rule_values(bundle, strategy, index: int) -> dict:
         if row_pos is None:
             continue
         row = target_df.iloc[row_pos]
-        symbol = (rule.symbol or strategy.tradable_symbol or "").upper()
-
-        if rule.type in {"rsi_below", "rsi_above"}:
-            column = f"rsi_{rule.lookback}"
-            value = _safe_timeline_value(row, column)
-            if value is not None:
-                values[f"signal_rsi_{rule.lookback}"] = value
-        elif rule.type in {"series_below", "series_above"}:
-            value = _safe_timeline_value(row, "value")
-            if value is None:
-                value = _safe_timeline_value(row, "close")
-            if value is not None:
-                values[f"signal_series_{symbol}"] = value
-        elif rule.type in {"sma_cross_above", "sma_cross_below", "sma_above"}:
-            for window in (rule.fast_window, rule.slow_window):
-                column = f"sma_{window}"
-                value = _safe_timeline_value(row, column)
-                if value is not None:
-                    values[column] = value
-        elif rule.type in {"macd_bullish_cross", "macd_bearish_cross"}:
-            for column in ("macd", "macd_signal", "macd_hist"):
-                value = _safe_timeline_value(row, column)
-                if value is not None:
-                    values[column] = value
-        elif rule.type in {"kd_golden_cross", "kd_dead_cross"}:
-            for column in ("k", "d"):
-                value = _safe_timeline_value(row, column)
-                if value is not None:
-                    values[column] = value
-        elif rule.type in {"realized_volatility_below", "realized_volatility_above"}:
-            column = f"realized_volatility_{rule.lookback}"
-            value = _safe_timeline_value(row, column)
-            if value is not None:
-                values[column] = value
+        values.update(_signal_column_values(rule, row, _rule_symbol(rule, strategy)))
 
     return values
+
+
+def _signal_for_rule(rule: AtomicRule, bundle, strategy, index: int, source: str) -> dict | None:
+    current_date = pd.Timestamp(bundle.tradable.iloc[index]["date"])
+    symbol = _rule_symbol(rule, strategy)
+    try:
+        target_df = resolve_market_dataframe(bundle, rule.symbol, strategy.tradable_symbol)
+    except ValueError:
+        return None
+
+    row_pos = row_position_for_date(target_df, current_date)
+    if row_pos is None:
+        return None
+    row = target_df.iloc[row_pos]
+
+    operator: str | None = None
+    threshold = rule.threshold
+    actual_value = None
+    label = None
+
+    if rule.type in {"rsi_below", "rsi_above"}:
+        operator = "below" if rule.type == "rsi_below" else "above"
+        actual_value = _safe_timeline_value(row, f"rsi_{rule.lookback}")
+        label = f"{symbol} RSI({rule.lookback})"
+    elif rule.type in {"series_below", "series_above"}:
+        operator = "below" if rule.type == "series_below" else "above"
+        actual_value = _safe_timeline_value(row, "value")
+        if actual_value is None:
+            actual_value = _safe_timeline_value(row, "close")
+        label = symbol or str(rule.symbol or "Series").upper()
+    elif rule.type in {"realized_volatility_below", "realized_volatility_above"}:
+        operator = "below" if rule.type == "realized_volatility_below" else "above"
+        actual_value = _safe_timeline_value(row, f"realized_volatility_{rule.lookback}")
+        label = f"{symbol} realized volatility({rule.lookback})"
+    elif rule.type in {"sma_above", "sma_cross_above", "sma_cross_below"}:
+        operator = "above" if rule.type.endswith("above") else "below"
+        actual_value = _safe_timeline_value(row, f"sma_{rule.fast_window}")
+        threshold = _safe_timeline_value(row, f"sma_{rule.slow_window}")
+        label = f"{symbol} SMA({rule.fast_window})"
+    elif rule.type in {"macd_bullish_cross", "macd_bearish_cross"}:
+        operator = "above" if rule.type == "macd_bullish_cross" else "below"
+        actual_value = _safe_timeline_value(row, "macd")
+        threshold = _safe_timeline_value(row, "macd_signal")
+        label = f"{symbol} MACD"
+    elif rule.type in {"kd_golden_cross", "kd_dead_cross"}:
+        operator = "above" if rule.type == "kd_golden_cross" else "below"
+        actual_value = _safe_timeline_value(row, "k")
+        threshold = _safe_timeline_value(row, "d")
+        label = f"{symbol} KD/stochastic"
+    else:
+        return None
+
+    status = _status_from_comparison(actual_value, operator, threshold)
+    return {
+        "label": label,
+        "actual": actual_value,
+        "actual_value": actual_value,
+        "rule": _rule_text(operator, threshold),
+        "operator": operator,
+        "threshold": threshold,
+        "status": status,
+        "source": _rule_source_label(source),
+    }
+
+
+def _signals_for_rules(rule_node, bundle, strategy, index: int, source: str) -> list[dict]:
+    rules = []
+    _collect_atomic_rules(rule_node, rules)
+    signals = []
+    for rule in rules:
+        signal = _signal_for_rule(rule, bundle, strategy, index, source)
+        if signal is not None:
+            signals.append(signal)
+    return signals
+
+
+def _risk_signal(
+    label: str,
+    actual_value,
+    operator: str,
+    threshold,
+    source: str,
+    *,
+    status: str | None = None,
+) -> dict:
+    return {
+        "label": label,
+        "actual": actual_value,
+        "actual_value": actual_value,
+        "rule": _rule_text(operator, threshold),
+        "operator": operator,
+        "threshold": threshold,
+        "status": status or _status_from_comparison(actual_value, operator, threshold),
+        "source": source,
+    }
 
 
 def run_simulation(bundle, strategy):
@@ -165,6 +307,25 @@ def run_simulation(bundle, strategy):
     trade_log = []
     timeline = []
     events = []
+    trade_signal_snapshots = []
+
+    def record_trade(trade: dict, signals: list[dict]) -> None:
+        event_index = len(trade_log)
+        trade_log.append(trade)
+        trade_date = str(trade.get("date") or "")
+        trade_action = str(trade.get("action") or "TRADE")
+        trade_signal_snapshots.append(
+            {
+                "id": f"{trade_date or 'trade'}-{event_index}",
+                "event_index": event_index,
+                "date": trade_date,
+                "action": trade_action,
+                "side": _side_for_trade_action(trade_action),
+                "price": trade.get("price"),
+                "shares": trade.get("shares"),
+                "signals": signals,
+            }
+        )
 
     for i, row in df.iterrows():
         date = pd.Timestamp(row["date"])
@@ -206,7 +367,7 @@ def run_simulation(bundle, strategy):
 
                     portfolio.position.scale_steps = max(0, portfolio.position.scale_steps - 1)
 
-                    trade_log.append({
+                    record_trade({
                         "date": str(date.date()),
                         "action": "SELL_REDUCE_PROFIT",
                         "shares": shares,
@@ -215,7 +376,16 @@ def run_simulation(bundle, strategy):
                         "net_pnl": round(net, 6),
                         "fee": round(fee, 6),
                         "sleeve": "overlay",
-                    })
+                    }, [
+                        _risk_signal(
+                            "Current profit %",
+                            round(profit_pct * 100, 6),
+                            "above",
+                            round(profit_reduce_threshold * 100, 6),
+                            "position_management",
+                            status="matched",
+                        )
+                    ])
 
                     action = "reduce_profit"
 
@@ -229,7 +399,7 @@ def run_simulation(bundle, strategy):
                 )
                 portfolio.last_exit_bar_index = i
 
-                trade_log.append({
+                record_trade({
                     "date": str(date.date()),
                     "action": "SELL_ALL_STOP_LOSS",
                     "shares": sold,
@@ -238,7 +408,16 @@ def run_simulation(bundle, strategy):
                     "net_pnl": round(net, 6),
                     "fee": round(fee, 6),
                     "sleeve": "overlay",
-                })
+                }, [
+                    _risk_signal(
+                        "Current profit %",
+                        round(profit_pct * 100, 6),
+                        "below",
+                        round(-strategy.risk.stop_loss_pct * 100, 6),
+                        "risk",
+                        status="matched",
+                    )
+                ])
                 events.append({
                     "date": str(date.date()),
                     "event_type": "STOP_LOSS",
@@ -256,7 +435,7 @@ def run_simulation(bundle, strategy):
                 )
                 portfolio.last_exit_bar_index = i
 
-                trade_log.append({
+                record_trade({
                     "date": str(date.date()),
                     "action": "SELL_ALL_TAKE_PROFIT",
                     "shares": sold,
@@ -265,7 +444,16 @@ def run_simulation(bundle, strategy):
                     "net_pnl": round(net, 6),
                     "fee": round(fee, 6),
                     "sleeve": "overlay",
-                })
+                }, [
+                    _risk_signal(
+                        "Current profit %",
+                        round(profit_pct * 100, 6),
+                        "above",
+                        round(strategy.risk.take_profit_pct * 100, 6),
+                        "risk",
+                        status="matched",
+                    )
+                ])
                 events.append({
                     "date": str(date.date()),
                     "event_type": "TAKE_PROFIT",
@@ -291,7 +479,7 @@ def run_simulation(bundle, strategy):
                 )
                 portfolio.position.partial_take_profit_count += 1
 
-                trade_log.append({
+                record_trade({
                     "date": str(date.date()),
                     "action": "SELL_PARTIAL_TAKE_PROFIT",
                     "shares": sold,
@@ -300,7 +488,16 @@ def run_simulation(bundle, strategy):
                     "net_pnl": round(net, 6),
                     "fee": round(fee, 6),
                     "sleeve": "overlay",
-                })
+                }, [
+                    _risk_signal(
+                        "Current profit %",
+                        round(profit_pct * 100, 6),
+                        "above",
+                        round(strategy.risk.partial_take_profit.trigger_profit_pct * 100, 6),
+                        "risk",
+                        status="matched",
+                    )
+                ])
                 events.append({
                     "date": str(date.date()),
                     "event_type": "PARTIAL_TAKE_PROFIT",
@@ -326,7 +523,7 @@ def run_simulation(bundle, strategy):
 
                     portfolio.position.scale_steps = max(0, portfolio.position.scale_steps - 1)
 
-                    trade_log.append({
+                    record_trade({
                         "date": str(date.date()),
                         "action": "SELL_REDUCE",
                         "shares": shares,
@@ -335,7 +532,7 @@ def run_simulation(bundle, strategy):
                         "net_pnl": round(net, 6),
                         "fee": round(fee, 6),
                         "sleeve": "overlay",
-                    })
+                    }, _signals_for_rules(strategy.exit_rule, bundle, strategy, i, "exit_rule"))
 
                     action = "reduce"
 
@@ -346,7 +543,7 @@ def run_simulation(bundle, strategy):
                     portfolio.position.scale_steps = 0
                     portfolio.last_exit_bar_index = i
 
-                    trade_log.append({
+                    record_trade({
                         "date": str(date.date()),
                         "action": "SELL_ALL",
                         "shares": shares,
@@ -355,7 +552,7 @@ def run_simulation(bundle, strategy):
                         "net_pnl": round(net, 6),
                         "fee": round(fee, 6),
                         "sleeve": "overlay",
-                    })
+                    }, _signals_for_rules(strategy.exit_rule, bundle, strategy, i, "exit_rule"))
 
                     action = "exit"
 
@@ -367,7 +564,7 @@ def run_simulation(bundle, strategy):
                 portfolio.position.scale_steps = 0
                 portfolio.last_exit_bar_index = i
 
-                trade_log.append({
+                record_trade({
                     "date": str(date.date()),
                     "action": "SELL_ALL",
                     "shares": shares,
@@ -376,7 +573,7 @@ def run_simulation(bundle, strategy):
                     "net_pnl": round(net, 6),
                     "fee": round(fee, 6),
                     "sleeve": "overlay",
-                })
+                }, _signals_for_rules(strategy.exit_rule, bundle, strategy, i, "exit_rule"))
 
                 action = "exit"
 
@@ -430,14 +627,14 @@ def run_simulation(bundle, strategy):
                     portfolio.position.avg_entry_price = new_avg
                     portfolio.position.scale_steps += 1
 
-                    trade_log.append({
+                    record_trade({
                         "date": str(date.date()),
                         "action": "BUY_ADD" if existing > 0 else "BUY",
                         "shares": shares,
                         "price": close,
                         "fee": round(fee, 6),
                         "sleeve": "overlay",
-                    })
+                    }, _signals_for_rules(strategy.entry_rule, bundle, strategy, i, "entry_rule"))
 
                     action = "scale_in"
 
@@ -514,4 +711,5 @@ def run_simulation(bundle, strategy):
         trade_log=trade_log,
         timeline=timeline,
         events=events,
+        trade_signal_snapshots=trade_signal_snapshots,
     )

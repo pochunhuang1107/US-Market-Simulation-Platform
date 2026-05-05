@@ -42,7 +42,7 @@ function formatRule(context: TradeEventRuleContext): string {
 
 function formatStatus(context: TradeEventRuleContext): string {
   if (context.actual_value === null || context.actual_value === undefined) return 'unavailable';
-  return context.result || 'unknown';
+  return context.status || context.result || 'unknown';
 }
 
 function EventList({
@@ -107,10 +107,6 @@ function EventPanel({ event }: { event: TradeEventContext | null }) {
   const values = Object.entries(event.values_on_date);
   const ruleContext = event.rule_context ?? [];
   const hasSignalRows = ruleContext.length > 0 || values.length > 0;
-  const allRuleValuesMissing =
-    ruleContext.length > 0 &&
-    ruleContext.every((context) => context.actual_value === null || context.actual_value === undefined);
-
   return (
     <div className="app-border-soft h-full rounded-2xl border p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -168,9 +164,6 @@ function EventPanel({ event }: { event: TradeEventContext | null }) {
           ) : (
             <p className="app-text-muted mt-2 text-sm">No signal values were found in artifacts for this trade date.</p>
           )}
-          {allRuleValuesMissing ? (
-            <p className="app-text-muted mt-2 text-xs">No signal values were found in artifacts for this trade date.</p>
-          ) : null}
         </div>
       </div>
     </div>

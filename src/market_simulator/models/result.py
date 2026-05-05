@@ -12,4 +12,5 @@ class SimulationResult:
     trade_log: list[dict[str, Any]]
     timeline: list[dict[str, Any]]
     events: list[dict[str, Any]]
+    trade_signal_snapshots: list[dict[str, Any]] | None = None
     artifact_dir: str | None = None
