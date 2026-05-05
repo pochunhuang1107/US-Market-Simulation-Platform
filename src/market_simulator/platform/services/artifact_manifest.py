@@ -9,6 +9,7 @@ VARIANT_ARTIFACT_FILES = {
     "yearly_report": "yearly_report.csv",
     "trade_log": "trade_log.csv",
     "timeline": "timeline.csv",
+    "trade_signal_snapshots": "trade_signal_snapshots.json",
     "events": "events.csv",
     "monthly_returns": "monthly_returns.csv",
     "report_bundle": "report_bundle.json",

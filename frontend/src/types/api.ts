@@ -218,6 +218,8 @@ export interface TradeEventRuleContext {
   operator: Nullable<string>;
   threshold: Nullable<string | number | boolean>;
   result: string;
+  status?: string;
+  source?: Nullable<string>;
   limitation: Nullable<string>;
 }
 

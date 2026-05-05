@@ -30,6 +30,10 @@ def write_artifacts(result, output_dir):
     pd.DataFrame(result.trade_log).to_csv(output_dir / "trade_log.csv", index=False)
     pd.DataFrame(result.timeline).to_csv(output_dir / "timeline.csv", index=False)
     pd.DataFrame(result.events).to_csv(output_dir / "events.csv", index=False)
+    (output_dir / "trade_signal_snapshots.json").write_text(
+        json.dumps(getattr(result, "trade_signal_snapshots", None) or [], indent=2),
+        encoding="utf-8",
+    )
 
     timeline_df = pd.DataFrame(result.timeline)
     trade_df = pd.DataFrame(result.trade_log)
