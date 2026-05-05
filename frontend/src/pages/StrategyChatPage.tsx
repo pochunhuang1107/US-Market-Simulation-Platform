@@ -13,6 +13,10 @@ import {
   fetchMeEntitlements,
   generateStrategyDraft
 } from '../lib/api';
+import {
+  STRATEGY_GALLERY_TEMPLATES,
+  type StrategyGalleryTemplate
+} from '../lib/strategyGalleryTemplates';
 import type {
   MeEntitlementsResponse,
   StrategyBuilderGenerateResponse
@@ -22,6 +26,7 @@ type StrategyChatLocationState = {
   homeResetKey?: number;
   prefillPrompt?: string;
   source?: string;
+  sourceLabel?: string;
   sourceRunId?: string;
   sourceDraftConfig?: Record<string, unknown> | null;
 } | null;
@@ -110,33 +115,40 @@ function getLatestDraftHeadline(messages: ChatMessage[]): string | null {
 
 function buildSeededDraftMessage({
   config,
-  sourceRunId
+  sourceRunId,
+  sourceLabel
 }: {
   config: Record<string, unknown>;
   sourceRunId?: string;
+  sourceLabel?: string;
 }): ChatMessage {
   const strategyName =
     typeof config.name === 'string' && config.name.trim()
       ? config.name
       : typeof config.tradable_symbol === 'string' && config.tradable_symbol.trim()
-        ? `${config.tradable_symbol} strategy`
-        : 'Imported strategy';
+      ? `${config.tradable_symbol} strategy`
+      : 'Imported strategy';
+  const importedFrom = sourceLabel?.trim() || 'Strategy Builder';
 
   return {
     id: crypto.randomUUID(),
     role: 'assistant',
     text: sourceRunId
       ? `Loaded ${strategyName} from result ${sourceRunId}.`
-      : `Loaded ${strategyName}.`,
+      : `Loaded ${strategyName} from ${importedFrom}.`,
     draft: {
       response_type: 'UPDATE_DRAFT',
       message: sourceRunId
         ? `Loaded ${strategyName} from result ${sourceRunId}.`
-        : `Loaded ${strategyName}.`,
+        : `Loaded ${strategyName} from ${importedFrom}.`,
       config,
       summary: `Loaded ${strategyName} as the current editing context.`,
       warnings: [],
-      assumptions: ['Imported the previous result configuration as the current builder context.'],
+      assumptions: [
+        sourceRunId
+          ? 'Imported the previous result configuration as the current builder context.'
+          : `Imported the ${importedFrom} configuration as the current builder context.`
+      ],
       changes: [],
       answer_data: null,
       validation_data: null,
@@ -377,6 +389,59 @@ function HomeGuidancePanel() {
   );
 }
 
+function FeaturedStrategyIdeas({
+  onUseTemplate
+}: {
+  onUseTemplate: (template: StrategyGalleryTemplate) => void;
+}) {
+  const featuredTemplates = STRATEGY_GALLERY_TEMPLATES.slice(0, 3);
+
+  return (
+    <section className="w-full">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+            Featured strategy ideas
+          </div>
+          <p className="mt-1 text-sm app-text-muted">Start from a validated template instead of a blank prompt.</p>
+        </div>
+        <Link to="/gallery" className="app-button-secondary rounded-xl px-3 py-1.5 text-xs font-semibold transition">
+          Open gallery
+        </Link>
+      </div>
+
+      <div className="grid items-stretch gap-3 md:auto-rows-fr md:grid-cols-3">
+        {featuredTemplates.map((template) => (
+          <article key={template.id} className="app-example-prompt flex h-full min-h-[190px] flex-col rounded-xl border p-3.5 text-left">
+            <div className="flex min-h-[58px] items-start justify-between gap-2">
+              <p className="min-w-0 text-sm font-semibold leading-5 app-title">{template.title}</p>
+              <span className="app-pill shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold">
+                {template.style}
+              </span>
+            </div>
+            <p className="mt-2 flex-1 text-xs leading-5 app-text-muted">{template.expectedBehavior}</p>
+            <div className="mt-auto flex flex-wrap gap-2 pt-3">
+              <button
+                type="button"
+                onClick={() => onUseTemplate(template)}
+                className="app-button-primary whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-semibold transition"
+              >
+                Use in builder
+              </button>
+              <Link
+                to={`/gallery?template=${template.id}`}
+                className="app-button-secondary whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-semibold transition"
+              >
+                Preview
+              </Link>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function StrategyChatPage() {
   const auth = useAppAuth();
   const navigate = useNavigate();
@@ -455,7 +520,11 @@ export function StrategyChatPage() {
 
     if (!prefillPrompt && !sourceDraftConfig) return;
 
-    const consumptionKey = `${prefillPrompt ?? ''}:${state?.sourceRunId ?? ''}`;
+    const sourceConfigName =
+      sourceDraftConfig && typeof sourceDraftConfig.name === 'string'
+        ? sourceDraftConfig.name
+        : '';
+    const consumptionKey = `${prefillPrompt ?? ''}:${state?.source ?? ''}:${state?.sourceRunId ?? ''}:${sourceConfigName}`;
     if (consumedPrefillRef.current === consumptionKey) return;
 
     consumedPrefillRef.current = consumptionKey;
@@ -473,7 +542,8 @@ export function StrategyChatPage() {
         return [
           buildSeededDraftMessage({
             config: sourceDraftConfig,
-            sourceRunId: state?.sourceRunId
+            sourceRunId: state?.sourceRunId,
+            sourceLabel: state?.sourceLabel
           })
         ];
       });
@@ -734,6 +804,16 @@ export function StrategyChatPage() {
     });
   }
 
+  function handleUseGalleryTemplate(template: StrategyGalleryTemplate) {
+    navigate('/', {
+      state: {
+        source: 'strategy_gallery',
+        sourceLabel: 'Strategy Gallery',
+        sourceDraftConfig: JSON.parse(JSON.stringify(template.config)) as Record<string, unknown>
+      }
+    });
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {!hasMessages ? (
@@ -763,6 +843,10 @@ export function StrategyChatPage() {
 
               <div className="mt-6 w-full max-w-3xl">
                 <HomeGuidancePanel />
+              </div>
+
+              <div className="mt-6 w-full max-w-3xl">
+                <FeaturedStrategyIdeas onUseTemplate={handleUseGalleryTemplate} />
               </div>
 
               <div className="mt-6 w-full max-w-3xl">

@@ -64,6 +64,11 @@ Natural language is an input method, not the execution engine.
 - Sequential editing with existing config context
 - Structured preview before execution
 
+### Strategy Gallery
+- Curated Strategy V2 templates for beta users who do not want to start from a blank prompt
+- Preview cards with symbols, style, expected behavior, rules, benchmark, date range, and risk controls
+- One-click draft simulation runs through the same unsaved `draft_config` run flow as the chat builder
+
 ### Strategy Engine
 - RSI, SMA, EMA, MACD, KD indicators
 - AND / OR / NOT composite rules
@@ -186,5 +191,6 @@ If a saved strategy version is attached to the run, `base_config` may be omitted
 
 - All strategies must map to the Strategy V2 schema
 - Execution is deterministic
+- Gallery templates are research starting points, not performance promises
 - The parser helps generate configs, but it does not execute strategy logic directly
 - For the full web app flow, run the backend, worker, and frontend together
