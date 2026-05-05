@@ -170,6 +170,13 @@ export async function fetchRunTradeEvents(runId: string): Promise<TradeEventCont
   return request<TradeEventContextResponse>(`/api/runs/${runId}/trade-events`);
 }
 
+export async function fetchSweepVariantTradeEvents(
+  runId: string,
+  variantId: string
+): Promise<TradeEventContextResponse> {
+  return request<TradeEventContextResponse>(`/api/runs/${runId}/sweep/variants/${variantId}/trade-events`);
+}
+
 export async function fetchSweepVariantDetail(
   runId: string,
   variantId: string

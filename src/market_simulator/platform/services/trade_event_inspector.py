@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import io
+import re
+from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,7 @@ from market_simulator.settings import get_settings
 
 MAX_TRADE_EVENTS = 200
 MAX_VALUES_ON_DATE = 12
+REFERENCE_SERIES_LABELS = {"VIX", "VIX9D", "VXEEM", "DGS10", "DGS2", "T10Y2Y", "DFF"}
 
 
 class TradeEventInspectorService:
@@ -79,10 +82,12 @@ class TradeEventInspectorService:
             )
             values_on_date = _values_on_date(timeline_row or {})
             rule_summary = _rule_summary_for_event(action, timeline_row or {}, config)
+            rule_context = _rule_context_for_event(action, timeline_row or {}, values_on_date, config)
             explanation = _explanation_for_event(
                 action,
                 timeline_row or {},
                 values_on_date,
+                rule_context,
             )
 
             events.append(
@@ -104,6 +109,7 @@ class TradeEventInspectorService:
                     ),
                     "event_category": _event_category(action),
                     "values_on_date": values_on_date,
+                    "rule_context": rule_context,
                     "rule_summary": rule_summary,
                     "explanation": explanation,
                 }
@@ -118,8 +124,28 @@ class TradeEventInspectorService:
 def _normalize_date(value: Any) -> str | None:
     if value in (None, ""):
         return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
     text = str(value).strip()
-    return text[:10] if text else None
+    if not text:
+        return None
+
+    iso_candidate = text[:10]
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", iso_candidate):
+        return iso_candidate
+
+    for fmt in ("%Y/%m/%d", "%m/%d/%Y", "%m/%d/%y", "%Y%m%d"):
+        try:
+            return datetime.strptime(text[:10], fmt).date().isoformat()
+        except ValueError:
+            continue
+
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return iso_candidate if iso_candidate else None
 
 
 def _optional_float(value: Any) -> float | None:
@@ -168,10 +194,12 @@ def _column_priority(column: str) -> int:
         return 2
     if "macd" in lowered:
         return 3
-    if lowered in {"k", "d"} or lowered.startswith("kd_"):
+    if lowered in {"k", "d"} or lowered.startswith(("kd_", "stoch_")):
         return 4
+    if lowered in {"close", "price"} or lowered.endswith("_close") or lowered.endswith("_price"):
+        return 8
     if "threshold" in lowered:
-        return 5
+        return 9
     if lowered.startswith("signal_series_") or lowered.startswith("reference_"):
         return 6
     if "realized_volatility" in lowered or lowered.startswith("return_"):
@@ -209,6 +237,7 @@ def _is_relevant_value_column(column: str) -> bool:
         "cooldown_active",
         "action_taken",
         "tradable_symbol",
+        "symbol",
     }:
         return False
 
@@ -221,47 +250,96 @@ def _is_relevant_value_column(column: str) -> bool:
         "reference_",
         "realized_volatility",
         "return_",
+        "close",
+        "price",
     )
-    return lowered in {"k", "d"} or lowered.startswith("kd_") or any(token in lowered for token in tokens)
+    return lowered in {"k", "d", "kd", "stochastic"} or lowered.startswith(("kd_", "stoch_")) or any(token in lowered for token in tokens)
 
 
 def _label_for_column(column: str) -> str:
     lowered = column.lower()
+    normalized = re.sub(r"[^a-z0-9]+", "_", lowered).strip("_")
 
     if lowered.startswith("signal_series_"):
         remainder = column[len("signal_series_"):]
         return _humanize_column(remainder)
 
-    if lowered.startswith("signal_rsi_"):
-        lookback = column[len("signal_rsi_"):]
+    if lowered.startswith("reference_"):
+        remainder = column[len("reference_"):]
+        return _label_for_column(remainder)
+
+    if normalized.startswith("signal_rsi_"):
+        lookback = normalized[len("signal_rsi_"):]
         return f"RSI({lookback})"
 
-    if lowered.startswith("rsi_"):
-        lookback = column[len("rsi_"):]
+    if normalized.startswith("rsi_"):
+        lookback = normalized[len("rsi_"):]
         return f"RSI({lookback})"
 
-    if lowered.startswith("sma_"):
-        window = column[len("sma_"):]
+    rsi_match = re.search(r"(?:^|_)(?:[a-z0-9]+_)?rsi_?(\d+)?$", normalized)
+    if rsi_match:
+        lookback = rsi_match.group(1) or "14"
+        return f"RSI({lookback})"
+
+    rsi_compact_match = re.search(r"rsi(\d+)$", normalized)
+    if rsi_compact_match:
+        return f"RSI({rsi_compact_match.group(1)})"
+
+    if normalized.startswith("sma_"):
+        window = normalized[len("sma_"):]
         return f"SMA({window})"
 
-    if lowered == "macd":
+    sma_match = re.search(r"(?:^|_)sma_?(\d+)$", normalized)
+    if sma_match:
+        return f"SMA({sma_match.group(1)})"
+
+    if normalized.startswith("realized_volatility_"):
+        lookback = normalized[len("realized_volatility_"):]
+        return f"Realized Volatility({lookback})"
+
+    if normalized.startswith("return_"):
+        lookback = normalized[len("return_"):]
+        return f"Return({lookback})"
+
+    if normalized in {"macd", "macd_line"} or (normalized.endswith("_macd") and "signal" not in normalized and "hist" not in normalized):
         return "MACD"
-    if lowered == "macd_signal":
+    if normalized in {"macd_signal", "macd_signal_line"} or normalized.endswith("_macd_signal"):
         return "MACD signal"
-    if lowered == "macd_hist":
+    if normalized in {"macd_hist", "macd_histogram"} or normalized.endswith("_macd_hist"):
         return "MACD histogram"
 
-    if lowered == "k":
+    if normalized in {"k", "kd_k", "stoch_k", "stochastic_k"}:
         return "KD K"
-    if lowered == "d":
+    if normalized in {"d", "kd_d", "stoch_d", "stochastic_d"}:
         return "KD D"
+    if normalized in {"kd", "stochastic"}:
+        return "KD"
+
+    for suffix in ("_close", "_price"):
+        if lowered.endswith(suffix):
+            prefix = column[: -len(suffix)]
+            if prefix.upper() in REFERENCE_SERIES_LABELS:
+                return prefix.upper()
+            return f"{_humanize_column(prefix)} {suffix[1:].title()}"
+
+    for prefix in ("close_", "price_"):
+        if lowered.startswith(prefix):
+            symbol = column[len(prefix):]
+            if symbol.upper() in REFERENCE_SERIES_LABELS:
+                return symbol.upper()
+            return f"{_humanize_column(symbol)} {prefix[:-1].title()}"
+
+    if normalized in {"close", "price"}:
+        return lowered.title()
 
     return _humanize_column(column)
 
 
 def _humanize_column(value: str) -> str:
-    if value.upper() in {"VIX", "VIX9D", "VXEEM", "DGS10", "DGS2", "T10Y2Y", "DFF"}:
+    if value.upper() in REFERENCE_SERIES_LABELS:
         return value.upper()
+    if value.isupper() and value.isalnum() and len(value) <= 5:
+        return value
     return value.replace("_", " ").strip().title()
 
 
@@ -368,6 +446,182 @@ def _normalize_rule(rule: Any) -> dict | None:
     return rule
 
 
+def _collect_atomic_rules(rule: Any) -> list[dict[str, Any]]:
+    if not isinstance(rule, dict):
+        return []
+
+    normalized = _normalize_rule(rule)
+    if not isinstance(normalized, dict):
+        return []
+
+    kind = normalized.get("kind")
+    if kind == "atomic":
+        return [normalized]
+    if kind == "not":
+        return _collect_atomic_rules(normalized.get("rule"))
+    if kind == "group":
+        rules: list[dict[str, Any]] = []
+        for child in normalized.get("rules", []):
+            rules.extend(_collect_atomic_rules(child))
+        return rules
+    if kind == "window":
+        return _collect_atomic_rules(normalized.get("rule"))
+    if kind == "sequence":
+        rules: list[dict[str, Any]] = []
+        for step in normalized.get("steps", []):
+            rules.extend(_collect_atomic_rules(step))
+        return rules
+    return []
+
+
+def _rules_for_event(action: str, timeline_row: dict[str, str], config: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(config, dict):
+        return []
+
+    category = _event_category(action)
+    if category == "entry":
+        return _collect_atomic_rules(config.get("entry_rule") or config.get("entry"))
+    if category in {"exit", "reduce"}:
+        return _collect_atomic_rules(config.get("exit_rule") or config.get("exit"))
+
+    if _optional_bool(timeline_row.get("entry_signal")):
+        return _collect_atomic_rules(config.get("entry_rule") or config.get("entry"))
+    if _optional_bool(timeline_row.get("exit_signal")):
+        return _collect_atomic_rules(config.get("exit_rule") or config.get("exit"))
+    return []
+
+
+def _first_value(values_on_date: dict[str, float | bool | str], labels: list[str]) -> tuple[str | None, float | bool | str | None]:
+    by_normalized = {_normalize_label(label): (label, value) for label, value in values_on_date.items()}
+    for label in labels:
+        match = by_normalized.get(_normalize_label(label))
+        if match is not None:
+            return match
+    return None, None
+
+
+def _normalize_label(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", label.lower())
+
+
+def _rule_symbol(rule: dict[str, Any], config: dict[str, Any] | None) -> str:
+    symbol = rule.get("symbol")
+    if not symbol and isinstance(config, dict):
+        symbol = config.get("tradable_symbol") or config.get("symbol")
+    return str(symbol or "").upper()
+
+
+def _compare_result(actual: Any, operator: str | None, threshold: Any) -> str:
+    if actual is None or threshold is None or operator not in {"below", "above"}:
+        return "unknown"
+    try:
+        actual_float = float(actual)
+        threshold_float = float(threshold)
+    except (TypeError, ValueError):
+        return "unknown"
+
+    if operator == "below":
+        return "matched" if actual_float < threshold_float else "not matched"
+    return "matched" if actual_float > threshold_float else "not matched"
+
+
+def _rule_context_for_event(
+    action: str,
+    timeline_row: dict[str, str],
+    values_on_date: dict[str, float | bool | str],
+    config: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    contexts: list[dict[str, Any]] = []
+    for rule in _rules_for_event(action, timeline_row, config):
+        context = _rule_context_for_atomic_rule(rule, values_on_date, config)
+        if context is not None:
+            contexts.append(context)
+    return contexts
+
+
+def _rule_context_for_atomic_rule(
+    rule: dict[str, Any],
+    values_on_date: dict[str, float | bool | str],
+    config: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    rule_type = str(rule.get("type") or "")
+    symbol = _rule_symbol(rule, config)
+    threshold = rule.get("threshold")
+    operator: str | None = None
+    actual_label: str | None = None
+    actual_value: float | bool | str | None = None
+    threshold_value: Any = threshold
+    label = _describe_rule(rule, symbol or None)
+
+    if rule_type in {"rsi_below", "rsi_above"}:
+        lookback = rule.get("lookback") or 14
+        operator = "below" if rule_type.endswith("below") else "above"
+        label = f"{symbol} RSI({lookback})" if symbol else f"RSI({lookback})"
+        actual_label, actual_value = _first_value(values_on_date, [f"{symbol} RSI({lookback})", f"RSI({lookback})"])
+    elif rule_type in {"series_below", "series_above"}:
+        operator = "below" if rule_type.endswith("below") else "above"
+        label = symbol or str(rule.get("symbol") or "Series").upper()
+        actual_label, actual_value = _first_value(values_on_date, [label, f"{label} Close", f"{label} Price"])
+    elif rule_type in {"realized_volatility_below", "realized_volatility_above"}:
+        lookback = rule.get("lookback")
+        operator = "below" if rule_type.endswith("below") else "above"
+        label = f"{symbol} realized volatility({lookback})" if symbol else f"Realized volatility({lookback})"
+        actual_label, actual_value = _first_value(
+            values_on_date,
+            [f"{symbol} Realized Volatility({lookback})", f"Realized Volatility({lookback})"],
+        )
+    elif rule_type in {"sma_above", "sma_cross_above", "sma_cross_below"}:
+        fast_window = rule.get("fast_window")
+        slow_window = rule.get("slow_window")
+        operator = "above" if rule_type.endswith("above") else "below"
+        actual_candidates = [f"{symbol} Close", f"{symbol} Price", "Close", "Price"] if fast_window == 1 else [f"SMA({fast_window})"]
+        actual_label, actual_value = _first_value(values_on_date, actual_candidates)
+        _, threshold_value = _first_value(values_on_date, [f"SMA({slow_window})"])
+        label = f"{symbol} Price" if fast_window == 1 and symbol else f"SMA({fast_window})"
+    elif rule_type in {"macd_bullish_cross", "macd_bearish_cross"}:
+        operator = "above" if rule_type == "macd_bullish_cross" else "below"
+        actual_label, actual_value = _first_value(values_on_date, ["MACD"])
+        _, signal_value = _first_value(values_on_date, ["MACD signal"])
+        threshold_value = signal_value
+        label = f"{symbol} MACD" if symbol else "MACD"
+    elif rule_type in {"kd_golden_cross", "kd_dead_cross"}:
+        operator = "above" if rule_type == "kd_golden_cross" else "below"
+        actual_label, actual_value = _first_value(values_on_date, ["KD K", "KD"])
+        _, threshold_value = _first_value(values_on_date, ["KD D"])
+        label = f"{symbol} KD/stochastic" if symbol else "KD/stochastic"
+    elif rule_type in {
+        "bullish_candle",
+        "bearish_candle",
+        "close_above_previous_high",
+        "close_below_previous_low",
+        "close_near_high",
+        "close_near_low",
+    }:
+        actual_label, actual_value = _first_value(values_on_date, ["Close", "Price"])
+        label = _describe_rule(rule, symbol or None)
+    else:
+        return None
+
+    result = _compare_result(actual_value, operator, threshold_value)
+    limitation = None
+    if actual_value is None:
+        limitation = "Actual value was not present in timeline artifacts for this date."
+        result = "unavailable"
+    elif threshold_value is None:
+        limitation = "Comparable threshold value was not present in artifacts for this date."
+
+    return {
+        "label": label,
+        "summary": _describe_rule(rule, symbol or None),
+        "actual_label": actual_label,
+        "actual_value": actual_value,
+        "operator": operator,
+        "threshold": threshold_value,
+        "result": result,
+        "limitation": limitation,
+    }
+
+
 def _format_value(value: float | bool | str) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -378,34 +632,19 @@ def _format_value(value: float | bool | str) -> str:
 
 def _available_values_text(values_on_date: dict[str, float | bool | str]) -> str:
     if not values_on_date:
-        return "No indicator/reference values were available in artifacts for this date."
+        return "No signal values were found in artifacts for this trade date."
 
     values = ", ".join(
         f"{label} {_format_value(value)}"
         for label, value in values_on_date.items()
     )
-    return f"Available values: {values}."
+    return f"Signal values: {values}."
 
 
 def _explanation_for_event(
     action: str,
     timeline_row: dict[str, str],
     values_on_date: dict[str, float | bool | str],
+    rule_context: list[dict[str, Any]],
 ) -> str:
-    category = _event_category(action)
-    values_text = _available_values_text(values_on_date)
-    upper = action.upper()
-
-    if category == "entry" and _optional_bool(timeline_row.get("entry_signal")) is not False:
-        return f"Matched entry rule. {values_text}"
-
-    if "STOP_LOSS" in upper or "TAKE_PROFIT" in upper:
-        return f"Matched risk control. {values_text}"
-
-    if category in {"exit", "reduce"} and _optional_bool(timeline_row.get("exit_signal")) is not False:
-        return f"Matched exit rule. {values_text}"
-
-    return (
-        "Rule context is shown from available artifact values; exact trigger attribution may be limited. "
-        f"{values_text}"
-    )
+    return _available_values_text(values_on_date)

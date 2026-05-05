@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { RunCharts } from '../components/run-detail/RunCharts';
 import { RunInsightHero } from '../components/run-detail/RunInsightHero';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
+import { TradeEventInspector } from '../components/run-detail/TradeEventInspector';
 import { MetricCard } from '../components/shared/MetricCard';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
@@ -229,7 +230,7 @@ export function SweepVariantDetailPage() {
     { label: 'CAGR', value: formatPct(toNumber(variant.cagr_pct)), tone: getMetricTone(toNumber(variant.cagr_pct)) },
     { label: 'Sharpe', value: formatDecimal(toNumber(variant.sharpe_ratio)) },
     { label: 'Max Drawdown', value: formatPct(toNumber(variant.max_drawdown_pct)), tone: 'negative' as const },
-    { label: 'Activity', value: formatTradeActivity(variant) }
+    { label: 'Trades', value: formatTradeActivity(variant) }
   ];
 
   return (
@@ -312,6 +313,8 @@ export function SweepVariantDetailPage() {
           Variant chart artifacts are not available yet. Metrics and config are available.
         </div>
       )}
+
+      <TradeEventInspector runId={data.run.id} variantId={resolvedVariantId} />
 
       <SectionCard title="Variant Config" subtitle={`Strategy V2 config for variant ${resolvedVariantId}.`}>
         <details className="app-surface-soft rounded-2xl border px-4 py-3">

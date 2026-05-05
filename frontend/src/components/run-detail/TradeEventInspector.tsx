@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { fetchRunTradeEvents } from '../../lib/api';
+import { fetchRunTradeEvents, fetchSweepVariantTradeEvents } from '../../lib/api';
 import { formatShortDate } from '../../lib/formatters';
-import type { TradeEventContext, TradeEventContextResponse } from '../../types/api';
+import type { TradeEventContext, TradeEventContextResponse, TradeEventRuleContext } from '../../types/api';
 import { SectionCard } from '../shared/SectionCard';
 
 function formatShares(value: number | null): string {
@@ -26,6 +26,23 @@ function formatValue(value: string | number | boolean): string {
 function eventTitle(event: TradeEventContext): string {
   const date = event.date ? formatShortDate(event.date) : 'Unknown date';
   return `${event.action} · ${date}`;
+}
+
+function operatorSymbol(operator: string | null): string | null {
+  if (operator === 'below') return '<';
+  if (operator === 'above') return '>';
+  return operator;
+}
+
+function formatRule(context: TradeEventRuleContext): string {
+  const operator = operatorSymbol(context.operator);
+  if (!operator || context.threshold === null || context.threshold === undefined) return '—';
+  return `${operator} ${formatValue(context.threshold)}`;
+}
+
+function formatStatus(context: TradeEventRuleContext): string {
+  if (context.actual_value === null || context.actual_value === undefined) return 'unavailable';
+  return context.result || 'unknown';
 }
 
 function EventList({
@@ -88,6 +105,11 @@ function EventPanel({ event }: { event: TradeEventContext | null }) {
   }
 
   const values = Object.entries(event.values_on_date);
+  const ruleContext = event.rule_context ?? [];
+  const hasSignalRows = ruleContext.length > 0 || values.length > 0;
+  const allRuleValuesMissing =
+    ruleContext.length > 0 &&
+    ruleContext.every((context) => context.actual_value === null || context.actual_value === undefined);
 
   return (
     <div className="app-border-soft h-full rounded-2xl border p-5">
@@ -106,40 +128,56 @@ function EventPanel({ event }: { event: TradeEventContext | null }) {
 
       <div className="mt-5 space-y-4">
         <div>
-          <p className="app-title text-sm font-semibold">Why this trade happened</p>
-          <p className="app-text-muted mt-2 text-sm leading-6">{event.explanation}</p>
-        </div>
-
-        {event.rule_summary ? (
-          <div>
-            <p className="app-title text-sm font-semibold">Rule summary</p>
-            <p className="app-text-muted mt-2 text-sm leading-6">{event.rule_summary}</p>
-          </div>
-        ) : null}
-
-        <div>
-          <p className="app-title text-sm font-semibold">Values on this date</p>
-          {values.length > 0 ? (
-            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-              {values.map(([label, value]) => (
-                <div key={label} className="app-surface-soft rounded-xl px-3 py-2">
-                  <dt className="app-text-muted text-xs">{label}</dt>
-                  <dd className="app-title mt-1 text-sm font-semibold">{formatValue(value)}</dd>
-                </div>
-              ))}
-            </dl>
+          <p className="app-title text-sm font-semibold">Signal values on trade date</p>
+          {hasSignalRows ? (
+            <div className="app-table-frame mt-3 overflow-auto rounded-xl">
+              <table className="min-w-full divide-y text-sm app-divider">
+                <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
+                  <tr>
+                    <th className="px-3 py-2">Signal</th>
+                    <th className="px-3 py-2">Actual</th>
+                    <th className="px-3 py-2">Rule</th>
+                    <th className="px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="app-table-body divide-y app-divider">
+                  {ruleContext.length > 0
+                    ? ruleContext.map((context) => (
+                        <tr key={`${context.label}-${context.summary}`}>
+                          <td className="px-3 py-2 font-medium app-title">{context.label}</td>
+                          <td className="px-3 py-2">
+                            {context.actual_value === null || context.actual_value === undefined
+                              ? 'Missing'
+                              : formatValue(context.actual_value)}
+                          </td>
+                          <td className="px-3 py-2">{formatRule(context)}</td>
+                          <td className="px-3 py-2">{formatStatus(context)}</td>
+                        </tr>
+                      ))
+                    : values.map(([label, value]) => (
+                        <tr key={label}>
+                          <td className="px-3 py-2 font-medium app-title">{label}</td>
+                          <td className="px-3 py-2">{formatValue(value)}</td>
+                          <td className="px-3 py-2">—</td>
+                          <td className="px-3 py-2">available</td>
+                        </tr>
+                      ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <p className="app-text-muted mt-2 text-sm">
-              No indicator or reference values were available in artifacts for this date.
-            </p>
+            <p className="app-text-muted mt-2 text-sm">No signal values were found in artifacts for this trade date.</p>
           )}
+          {allRuleValuesMissing ? (
+            <p className="app-text-muted mt-2 text-xs">No signal values were found in artifacts for this trade date.</p>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-export function TradeEventInspector({ runId }: { runId: string }) {
+export function TradeEventInspector({ runId, variantId }: { runId: string; variantId?: string }) {
   const [data, setData] = useState<TradeEventContextResponse | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -153,7 +191,9 @@ export function TradeEventInspector({ runId }: { runId: string }) {
       setErrorMessage(null);
 
       try {
-        const response = await fetchRunTradeEvents(runId);
+        const response = variantId
+          ? await fetchSweepVariantTradeEvents(runId, variantId)
+          : await fetchRunTradeEvents(runId);
         if (ignore) return;
 
         setData(response);
@@ -175,7 +215,7 @@ export function TradeEventInspector({ runId }: { runId: string }) {
     return () => {
       ignore = true;
     };
-  }, [runId]);
+  }, [runId, variantId]);
 
   const selectedEvent = useMemo(
     () => data?.events.find((event) => event.id === selectedEventId) ?? data?.events[0] ?? null,
@@ -184,7 +224,7 @@ export function TradeEventInspector({ runId }: { runId: string }) {
 
   if (isLoading) {
     return (
-      <SectionCard title="Trade Event Inspector" subtitle="Loading rule context for trade events.">
+      <SectionCard title="Trade Event Inspector" subtitle="Loading signal values for trade events.">
         <div className="app-text-muted text-sm">Loading trade events...</div>
       </SectionCard>
     );
@@ -192,7 +232,7 @@ export function TradeEventInspector({ runId }: { runId: string }) {
 
   if (errorMessage) {
     return (
-      <SectionCard title="Trade Event Inspector" subtitle="Rule context from available run artifacts.">
+      <SectionCard title="Trade Event Inspector" subtitle="Signal values from available run artifacts.">
         <div className="app-text-muted text-sm">{errorMessage}</div>
       </SectionCard>
     );
@@ -200,7 +240,7 @@ export function TradeEventInspector({ runId }: { runId: string }) {
 
   if (!data || data.events.length === 0) {
     return (
-      <SectionCard title="Trade Event Inspector" subtitle="Rule context from available run artifacts.">
+      <SectionCard title="Trade Event Inspector" subtitle="Signal values from available run artifacts.">
         <div className="app-text-muted text-sm">No trade events were available for this result.</div>
       </SectionCard>
     );
@@ -214,7 +254,7 @@ export function TradeEventInspector({ runId }: { runId: string }) {
   return (
     <SectionCard
       title="Trade Event Inspector"
-      subtitle={`Click a trade to inspect matched rule context and available values on that date. ${countCopy}`}
+      subtitle={`Click a trade to inspect signal values on that date. ${countCopy}`}
     >
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
         <EventList
