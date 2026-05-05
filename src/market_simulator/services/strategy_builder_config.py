@@ -44,6 +44,9 @@ def _build_create_flow_default_config(
     scale_in_fraction_edit: float | None,
     scale_out_fraction_edit: float | None,
     profit_reduce_threshold_edit: float | None,
+    max_scale_in_steps_edit: int | None,
+    min_bars_between_scale_ins_edit: int | None,
+    remove_max_scale_in_steps: bool,
     assumptions: list[str],
 ) -> dict[str, Any]:
     default_config: dict[str, Any] = {}
@@ -103,6 +106,9 @@ def _build_create_flow_default_config(
             scale_in_fraction=scale_in_fraction_edit,
             scale_out_fraction=scale_out_fraction_edit,
             profit_reduce_threshold=profit_reduce_threshold_edit,
+            max_scale_in_steps=max_scale_in_steps_edit,
+            min_bars_between_scale_ins=min_bars_between_scale_ins_edit,
+            remove_max_scale_in_steps=remove_max_scale_in_steps,
         )
     )
 

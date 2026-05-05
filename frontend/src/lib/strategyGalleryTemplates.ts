@@ -182,10 +182,10 @@ export const STRATEGY_GALLERY_TEMPLATES = [
     symbols: ['QQQ'],
     style: 'Mean reversion',
     riskLevel: 'Moderate',
-    expectedBehavior: 'Designed to wait for weaker QQQ momentum, then exit after RSI recovers. Compare against buy-and-hold.',
+    expectedBehavior: 'Starts with 25% position, adds only after the RSI signal persists and the spacing rule allows, and caps scale-in steps.',
     entryRuleText: 'Enter QQQ when RSI(14) falls below 35.',
     exitRuleText: 'Exit when RSI(14) rises above 65.',
-    riskControls: ['10% stop loss', '25% staged entries', '5 bps transaction cost'],
+    riskControls: ['10% stop loss', 'Starts with 25% position', 'Adds only after signal persists and spacing rule allows', 'Caps scale-in steps', '5 bps transaction cost'],
     config: {
       ...BASE_CONFIG,
       name: 'QQQ RSI Mean Reversion',
@@ -211,7 +211,8 @@ export const STRATEGY_GALLERY_TEMPLATES = [
         scale_out_fraction: 0.5,
         profit_reduce_threshold: null,
         max_scale_in_steps: 4,
-        min_bars_between_scale_ins: 3
+        min_bars_between_scale_ins: 3,
+        scale_in_requires_persistent_signal: true
       }
     }
   },

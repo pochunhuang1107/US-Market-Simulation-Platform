@@ -843,6 +843,20 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     )
     _record_change(
         changes,
+        base_position_management.get("max_scale_in_steps"),
+        final_position_management.get("max_scale_in_steps"),
+        "max scale-in steps",
+        _format_number,
+    )
+    _record_change(
+        changes,
+        base_position_management.get("min_bars_between_scale_ins", 0),
+        final_position_management.get("min_bars_between_scale_ins", 0),
+        "minimum bars between scale-ins",
+        _format_number,
+    )
+    _record_change(
+        changes,
         base_core_overlay.get("enabled", False),
         final_core_overlay.get("enabled", False),
         "core allocation",
@@ -1039,7 +1053,25 @@ def _build_strategy_summary(
     if position_management_removed:
         summary_parts.append("Position management removed.")
     elif has_position_management_edit:
-        summary_parts.append("Position management updated.")
+        position_management = config.get("position_management") or {}
+        scale_in_fraction = position_management.get("scale_in_fraction")
+        max_scale_in_steps = position_management.get("max_scale_in_steps")
+        min_bars_between_scale_ins = position_management.get(
+            "min_bars_between_scale_ins"
+        )
+        details = []
+        if isinstance(scale_in_fraction, (int, float)):
+            details.append(f"Scale in {scale_in_fraction * 100:.1f}% per entry")
+        if isinstance(max_scale_in_steps, int):
+            details.append(f"Max scale-in entries: {max_scale_in_steps}")
+        if isinstance(min_bars_between_scale_ins, int):
+            details.append(
+                f"Minimum bars between adds: {min_bars_between_scale_ins}"
+            )
+        if details:
+            summary_parts.append("; ".join(details) + ".")
+        else:
+            summary_parts.append("Position management updated.")
 
     if core_overlay_disabled:
         summary_parts.append("Core allocation disabled.")
