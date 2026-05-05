@@ -457,7 +457,8 @@ def run_simulation(bundle, strategy):
 
         position_management_enabled = pm is not None
         scale_in_fraction = pm.scale_in_fraction if pm else 1.0
-        scale_out_fraction = pm.scale_out_fraction if pm else 1.0
+        scale_out_fraction = (pm.scale_out_fraction or 0.5) if pm else 1.0
+        exit_behavior = pm.exit_behavior if pm else "sell_all"
         profit_reduce_threshold = pm.profit_reduce_threshold if pm else None
         max_scale_in_steps = pm.max_scale_in_steps if pm else None
         min_bars_between_scale_ins = pm.min_bars_between_scale_ins if pm else 0
@@ -661,9 +662,42 @@ def run_simulation(bundle, strategy):
 
         # === PARTIAL REDUCE / FULL EXIT ===
         if exit_signal and portfolio.position.in_position and action == "":
+            if exit_behavior == "sell_all":
+                shares = portfolio.position.shares
+                capital_before = _overlay_capital_state(portfolio, close)
+                gross, net, fee = _sell_overlay(
+                    portfolio, shares, close, strategy.transaction_cost_bps
+                )
+                capital_context = _sell_capital_context(
+                    capital_before, portfolio, close, shares, fee, gross, net
+                )
+                portfolio.last_exit_bar_index = i
+
+                record_trade(
+                    {
+                        "date": str(date.date()),
+                        "action": "SELL_ALL",
+                        "shares": shares,
+                        "price": close,
+                        "gross_pnl": round(gross, 6),
+                        "net_pnl": round(net, 6),
+                        "fee": round(fee, 6),
+                        "sleeve": "overlay",
+                    },
+                    _signals_for_rules(
+                        strategy.exit_rule,
+                        bundle,
+                        strategy,
+                        i,
+                        "exit_rule",
+                    ),
+                    capital_context,
+                )
+
+                action = "exit"
 
             # reduce first if position is still large enough
-            if portfolio.position.shares > 1:
+            elif portfolio.position.shares > 1:
                 shares = max(1, int(portfolio.position.shares * scale_out_fraction))
 
                 # if this reduction would consume the whole position, do a true full exit instead

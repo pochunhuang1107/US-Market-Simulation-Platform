@@ -2211,6 +2211,133 @@ def test_generate_strategy_builder_draft_parses_scale_in_percentage(client):
     assert "Scale in 25.0% per entry" in body["summary"]
 
 
+def test_generate_strategy_builder_draft_parses_explicit_sell_all_exit_behavior(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                "Sell all when RSI is above 65."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["exit_rule"]["type"] == "rsi_above"
+    assert config["exit_rule"]["threshold"] == 65
+    assert config["position_management"]["exit_behavior"] == "sell_all"
+    assert "scale_out_fraction" not in config["position_management"]
+    assert config["position_management"]["scale_in_fraction"] == 1.0
+    assert "Exit behavior: sell all" in body["summary"]
+
+
+def test_generate_strategy_builder_draft_omits_scale_out_fraction_for_sell_all_with_scale_in(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Buy QQQ when RSI is below 35, sell all when RSI is above 65. "
+                "Scale in 25% at a time, wait 5 days between adds, max 3 entries."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    config = response.json()["config"]
+
+    assert config["position_management"]["exit_behavior"] == "sell_all"
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["min_bars_between_scale_ins"] == 5
+    assert config["position_management"]["max_scale_in_steps"] == 3
+    assert "scale_out_fraction" not in config["position_management"]
+
+
+@pytest.mark.parametrize(
+    "exit_phrase",
+    [
+        "Scale out 50%.",
+        "Sell half at a time.",
+        "Sell 50% each exit.",
+    ],
+)
+def test_generate_strategy_builder_draft_parses_explicit_scale_out_exit_behavior(
+    client,
+    exit_phrase,
+):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                f"Exit when RSI above 65. {exit_phrase}"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["position_management"]["exit_behavior"] == "scale_out"
+    assert config["position_management"]["scale_out_fraction"] == 0.5
+    assert config["position_management"]["scale_in_fraction"] == 1.0
+    assert "Exit behavior: scale out 50.0% at a time" in body["summary"]
+
+
+def test_generate_strategy_builder_follow_up_sell_all_removes_scale_out_fraction(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["position_management"]["exit_behavior"] = "scale_out"
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "sell all on exit",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["position_management"]["exit_behavior"] == "sell_all"
+    assert "scale_out_fraction" not in config["position_management"]
+    assert "Updated exit behavior from scale out to sell all." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_scale_out_adds_scale_out_fraction(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["position_management"]["exit_behavior"] = "sell_all"
+    current_config["position_management"].pop("scale_out_fraction", None)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "sell half at a time",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["position_management"]["exit_behavior"] == "scale_out"
+    assert config["position_management"]["scale_out_fraction"] == 0.5
+    assert "Updated exit behavior from sell all to scale out." in body["changes"]
+
+
 def test_generate_strategy_builder_draft_parses_max_scale_ins(client):
     response = client.post(
         "/strategy-builder/generate",

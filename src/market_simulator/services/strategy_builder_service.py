@@ -84,6 +84,7 @@ from market_simulator.services.strategy_builder_parsers import (
     _extract_entry_fast_window_edit,
     _extract_entry_rule_clause,
     _extract_entry_slow_window_edit,
+    _extract_exit_behavior_edit,
     _extract_exit_fast_window_edit,
     _extract_exit_rule_clause,
     _extract_exit_slow_window_edit,
@@ -420,6 +421,7 @@ def _extract_risk_and_position_inputs(
 
     scale_in_fraction_edit = _extract_scale_in_fraction_edit(prompt)
     scale_out_fraction_edit = _extract_scale_out_fraction_edit(prompt)
+    exit_behavior_edit = _extract_exit_behavior_edit(prompt)
     profit_reduce_threshold_edit = _extract_profit_reduce_threshold_edit(prompt)
     max_scale_in_steps_edit = _extract_max_scale_in_steps_edit(prompt)
     min_bars_between_scale_ins_edit = _extract_min_bars_between_scale_ins_edit(prompt)
@@ -476,6 +478,7 @@ def _extract_risk_and_position_inputs(
         position_management_removed
         or scale_in_fraction_edit is not None
         or scale_out_fraction_edit is not None
+        or exit_behavior_edit is not None
         or profit_reduce_threshold_edit is not None
         or max_scale_in_steps_edit is not None
         or min_bars_between_scale_ins_edit is not None
@@ -505,6 +508,7 @@ def _extract_risk_and_position_inputs(
         "partial_take_profit": partial_take_profit,
         "scale_in_fraction_edit": scale_in_fraction_edit,
         "scale_out_fraction_edit": scale_out_fraction_edit,
+        "exit_behavior_edit": exit_behavior_edit,
         "profit_reduce_threshold_edit": profit_reduce_threshold_edit,
         "max_scale_in_steps_edit": max_scale_in_steps_edit,
         "min_bars_between_scale_ins_edit": min_bars_between_scale_ins_edit,
@@ -1489,6 +1493,7 @@ def _apply_update_flow_edits(
     partial_take_profit: dict[str, Any] | None,
     scale_in_fraction_edit: float | None,
     scale_out_fraction_edit: float | None,
+    exit_behavior_edit: str | None,
     profit_reduce_threshold_edit: float | None,
     max_scale_in_steps_edit: int | None,
     min_bars_between_scale_ins_edit: int | None,
@@ -2316,6 +2321,7 @@ def _apply_update_flow_edits(
                 existing=default_config.get("position_management") or None,
                 scale_in_fraction=scale_in_fraction_edit,
                 scale_out_fraction=scale_out_fraction_edit,
+                exit_behavior=exit_behavior_edit,
                 profit_reduce_threshold=profit_reduce_threshold_edit,
                 max_scale_in_steps=max_scale_in_steps_edit,
                 min_bars_between_scale_ins=min_bars_between_scale_ins_edit,
@@ -2433,6 +2439,7 @@ def _generate_strategy_draft(
     partial_take_profit = risk_and_position["partial_take_profit"]
     scale_in_fraction_edit = risk_and_position["scale_in_fraction_edit"]
     scale_out_fraction_edit = risk_and_position["scale_out_fraction_edit"]
+    exit_behavior_edit = risk_and_position["exit_behavior_edit"]
     profit_reduce_threshold_edit = risk_and_position["profit_reduce_threshold_edit"]
     max_scale_in_steps_edit = risk_and_position["max_scale_in_steps_edit"]
     min_bars_between_scale_ins_edit = risk_and_position["min_bars_between_scale_ins_edit"]
@@ -2601,6 +2608,7 @@ def _generate_strategy_draft(
             position_management_removed=position_management_removed,
             scale_in_fraction_edit=scale_in_fraction_edit,
             scale_out_fraction_edit=scale_out_fraction_edit,
+            exit_behavior_edit=exit_behavior_edit,
             profit_reduce_threshold_edit=profit_reduce_threshold_edit,
             max_scale_in_steps_edit=max_scale_in_steps_edit,
             min_bars_between_scale_ins_edit=min_bars_between_scale_ins_edit,
@@ -2647,6 +2655,7 @@ def _generate_strategy_draft(
             partial_take_profit=partial_take_profit,
             scale_in_fraction_edit=scale_in_fraction_edit,
             scale_out_fraction_edit=scale_out_fraction_edit,
+            exit_behavior_edit=exit_behavior_edit,
             profit_reduce_threshold_edit=profit_reduce_threshold_edit,
             max_scale_in_steps_edit=max_scale_in_steps_edit,
             min_bars_between_scale_ins_edit=min_bars_between_scale_ins_edit,

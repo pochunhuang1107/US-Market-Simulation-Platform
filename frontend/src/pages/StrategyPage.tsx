@@ -92,6 +92,11 @@ function configSummaryRows(config: Record<string, unknown> | null | undefined) {
         positionManagement.min_bars_between_scale_ins !== undefined ? `Minimum bars between adds ${formatConfigValue(positionManagement.min_bars_between_scale_ins)}` : null
       ].filter(Boolean).join(' · ')
     : null;
+  const exitBehaviorText = positionManagement
+    ? positionManagement.exit_behavior === 'sell_all'
+      ? 'Exit behavior: sell all'
+      : `Exit behavior: scale out ${formatConfigPct(positionManagement.scale_out_fraction ?? 0.5) ?? formatConfigValue(positionManagement.scale_out_fraction ?? 0.5)} at a time`
+    : null;
 
   return [
     { label: 'Tradable symbol', value: formatConfigValue(config.tradable_symbol) },
@@ -100,6 +105,7 @@ function configSummaryRows(config: Record<string, unknown> | null | undefined) {
     { label: 'Entry rule', value: summarizeStrategyRule(config.entry_rule, { tradableSymbol: config.tradable_symbol }).text },
     { label: 'Exit rule', value: summarizeStrategyRule(config.exit_rule, { tradableSymbol: config.tradable_symbol }).text },
     { label: 'Risk controls', value: riskParts.length ? riskParts.join(' · ') : '—' },
+    { label: 'Exit behavior', value: exitBehaviorText || '—' },
     { label: 'Scale-in policy', value: scaleInText || '—' },
     { label: 'Core / overlay', value: coreOverlayText ?? '—' }
   ];

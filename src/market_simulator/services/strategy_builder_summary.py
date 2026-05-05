@@ -497,6 +497,16 @@ def _format_enabled(value: Any) -> str:
     return "enabled" if bool(value) else "disabled"
 
 
+def _format_exit_behavior(value: Any) -> str:
+    if value == "sell_all":
+        return "sell all"
+    if value == "scale_out":
+        return "scale out"
+    if value is None:
+        return "none"
+    return str(value)
+
+
 def _format_pct(value: Any) -> str:
     if value is None:
         return "none"
@@ -836,6 +846,15 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     )
     _record_change(
         changes,
+        base_position_management.get("exit_behavior", "scale_out")
+        if base_position_management else None,
+        final_position_management.get("exit_behavior", "scale_out")
+        if final_position_management else None,
+        "exit behavior",
+        _format_exit_behavior,
+    )
+    _record_change(
+        changes,
         base_position_management.get("profit_reduce_threshold"),
         final_position_management.get("profit_reduce_threshold"),
         "profit reduce threshold",
@@ -1055,11 +1074,22 @@ def _build_strategy_summary(
     elif has_position_management_edit:
         position_management = config.get("position_management") or {}
         scale_in_fraction = position_management.get("scale_in_fraction")
+        scale_out_fraction = position_management.get("scale_out_fraction")
+        exit_behavior = position_management.get("exit_behavior", "scale_out")
         max_scale_in_steps = position_management.get("max_scale_in_steps")
         min_bars_between_scale_ins = position_management.get(
             "min_bars_between_scale_ins"
         )
         details = []
+        if exit_behavior == "sell_all":
+            details.append("Exit behavior: sell all")
+        elif exit_behavior == "scale_out":
+            effective_scale_out_fraction = (
+                scale_out_fraction if isinstance(scale_out_fraction, (int, float)) else 0.5
+            )
+            details.append(
+                f"Exit behavior: scale out {effective_scale_out_fraction * 100:.1f}% at a time"
+            )
         if isinstance(scale_in_fraction, (int, float)):
             details.append(f"Scale in {scale_in_fraction * 100:.1f}% per entry")
         if isinstance(max_scale_in_steps, int):
