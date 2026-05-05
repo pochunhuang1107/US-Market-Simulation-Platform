@@ -2,6 +2,8 @@
 
 Use this as a concise manual pass before handing a beta build to testers. Keep the pass focused on the existing product loop; do not use it to validate new product behavior.
 
+Before switching between local dev, compose smoke, and Auth0 beta QA, read the [Beta Operator Runbook](BETA_OPERATOR_RUNBOOK.md) so only one stack owns the shared ports.
+
 ## Local Setup
 
 - [ ] Copy `.env.example` to `.env` and keep `ENV=local` with `AUTH_MODE=dev`.
