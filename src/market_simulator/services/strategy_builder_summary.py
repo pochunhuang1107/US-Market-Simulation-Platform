@@ -1069,40 +1069,6 @@ def _build_strategy_summary(
             f"max {partial_take_profit['max_triggers']} times."
         )
 
-    if position_management_removed:
-        summary_parts.append("Position management removed.")
-    elif has_position_management_edit:
-        position_management = config.get("position_management") or {}
-        scale_in_fraction = position_management.get("scale_in_fraction")
-        scale_out_fraction = position_management.get("scale_out_fraction")
-        exit_behavior = position_management.get("exit_behavior", "scale_out")
-        max_scale_in_steps = position_management.get("max_scale_in_steps")
-        min_bars_between_scale_ins = position_management.get(
-            "min_bars_between_scale_ins"
-        )
-        details = []
-        if exit_behavior == "sell_all":
-            details.append("Exit behavior: sell all")
-        elif exit_behavior == "scale_out":
-            effective_scale_out_fraction = (
-                scale_out_fraction if isinstance(scale_out_fraction, (int, float)) else 0.5
-            )
-            details.append(
-                f"Exit behavior: scale out {effective_scale_out_fraction * 100:.1f}% at a time"
-            )
-        if isinstance(scale_in_fraction, (int, float)):
-            details.append(f"Scale in {scale_in_fraction * 100:.1f}% per entry")
-        if isinstance(max_scale_in_steps, int):
-            details.append(f"Max scale-in entries: {max_scale_in_steps}")
-        if isinstance(min_bars_between_scale_ins, int):
-            details.append(
-                f"Minimum bars between adds: {min_bars_between_scale_ins}"
-            )
-        if details:
-            summary_parts.append("; ".join(details) + ".")
-        else:
-            summary_parts.append("Position management updated.")
-
     if core_overlay_disabled:
         summary_parts.append("Core allocation disabled.")
     elif core_overlay_enabled:

@@ -15,6 +15,7 @@ import {
   isSavedSweepVariantResult
 } from '../lib/formatters';
 import { summarizeRule as summarizeStrategyRule } from '../lib/ruleSummaries';
+import { getStrategyBehaviorFields } from '../lib/strategyBehaviorSummary';
 import type { StrategyDashboardResponse, StrategyVersionSummary } from '../types/api';
 
 function formatStrategyType(value: string | null | undefined) {
@@ -70,14 +71,13 @@ function configSummaryRows(config: Record<string, unknown> | null | undefined) {
   const risk = getRecord(config.risk);
   const allocation = getRecord(config.allocation);
   const coreOverlay = getRecord(config.core_overlay);
-  const positionManagement = getRecord(config.position_management);
   const dateRange = [config.start_date, config.end_date].filter(Boolean).map(formatConfigValue).join(' to ');
+  const behaviorFields = getStrategyBehaviorFields(config);
   const riskParts = [
     risk?.stop_loss_pct !== undefined ? `Stop ${formatConfigPct(risk.stop_loss_pct) ?? formatConfigValue(risk.stop_loss_pct)}` : null,
     risk?.take_profit_pct !== undefined ? `Take profit ${formatConfigPct(risk.take_profit_pct) ?? formatConfigValue(risk.take_profit_pct)}` : null,
     risk?.cooldown_bars !== undefined ? `Cooldown ${formatConfigValue(risk.cooldown_bars)} bars` : null,
-    allocation?.entry_value !== undefined && !positionManagement ? `Position ${formatConfigPct(allocation.entry_value) ?? formatConfigValue(allocation.entry_value)}` : null,
-    allocation?.max_position_pct !== undefined && positionManagement ? `Position cap ${formatConfigPct(allocation.max_position_pct) ?? formatConfigValue(allocation.max_position_pct)}` : null
+    allocation?.entry_value !== undefined && !behaviorFields.some((field) => field.label === 'Entry sizing') ? `Position ${formatConfigPct(allocation.entry_value) ?? formatConfigValue(allocation.entry_value)}` : null
   ].filter(Boolean);
   const coreOverlayText = coreOverlay
     ? [
@@ -85,19 +85,6 @@ function configSummaryRows(config: Record<string, unknown> | null | undefined) {
         coreOverlay.core_allocation_pct !== undefined ? formatConfigPct(coreOverlay.core_allocation_pct) : null
       ].filter(Boolean).join(' · ')
     : null;
-  const scaleInText = positionManagement
-    ? [
-        positionManagement.scale_in_fraction !== undefined ? `Scale in ${formatConfigPct(positionManagement.scale_in_fraction) ?? formatConfigValue(positionManagement.scale_in_fraction)} per entry` : null,
-        positionManagement.max_scale_in_steps !== undefined ? `Max scale-in entries ${formatConfigValue(positionManagement.max_scale_in_steps)}` : null,
-        positionManagement.min_bars_between_scale_ins !== undefined ? `Minimum bars between adds ${formatConfigValue(positionManagement.min_bars_between_scale_ins)}` : null
-      ].filter(Boolean).join(' · ')
-    : null;
-  const exitBehaviorText = positionManagement
-    ? positionManagement.exit_behavior === 'sell_all'
-      ? 'Exit behavior: sell all'
-      : `Exit behavior: scale out ${formatConfigPct(positionManagement.scale_out_fraction ?? 0.5) ?? formatConfigValue(positionManagement.scale_out_fraction ?? 0.5)} at a time`
-    : null;
-
   return [
     { label: 'Tradable symbol', value: formatConfigValue(config.tradable_symbol) },
     { label: 'Benchmark', value: formatConfigValue(config.benchmark_symbol ?? config.benchmark) },
@@ -105,8 +92,7 @@ function configSummaryRows(config: Record<string, unknown> | null | undefined) {
     { label: 'Entry rule', value: summarizeStrategyRule(config.entry_rule, { tradableSymbol: config.tradable_symbol }).text },
     { label: 'Exit rule', value: summarizeStrategyRule(config.exit_rule, { tradableSymbol: config.tradable_symbol }).text },
     { label: 'Risk controls', value: riskParts.length ? riskParts.join(' · ') : '—' },
-    { label: 'Exit behavior', value: exitBehaviorText || '—' },
-    { label: 'Scale-in policy', value: scaleInText || '—' },
+    ...behaviorFields,
     { label: 'Core / overlay', value: coreOverlayText ?? '—' }
   ];
 }

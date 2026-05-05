@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 
+import { getStrategyBehaviorFields } from '../../lib/strategyBehaviorSummary';
 import { explainRule } from '../../lib/ruleSummaries';
 import type { StrategyBuilderGenerateResponse } from '../../types/api';
 
@@ -125,6 +126,7 @@ export function StrategyDraftCard({
     const risk = (config.risk as Record<string, unknown> | undefined) ?? {};
     const coreOverlay = (config.core_overlay as Record<string, unknown> | undefined) ?? {};
     const positionManagement = (config.position_management as Record<string, unknown> | undefined) ?? {};
+    const behaviorFields = getStrategyBehaviorFields(config);
 
     const maxPosition = typeof allocation.max_position_pct === 'number' ? `${(allocation.max_position_pct * 100).toFixed(1)}%` : '—';
     const stopLoss = formatPercent(risk.stop_loss_pct);
@@ -143,36 +145,7 @@ export function StrategyDraftCard({
       typeof positionManagement.scale_in_fraction === 'number'
         ? positionManagement.scale_in_fraction
         : null;
-    const scaleIn =
-      scaleInFraction !== null
-        ? `${(scaleInFraction * 100).toFixed(1)}% per entry`
-        : '—';
     const hasScaleInPolicy = scaleInFraction !== null;
-    const entryValue = hasScaleInPolicy
-      ? `${scaleIn} via scale-in policy`
-      : typeof allocation.entry_value === 'number'
-        ? `${(allocation.entry_value * 100).toFixed(1)}% of equity`
-        : '—';
-    const maxScaleIns =
-      typeof positionManagement.max_scale_in_steps === 'number'
-        ? String(positionManagement.max_scale_in_steps)
-        : '—';
-    const exitBehaviorValue =
-      positionManagement.exit_behavior === 'sell_all' || positionManagement.exit_behavior === 'scale_out'
-        ? positionManagement.exit_behavior
-        : typeof positionManagement.scale_out_fraction === 'number'
-          ? 'scale_out'
-          : null;
-    const exitBehavior =
-      exitBehaviorValue === 'sell_all'
-        ? 'sell all'
-        : exitBehaviorValue === 'scale_out' && typeof positionManagement.scale_out_fraction === 'number'
-          ? `scale out ${(positionManagement.scale_out_fraction * 100).toFixed(1)}% at a time`
-          : '—';
-    const minBarsBetweenScaleIns =
-      typeof positionManagement.min_bars_between_scale_ins === 'number'
-        ? String(positionManagement.min_bars_between_scale_ins)
-        : '—';
     const strategyHeadline = typeof config.name === 'string' && config.name.trim() ? config.name : 'Generated strategy';
 
     return {
@@ -183,7 +156,7 @@ export function StrategyDraftCard({
       endDate: typeof config.end_date === 'string' ? config.end_date : '—',
       initialCapital: formatCurrency(config.initial_capital),
       transactionCost: formatBps(config.transaction_cost_bps),
-      entryValue,
+      entryValue: behaviorFields.find((field) => field.label === 'Entry sizing' || field.label === 'Entry allocation')?.value ?? '—',
       maxPosition,
       coreOverlayEnabled,
       coreAllocationValue,
@@ -194,10 +167,7 @@ export function StrategyDraftCard({
       takeProfit,
       cooldown,
       coreOverlayLabel: coreOverlayEnabled ? `Enabled · ${coreAllocation} · ${overlaySleeveAllocation}` : 'Disabled',
-      scaleIn,
-      exitBehavior,
-      maxScaleIns,
-      minBarsBetweenScaleIns,
+      behaviorFields,
       readableExplanation: [
         `Trade ${typeof config.tradable_symbol === 'string' ? config.tradable_symbol : 'the selected asset'} from ${typeof config.start_date === 'string' ? config.start_date : 'the chosen start date'} to ${typeof config.end_date === 'string' ? config.end_date : 'the chosen end date'}.`,
         typeof config.benchmark_symbol === 'string'
@@ -220,20 +190,6 @@ export function StrategyDraftCard({
         coreOverlayEnabled && typeof allocation.max_position_pct === 'number'
           ? `Cap overlay positions at ${(allocation.max_position_pct * 100).toFixed(1)}% of equity.`
           : null,
-        hasScaleInPolicy
-          ? `Scale in ${(scaleInFraction * 100).toFixed(1)}% per entry.`
-          : null,
-        typeof positionManagement.max_scale_in_steps === 'number'
-          ? `Cap scale-in entries at ${positionManagement.max_scale_in_steps}.`
-          : null,
-        typeof positionManagement.min_bars_between_scale_ins === 'number'
-          ? `Wait at least ${positionManagement.min_bars_between_scale_ins} bars between adds.`
-          : null,
-        exitBehaviorValue === 'sell_all'
-          ? 'Exit behavior: sell all.'
-          : exitBehaviorValue === 'scale_out' && typeof positionManagement.scale_out_fraction === 'number'
-            ? `Exit behavior: scale out ${(positionManagement.scale_out_fraction * 100).toFixed(1)}% at a time.`
-            : null,
         typeof risk.stop_loss_pct === 'number'
           ? `Protect downside with a ${formatPercent(risk.stop_loss_pct)} stop loss.`
           : null,
@@ -393,10 +349,9 @@ export function StrategyDraftCard({
               <InfoPill label="Stop Loss" value={viewModel.stopLoss} />
               <InfoPill label="Take Profit" value={viewModel.takeProfit} />
               <InfoPill label="Cooldown" value={viewModel.cooldown} />
-              <InfoPill label="Exit Behavior" value={viewModel.exitBehavior} />
-              <InfoPill label="Scale In" value={viewModel.scaleIn} />
-              <InfoPill label="Max Scale-In Entries" value={viewModel.maxScaleIns} />
-              <InfoPill label="Bars Between Adds" value={viewModel.minBarsBetweenScaleIns} />
+              {viewModel.behaviorFields.map((field) => (
+                <InfoPill key={`${field.label}-${field.value}`} label={field.label} value={field.value} />
+              ))}
               <InfoPill label="Core / Overlay" value={viewModel.coreOverlayLabel} />
             </div>
           </Section>
