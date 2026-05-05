@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useLayoutEffect, useMemo, type Re
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
 
 import {
+  AccessTokenUnavailableError,
+  getDevelopmentAccessToken,
   resetAccessTokenProvider,
   setAccessTokenProvider
 } from '../lib/authToken';
@@ -60,6 +62,12 @@ export function useAppAuth(): AppAuthContextValue {
   return useContext(AppAuthContext);
 }
 
+function formatTokenError(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : 'Unable to acquire an Auth0 access token.';
+}
+
 function DevAuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppAuthContextValue>(
     () => ({
@@ -80,7 +88,6 @@ function DevAuthProvider({ children }: { children: ReactNode }) {
 
 function Auth0RuntimeProvider({ children }: { children: ReactNode }) {
   const {
-    error,
     getAccessTokenSilently,
     isAuthenticated,
     isLoading,
@@ -90,8 +97,22 @@ function Auth0RuntimeProvider({ children }: { children: ReactNode }) {
   } = useAuth0();
 
   useLayoutEffect(() => {
+    if (isLoading) {
+      setAccessTokenProvider(() => {
+        throw new AccessTokenUnavailableError('loading', 'Restoring session...');
+      });
+      return () => {
+        resetAccessTokenProvider();
+      };
+    }
+
     if (!isAuthenticated) {
-      setAccessTokenProvider(() => null);
+      setAccessTokenProvider(() => {
+        const developmentToken = getDevelopmentAccessToken();
+        if (developmentToken) return developmentToken;
+
+        throw new AccessTokenUnavailableError('unauthenticated', 'Sign in required.');
+      });
       return () => {
         resetAccessTokenProvider();
       };
@@ -104,15 +125,21 @@ function Auth0RuntimeProvider({ children }: { children: ReactNode }) {
             audience: auth0Audience
           }
         });
-      } catch {
-        return null;
+      } catch (tokenError) {
+        const developmentToken = getDevelopmentAccessToken();
+        if (developmentToken) return developmentToken;
+
+        throw new AccessTokenUnavailableError(
+          'failed',
+          formatTokenError(tokenError)
+        );
       }
     });
 
     return () => {
       resetAccessTokenProvider();
     };
-  }, [getAccessTokenSilently, isAuthenticated]);
+  }, [getAccessTokenSilently, isAuthenticated, isLoading]);
 
   const value = useMemo<AppAuthContextValue>(
     () => ({
@@ -142,12 +169,6 @@ function Auth0RuntimeProvider({ children }: { children: ReactNode }) {
     }),
     [isAuthenticated, isLoading, loginWithRedirect, logout, user?.email, user?.name]
   );
-
-  useEffect(() => {
-    if (error) {
-      setAccessTokenProvider(() => null);
-    }
-  }, [error]);
 
   return <AppAuthContext.Provider value={value}>{children}</AppAuthContext.Provider>;
 }

@@ -4,8 +4,10 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAppAuth } from '../../auth/AppAuthProvider';
 import { fetchMeEntitlements, isUnauthorizedError } from '../../lib/api';
+import { getDevelopmentAccessToken } from '../../lib/authToken';
 import { useTheme } from '../../theme';
 import { AuthRequiredState } from '../shared/AuthRequiredState';
+import { StateCard } from '../shared/StateCard';
 
 const navItems = [
   { to: '/', label: 'Home', end: true },
@@ -32,6 +34,7 @@ export function AppShell() {
   const [authRequiredMessage, setAuthRequiredMessage] = useState<string | null>(null);
   const [isRetryingAuth, setIsRetryingAuth] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [hasManualAccessToken, setHasManualAccessToken] = useState(() => Boolean(getDevelopmentAccessToken()));
   const authCheckRequestIdRef = useRef(0);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -65,7 +68,9 @@ export function AppShell() {
   useEffect(() => {
     let isMounted = true;
 
-    if (auth.isAuth0Mode && (auth.isLoading || !auth.isAuthenticated)) {
+    setHasManualAccessToken(Boolean(getDevelopmentAccessToken()));
+
+    if (auth.isAuth0Mode && (auth.isLoading || (!auth.isAuthenticated && !hasManualAccessToken))) {
       authCheckRequestIdRef.current += 1;
       setAuthRequiredMessage(null);
       setIsRetryingAuth(false);
@@ -79,7 +84,7 @@ export function AppShell() {
     return () => {
       isMounted = false;
     };
-  }, [auth.isAuthenticated, auth.isAuth0Mode, auth.isLoading, checkAuthRequired]);
+  }, [auth.isAuthenticated, auth.isAuth0Mode, auth.isLoading, checkAuthRequired, hasManualAccessToken, location.key]);
 
   useEffect(() => {
     if (!isUserMenuOpen) return;
@@ -247,13 +252,19 @@ export function AppShell() {
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-8 lg:px-8">
-        {auth.isAuth0Mode && !auth.isLoading && !auth.isAuthenticated ? (
+        {auth.isAuth0Mode && auth.isLoading ? (
+          <StateCard
+            title="Restoring session..."
+            description="Checking your Auth0 session before loading protected research data."
+          />
+        ) : auth.isAuth0Mode && !auth.isAuthenticated && !hasManualAccessToken ? (
           <AuthRequiredState />
         ) : authRequiredMessage ? (
           <AuthRequiredState
             errorMessage={authRequiredMessage}
             loading={isRetryingAuth}
             onRetry={() => {
+              setHasManualAccessToken(Boolean(getDevelopmentAccessToken()));
               void checkAuthRequired();
             }}
           />
