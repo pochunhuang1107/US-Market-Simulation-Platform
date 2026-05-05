@@ -109,6 +109,11 @@ class TradeEventInspectorService:
                 if snapshot is not None
                 else _rule_context_for_event(action, timeline_row or {}, values_on_date, config)
             )
+            capital_context = (
+                _capital_context_from_snapshot(snapshot)
+                if snapshot is not None
+                else None
+            )
             explanation = _explanation_for_event(
                 action,
                 timeline_row or {},
@@ -136,6 +141,7 @@ class TradeEventInspectorService:
                     "event_category": _event_category(action),
                     "values_on_date": values_on_date,
                     "rule_context": rule_context,
+                    "capital_context": capital_context,
                     "rule_summary": rule_summary,
                     "explanation": explanation,
                 }
@@ -610,6 +616,27 @@ def _rule_context_from_snapshot(snapshot: dict[str, Any]) -> list[dict[str, Any]
         )
 
     return contexts
+
+
+def _capital_context_from_snapshot(snapshot: dict[str, Any]) -> dict[str, float | int] | None:
+    raw_context = snapshot.get("capital_context")
+    if not isinstance(raw_context, dict):
+        return None
+
+    context: dict[str, float | int] = {}
+    integer_fields = {"position_shares_before", "position_shares_after"}
+    for key, value in raw_context.items():
+        if key in integer_fields:
+            int_value = _optional_int(value)
+            if int_value is not None:
+                context[key] = int_value
+            continue
+
+        float_value = _optional_float(value)
+        if float_value is not None:
+            context[key] = round(float_value, 6)
+
+    return context or None
 
 
 def _rule_context_for_event(

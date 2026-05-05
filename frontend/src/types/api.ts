@@ -206,8 +206,27 @@ export interface TradeEventContext {
   event_category: Nullable<string>;
   values_on_date: Record<string, string | number | boolean>;
   rule_context: TradeEventRuleContext[];
+  capital_context: Nullable<TradeCapitalContext>;
   rule_summary: Nullable<string>;
   explanation: string;
+}
+
+export interface TradeCapitalContext {
+  trade_notional: Nullable<number>;
+  trade_fee: Nullable<number>;
+  trade_total_cost: Nullable<number>;
+  gross_pnl: Nullable<number>;
+  net_pnl: Nullable<number>;
+  equity_before_trade: Nullable<number>;
+  equity_after_trade: Nullable<number>;
+  cash_before_trade: Nullable<number>;
+  cash_after_trade: Nullable<number>;
+  position_shares_before: Nullable<number>;
+  position_shares_after: Nullable<number>;
+  position_value_after: Nullable<number>;
+  position_allocation_pct_after: Nullable<number>;
+  remaining_capacity_after: Nullable<number>;
+  max_position_value: Nullable<number>;
 }
 
 export interface TradeEventRuleContext {
