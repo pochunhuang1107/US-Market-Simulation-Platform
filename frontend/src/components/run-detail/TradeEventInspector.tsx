@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { fetchRunTradeEvents, fetchSweepVariantTradeEvents } from '../../lib/api';
 import { formatShortDate } from '../../lib/formatters';
-import type { TradeEventContext, TradeEventContextResponse, TradeEventRuleContext } from '../../types/api';
+import type {
+  TradeCapitalContext,
+  TradeEventContext,
+  TradeEventContextResponse,
+  TradeEventRuleContext
+} from '../../types/api';
 import { SectionCard } from '../shared/SectionCard';
 
 function formatShares(value: number | null): string {
@@ -15,6 +20,20 @@ function formatShares(value: number | null): string {
 function formatPrice(value: number | null): string {
   if (value === null || value === undefined) return '—';
   return `$${value.toFixed(2)}`;
+}
+
+function formatCurrency(value: number | null): string {
+  if (value === null || value === undefined) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+function formatPercent(value: number | null): string {
+  if (value === null || value === undefined) return '—';
+  return `${value.toFixed(2)}%`;
 }
 
 function formatValue(value: string | number | boolean): string {
@@ -43,6 +62,78 @@ function formatRule(context: TradeEventRuleContext): string {
 function formatStatus(context: TradeEventRuleContext): string {
   if (context.actual_value === null || context.actual_value === undefined) return 'unavailable';
   return context.status || context.result || 'unknown';
+}
+
+function tradeSizePctOfEquity(context: TradeCapitalContext): number | null {
+  if (
+    context.trade_notional === null ||
+    context.trade_notional === undefined ||
+    context.equity_before_trade === null ||
+    context.equity_before_trade === undefined ||
+    context.equity_before_trade === 0
+  ) {
+    return null;
+  }
+  return (context.trade_notional / context.equity_before_trade) * 100;
+}
+
+function shouldShowSmallAddHint(event: TradeEventContext): boolean {
+  const context = event.capital_context;
+  if (!context || event.action.toUpperCase() !== 'BUY_ADD') return false;
+
+  const tradePct = tradeSizePctOfEquity(context);
+  const remainingCapacityPct =
+    context.remaining_capacity_after !== null &&
+    context.remaining_capacity_after !== undefined &&
+    context.max_position_value !== null &&
+    context.max_position_value !== undefined &&
+    context.max_position_value > 0
+      ? (context.remaining_capacity_after / context.max_position_value) * 100
+      : null;
+
+  return (tradePct !== null && tradePct < 1) || (remainingCapacityPct !== null && remainingCapacityPct < 1);
+}
+
+function CapitalUsageSection({ event }: { event: TradeEventContext }) {
+  const context = event.capital_context;
+  if (!context) return null;
+
+  const tradePct = tradeSizePctOfEquity(context);
+
+  return (
+    <div>
+      <p className="app-title text-sm font-semibold">Trade sizing</p>
+      <div className="app-border-soft mt-3 grid gap-3 rounded-xl border p-3 text-sm sm:grid-cols-2">
+        <div>
+          <p className="app-text-muted text-xs uppercase tracking-[0.16em]">Trade value</p>
+          <p className="app-title mt-1 font-semibold">{formatCurrency(context.trade_notional)}</p>
+        </div>
+        <div>
+          <p className="app-text-muted text-xs uppercase tracking-[0.16em]">Trade % of equity</p>
+          <p className="app-title mt-1 font-semibold">{formatPercent(tradePct)}</p>
+        </div>
+        <div>
+          <p className="app-text-muted text-xs uppercase tracking-[0.16em]">Position shares</p>
+          <p className="app-title mt-1 font-semibold">{formatShares(context.position_shares_after)}</p>
+        </div>
+        <div>
+          <p className="app-text-muted text-xs uppercase tracking-[0.16em]">Position value</p>
+          <p className="app-title mt-1 font-semibold">{formatCurrency(context.position_value_after)}</p>
+        </div>
+        <div>
+          <p className="app-text-muted text-xs uppercase tracking-[0.16em]">Allocation after</p>
+          <p className="app-title mt-1 font-semibold">{formatPercent(context.position_allocation_pct_after)}</p>
+        </div>
+        <div>
+          <p className="app-text-muted text-xs uppercase tracking-[0.16em]">Cash after</p>
+          <p className="app-title mt-1 font-semibold">{formatCurrency(context.cash_after_trade)}</p>
+        </div>
+      </div>
+      {shouldShowSmallAddHint(event) ? (
+        <p className="app-text-muted mt-2 text-sm">Small add because remaining cash/capacity was limited.</p>
+      ) : null}
+    </div>
+  );
 }
 
 function EventList({
@@ -165,6 +256,7 @@ function EventPanel({ event }: { event: TradeEventContext | null }) {
             <p className="app-text-muted mt-2 text-sm">No signal values were found in artifacts for this trade date.</p>
           )}
         </div>
+        <CapitalUsageSection event={event} />
       </div>
     </div>
   );

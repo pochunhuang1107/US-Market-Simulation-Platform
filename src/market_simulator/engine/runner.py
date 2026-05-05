@@ -108,6 +108,77 @@ def _side_for_trade_action(action: str) -> str:
     return action
 
 
+def _round_capital_value(value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), 6)
+
+
+def _overlay_capital_state(portfolio: PortfolioState, close: float) -> dict:
+    position_value = portfolio.overlay_market_value(close)
+    equity = portfolio.overlay_equity(close)
+    return {
+        "equity": equity,
+        "cash": portfolio.overlay_cash,
+        "position_shares": portfolio.position.shares,
+        "position_value": position_value,
+        "position_allocation_pct": (position_value / equity) * 100 if equity else 0.0,
+    }
+
+
+def _buy_capital_context(
+    before: dict,
+    portfolio: PortfolioState,
+    close: float,
+    shares: int,
+    fee: float,
+    max_position_value: float,
+) -> dict:
+    after = _overlay_capital_state(portfolio, close)
+    trade_notional = shares * close
+    remaining_capacity_after = max(0.0, max_position_value - after["position_value"])
+    return {
+        "trade_notional": _round_capital_value(trade_notional),
+        "trade_fee": _round_capital_value(fee),
+        "trade_total_cost": _round_capital_value(trade_notional + fee),
+        "equity_before_trade": _round_capital_value(before["equity"]),
+        "equity_after_trade": _round_capital_value(after["equity"]),
+        "cash_before_trade": _round_capital_value(before["cash"]),
+        "cash_after_trade": _round_capital_value(after["cash"]),
+        "position_shares_before": int(before["position_shares"]),
+        "position_shares_after": int(after["position_shares"]),
+        "position_value_after": _round_capital_value(after["position_value"]),
+        "position_allocation_pct_after": _round_capital_value(after["position_allocation_pct"]),
+        "remaining_capacity_after": _round_capital_value(remaining_capacity_after),
+        "max_position_value": _round_capital_value(max_position_value),
+    }
+
+
+def _sell_capital_context(
+    before: dict,
+    portfolio: PortfolioState,
+    close: float,
+    shares: int,
+    fee: float,
+    gross_pnl: float,
+    net_pnl: float,
+) -> dict:
+    after = _overlay_capital_state(portfolio, close)
+    return {
+        "trade_notional": _round_capital_value(shares * close),
+        "trade_fee": _round_capital_value(fee),
+        "gross_pnl": _round_capital_value(gross_pnl),
+        "net_pnl": _round_capital_value(net_pnl),
+        "equity_before_trade": _round_capital_value(before["equity"]),
+        "equity_after_trade": _round_capital_value(after["equity"]),
+        "cash_after_trade": _round_capital_value(after["cash"]),
+        "position_shares_before": int(before["position_shares"]),
+        "position_shares_after": int(after["position_shares"]),
+        "position_value_after": _round_capital_value(after["position_value"]),
+        "position_allocation_pct_after": _round_capital_value(after["position_allocation_pct"]),
+    }
+
+
 def _signal_column_values(rule: AtomicRule, row, symbol: str) -> dict[str, object]:
     values: dict[str, object] = {}
 
@@ -309,23 +380,28 @@ def run_simulation(bundle, strategy):
     events = []
     trade_signal_snapshots = []
 
-    def record_trade(trade: dict, signals: list[dict]) -> None:
+    def record_trade(
+        trade: dict,
+        signals: list[dict],
+        capital_context: dict | None = None,
+    ) -> None:
         event_index = len(trade_log)
         trade_log.append(trade)
         trade_date = str(trade.get("date") or "")
         trade_action = str(trade.get("action") or "TRADE")
-        trade_signal_snapshots.append(
-            {
-                "id": f"{trade_date or 'trade'}-{event_index}",
-                "event_index": event_index,
-                "date": trade_date,
-                "action": trade_action,
-                "side": _side_for_trade_action(trade_action),
-                "price": trade.get("price"),
-                "shares": trade.get("shares"),
-                "signals": signals,
-            }
-        )
+        snapshot = {
+            "id": f"{trade_date or 'trade'}-{event_index}",
+            "event_index": event_index,
+            "date": trade_date,
+            "action": trade_action,
+            "side": _side_for_trade_action(trade_action),
+            "price": trade.get("price"),
+            "shares": trade.get("shares"),
+            "signals": signals,
+        }
+        if capital_context:
+            snapshot["capital_context"] = capital_context
+        trade_signal_snapshots.append(snapshot)
 
     for i, row in df.iterrows():
         date = pd.Timestamp(row["date"])
@@ -361,31 +437,39 @@ def run_simulation(bundle, strategy):
                 shares = min(shares, portfolio.position.shares - 1)
 
                 if shares > 0:
+                    capital_before = _overlay_capital_state(portfolio, close)
                     gross, net, fee = _sell_overlay(
                         portfolio, shares, close, strategy.transaction_cost_bps
+                    )
+                    capital_context = _sell_capital_context(
+                        capital_before, portfolio, close, shares, fee, gross, net
                     )
 
                     portfolio.position.scale_steps = max(0, portfolio.position.scale_steps - 1)
 
-                    record_trade({
-                        "date": str(date.date()),
-                        "action": "SELL_REDUCE_PROFIT",
-                        "shares": shares,
-                        "price": close,
-                        "gross_pnl": round(gross, 6),
-                        "net_pnl": round(net, 6),
-                        "fee": round(fee, 6),
-                        "sleeve": "overlay",
-                    }, [
-                        _risk_signal(
-                            "Current profit %",
-                            round(profit_pct * 100, 6),
-                            "above",
-                            round(profit_reduce_threshold * 100, 6),
-                            "position_management",
-                            status="matched",
-                        )
-                    ])
+                    record_trade(
+                        {
+                            "date": str(date.date()),
+                            "action": "SELL_REDUCE_PROFIT",
+                            "shares": shares,
+                            "price": close,
+                            "gross_pnl": round(gross, 6),
+                            "net_pnl": round(net, 6),
+                            "fee": round(fee, 6),
+                            "sleeve": "overlay",
+                        },
+                        [
+                            _risk_signal(
+                                "Current profit %",
+                                round(profit_pct * 100, 6),
+                                "above",
+                                round(profit_reduce_threshold * 100, 6),
+                                "position_management",
+                                status="matched",
+                            )
+                        ],
+                        capital_context,
+                    )
 
                     action = "reduce_profit"
 
@@ -394,30 +478,38 @@ def run_simulation(bundle, strategy):
                 and profit_pct <= -strategy.risk.stop_loss_pct
             ):
                 sold = portfolio.position.shares
+                capital_before = _overlay_capital_state(portfolio, close)
                 gross, net, fee = _sell_overlay(
                     portfolio, sold, close, strategy.transaction_cost_bps
                 )
+                capital_context = _sell_capital_context(
+                    capital_before, portfolio, close, sold, fee, gross, net
+                )
                 portfolio.last_exit_bar_index = i
 
-                record_trade({
-                    "date": str(date.date()),
-                    "action": "SELL_ALL_STOP_LOSS",
-                    "shares": sold,
-                    "price": close,
-                    "gross_pnl": round(gross, 6),
-                    "net_pnl": round(net, 6),
-                    "fee": round(fee, 6),
-                    "sleeve": "overlay",
-                }, [
-                    _risk_signal(
-                        "Current profit %",
-                        round(profit_pct * 100, 6),
-                        "below",
-                        round(-strategy.risk.stop_loss_pct * 100, 6),
-                        "risk",
-                        status="matched",
-                    )
-                ])
+                record_trade(
+                    {
+                        "date": str(date.date()),
+                        "action": "SELL_ALL_STOP_LOSS",
+                        "shares": sold,
+                        "price": close,
+                        "gross_pnl": round(gross, 6),
+                        "net_pnl": round(net, 6),
+                        "fee": round(fee, 6),
+                        "sleeve": "overlay",
+                    },
+                    [
+                        _risk_signal(
+                            "Current profit %",
+                            round(profit_pct * 100, 6),
+                            "below",
+                            round(-strategy.risk.stop_loss_pct * 100, 6),
+                            "risk",
+                            status="matched",
+                        )
+                    ],
+                    capital_context,
+                )
                 events.append({
                     "date": str(date.date()),
                     "event_type": "STOP_LOSS",
@@ -430,30 +522,38 @@ def run_simulation(bundle, strategy):
                 and profit_pct >= strategy.risk.take_profit_pct
             ):
                 sold = portfolio.position.shares
+                capital_before = _overlay_capital_state(portfolio, close)
                 gross, net, fee = _sell_overlay(
                     portfolio, sold, close, strategy.transaction_cost_bps
                 )
+                capital_context = _sell_capital_context(
+                    capital_before, portfolio, close, sold, fee, gross, net
+                )
                 portfolio.last_exit_bar_index = i
 
-                record_trade({
-                    "date": str(date.date()),
-                    "action": "SELL_ALL_TAKE_PROFIT",
-                    "shares": sold,
-                    "price": close,
-                    "gross_pnl": round(gross, 6),
-                    "net_pnl": round(net, 6),
-                    "fee": round(fee, 6),
-                    "sleeve": "overlay",
-                }, [
-                    _risk_signal(
-                        "Current profit %",
-                        round(profit_pct * 100, 6),
-                        "above",
-                        round(strategy.risk.take_profit_pct * 100, 6),
-                        "risk",
-                        status="matched",
-                    )
-                ])
+                record_trade(
+                    {
+                        "date": str(date.date()),
+                        "action": "SELL_ALL_TAKE_PROFIT",
+                        "shares": sold,
+                        "price": close,
+                        "gross_pnl": round(gross, 6),
+                        "net_pnl": round(net, 6),
+                        "fee": round(fee, 6),
+                        "sleeve": "overlay",
+                    },
+                    [
+                        _risk_signal(
+                            "Current profit %",
+                            round(profit_pct * 100, 6),
+                            "above",
+                            round(strategy.risk.take_profit_pct * 100, 6),
+                            "risk",
+                            status="matched",
+                        )
+                    ],
+                    capital_context,
+                )
                 events.append({
                     "date": str(date.date()),
                     "event_type": "TAKE_PROFIT",
@@ -474,30 +574,38 @@ def run_simulation(bundle, strategy):
                         * strategy.risk.partial_take_profit.sell_fraction_of_position
                     ),
                 )
+                capital_before = _overlay_capital_state(portfolio, close)
                 gross, net, fee = _sell_overlay(
                     portfolio, sold, close, strategy.transaction_cost_bps
                 )
+                capital_context = _sell_capital_context(
+                    capital_before, portfolio, close, sold, fee, gross, net
+                )
                 portfolio.position.partial_take_profit_count += 1
 
-                record_trade({
-                    "date": str(date.date()),
-                    "action": "SELL_PARTIAL_TAKE_PROFIT",
-                    "shares": sold,
-                    "price": close,
-                    "gross_pnl": round(gross, 6),
-                    "net_pnl": round(net, 6),
-                    "fee": round(fee, 6),
-                    "sleeve": "overlay",
-                }, [
-                    _risk_signal(
-                        "Current profit %",
-                        round(profit_pct * 100, 6),
-                        "above",
-                        round(strategy.risk.partial_take_profit.trigger_profit_pct * 100, 6),
-                        "risk",
-                        status="matched",
-                    )
-                ])
+                record_trade(
+                    {
+                        "date": str(date.date()),
+                        "action": "SELL_PARTIAL_TAKE_PROFIT",
+                        "shares": sold,
+                        "price": close,
+                        "gross_pnl": round(gross, 6),
+                        "net_pnl": round(net, 6),
+                        "fee": round(fee, 6),
+                        "sleeve": "overlay",
+                    },
+                    [
+                        _risk_signal(
+                            "Current profit %",
+                            round(profit_pct * 100, 6),
+                            "above",
+                            round(strategy.risk.partial_take_profit.trigger_profit_pct * 100, 6),
+                            "risk",
+                            status="matched",
+                        )
+                    ],
+                    capital_context,
+                )
                 events.append({
                     "date": str(date.date()),
                     "event_type": "PARTIAL_TAKE_PROFIT",
@@ -517,33 +625,87 @@ def run_simulation(bundle, strategy):
                     shares = portfolio.position.shares
 
                 if shares < portfolio.position.shares:
+                    capital_before = _overlay_capital_state(portfolio, close)
                     gross, net, fee = _sell_overlay(
                         portfolio, shares, close, strategy.transaction_cost_bps
+                    )
+                    capital_context = _sell_capital_context(
+                        capital_before, portfolio, close, shares, fee, gross, net
                     )
 
                     portfolio.position.scale_steps = max(0, portfolio.position.scale_steps - 1)
 
-                    record_trade({
-                        "date": str(date.date()),
-                        "action": "SELL_REDUCE",
-                        "shares": shares,
-                        "price": close,
-                        "gross_pnl": round(gross, 6),
-                        "net_pnl": round(net, 6),
-                        "fee": round(fee, 6),
-                        "sleeve": "overlay",
-                    }, _signals_for_rules(strategy.exit_rule, bundle, strategy, i, "exit_rule"))
+                    record_trade(
+                        {
+                            "date": str(date.date()),
+                            "action": "SELL_REDUCE",
+                            "shares": shares,
+                            "price": close,
+                            "gross_pnl": round(gross, 6),
+                            "net_pnl": round(net, 6),
+                            "fee": round(fee, 6),
+                            "sleeve": "overlay",
+                        },
+                        _signals_for_rules(
+                            strategy.exit_rule,
+                            bundle,
+                            strategy,
+                            i,
+                            "exit_rule",
+                        ),
+                        capital_context,
+                    )
 
                     action = "reduce"
 
                 else:
+                    capital_before = _overlay_capital_state(portfolio, close)
                     gross, net, fee = _sell_overlay(
                         portfolio, shares, close, strategy.transaction_cost_bps
+                    )
+                    capital_context = _sell_capital_context(
+                        capital_before, portfolio, close, shares, fee, gross, net
                     )
                     portfolio.position.scale_steps = 0
                     portfolio.last_exit_bar_index = i
 
-                    record_trade({
+                    record_trade(
+                        {
+                            "date": str(date.date()),
+                            "action": "SELL_ALL",
+                            "shares": shares,
+                            "price": close,
+                            "gross_pnl": round(gross, 6),
+                            "net_pnl": round(net, 6),
+                            "fee": round(fee, 6),
+                            "sleeve": "overlay",
+                        },
+                        _signals_for_rules(
+                            strategy.exit_rule,
+                            bundle,
+                            strategy,
+                            i,
+                            "exit_rule",
+                        ),
+                        capital_context,
+                    )
+
+                    action = "exit"
+
+            else:
+                shares = portfolio.position.shares
+                capital_before = _overlay_capital_state(portfolio, close)
+                gross, net, fee = _sell_overlay(
+                    portfolio, shares, close, strategy.transaction_cost_bps
+                )
+                capital_context = _sell_capital_context(
+                    capital_before, portfolio, close, shares, fee, gross, net
+                )
+                portfolio.position.scale_steps = 0
+                portfolio.last_exit_bar_index = i
+
+                record_trade(
+                    {
                         "date": str(date.date()),
                         "action": "SELL_ALL",
                         "shares": shares,
@@ -552,28 +714,16 @@ def run_simulation(bundle, strategy):
                         "net_pnl": round(net, 6),
                         "fee": round(fee, 6),
                         "sleeve": "overlay",
-                    }, _signals_for_rules(strategy.exit_rule, bundle, strategy, i, "exit_rule"))
-
-                    action = "exit"
-
-            else:
-                shares = portfolio.position.shares
-                gross, net, fee = _sell_overlay(
-                    portfolio, shares, close, strategy.transaction_cost_bps
+                    },
+                    _signals_for_rules(
+                        strategy.exit_rule,
+                        bundle,
+                        strategy,
+                        i,
+                        "exit_rule",
+                    ),
+                    capital_context,
                 )
-                portfolio.position.scale_steps = 0
-                portfolio.last_exit_bar_index = i
-
-                record_trade({
-                    "date": str(date.date()),
-                    "action": "SELL_ALL",
-                    "shares": shares,
-                    "price": close,
-                    "gross_pnl": round(gross, 6),
-                    "net_pnl": round(net, 6),
-                    "fee": round(fee, 6),
-                    "sleeve": "overlay",
-                }, _signals_for_rules(strategy.exit_rule, bundle, strategy, i, "exit_rule"))
 
                 action = "exit"
 
@@ -613,6 +763,7 @@ def run_simulation(bundle, strategy):
                 if total <= portfolio.overlay_cash:
 
                     existing = portfolio.position.shares
+                    capital_before = _overlay_capital_state(portfolio, close)
                     new_total = existing + shares
 
                     new_avg = (
@@ -626,15 +777,33 @@ def run_simulation(bundle, strategy):
                     portfolio.position.shares = new_total
                     portfolio.position.avg_entry_price = new_avg
                     portfolio.position.scale_steps += 1
+                    capital_context = _buy_capital_context(
+                        capital_before,
+                        portfolio,
+                        close,
+                        shares,
+                        fee,
+                        max_position_value,
+                    )
 
-                    record_trade({
-                        "date": str(date.date()),
-                        "action": "BUY_ADD" if existing > 0 else "BUY",
-                        "shares": shares,
-                        "price": close,
-                        "fee": round(fee, 6),
-                        "sleeve": "overlay",
-                    }, _signals_for_rules(strategy.entry_rule, bundle, strategy, i, "entry_rule"))
+                    record_trade(
+                        {
+                            "date": str(date.date()),
+                            "action": "BUY_ADD" if existing > 0 else "BUY",
+                            "shares": shares,
+                            "price": close,
+                            "fee": round(fee, 6),
+                            "sleeve": "overlay",
+                        },
+                        _signals_for_rules(
+                            strategy.entry_rule,
+                            bundle,
+                            strategy,
+                            i,
+                            "entry_rule",
+                        ),
+                        capital_context,
+                    )
 
                     action = "scale_in"
 

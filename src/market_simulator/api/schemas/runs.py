@@ -304,6 +304,24 @@ class TradeEventRuleContext(BaseModel):
     limitation: str | None = None
 
 
+class TradeCapitalContext(BaseModel):
+    trade_notional: float | None = None
+    trade_fee: float | None = None
+    trade_total_cost: float | None = None
+    gross_pnl: float | None = None
+    net_pnl: float | None = None
+    equity_before_trade: float | None = None
+    equity_after_trade: float | None = None
+    cash_before_trade: float | None = None
+    cash_after_trade: float | None = None
+    position_shares_before: int | None = None
+    position_shares_after: int | None = None
+    position_value_after: float | None = None
+    position_allocation_pct_after: float | None = None
+    remaining_capacity_after: float | None = None
+    max_position_value: float | None = None
+
+
 class TradeEventContext(BaseModel):
     id: str
     date: str | None = None
@@ -314,6 +332,7 @@ class TradeEventContext(BaseModel):
     event_category: str | None = None
     values_on_date: dict[str, Any] = Field(default_factory=dict)
     rule_context: list[TradeEventRuleContext] = Field(default_factory=list)
+    capital_context: TradeCapitalContext | None = None
     rule_summary: str | None = None
     explanation: str
 

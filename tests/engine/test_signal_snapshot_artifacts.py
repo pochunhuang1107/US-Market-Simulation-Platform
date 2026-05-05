@@ -52,6 +52,43 @@ def _base_config(entry_rule: dict, exit_rule: dict, reference_symbols: list[str]
     }
 
 
+def _capital_context_frame() -> pd.DataFrame:
+    dates = pd.date_range("2024-01-01", periods=3, freq="D")
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "symbol": "QQQ",
+            "open": [32.0, 8.5, 13.0],
+            "high": [33.0, 9.0, 14.0],
+            "low": [30.0, 8.0, 11.0],
+            "close": [33.0, 9.0, 12.0],
+            "volume": 1000,
+        }
+    )
+
+
+def _capital_context_config() -> dict:
+    config = _base_config(
+        {
+            "kind": "atomic",
+            "type": "close_near_high",
+            "symbol": "QQQ",
+            "threshold": 0.2,
+        },
+        {
+            "kind": "atomic",
+            "type": "bearish_candle",
+            "symbol": "QQQ",
+        },
+    )
+    config["initial_capital"] = 100000
+    config["position_management"] = {
+        "scale_in_fraction": 1.0,
+        "scale_out_fraction": 0.5,
+    }
+    return config
+
+
 def test_rsi_rule_persists_symbol_qualified_value_in_timeline() -> None:
     strategy = StrategyV2.model_validate(
         _base_config(
@@ -80,6 +117,52 @@ def test_rsi_rule_persists_symbol_qualified_value_in_timeline() -> None:
     assert result.trade_signal_snapshots[0]["signals"][0]["label"] == "QQQ RSI(14)"
     assert result.trade_signal_snapshots[0]["signals"][0]["actual"] == rsi_values[0]
     assert result.trade_signal_snapshots[0]["signals"][0]["actual_value"] == rsi_values[0]
+
+
+def test_trade_signal_snapshots_include_buy_capital_context() -> None:
+    strategy = StrategyV2.model_validate(_capital_context_config())
+
+    result = run_simulation(MarketDataBundle(tradable=_capital_context_frame(), references={}), strategy)
+
+    buy_snapshot = result.trade_signal_snapshots[0]
+    capital_context = buy_snapshot["capital_context"]
+    assert buy_snapshot["action"] == "BUY"
+    assert capital_context["trade_notional"] == 99990.0
+    assert capital_context["position_allocation_pct_after"] == 99.99
+    assert capital_context["position_shares_before"] == 0
+    assert capital_context["position_shares_after"] == 3030
+    assert "trade_notional" not in result.trade_log[0]
+
+
+def test_buy_add_snapshot_explains_tiny_add_near_full_allocation() -> None:
+    strategy = StrategyV2.model_validate(_capital_context_config())
+
+    result = run_simulation(MarketDataBundle(tradable=_capital_context_frame(), references={}), strategy)
+
+    buy_add_snapshot = result.trade_signal_snapshots[1]
+    capital_context = buy_add_snapshot["capital_context"]
+    trade_size_pct = (
+        capital_context["trade_notional"] / capital_context["equity_before_trade"]
+    ) * 100
+    assert buy_add_snapshot["action"] == "BUY_ADD"
+    assert capital_context["trade_notional"] == 9.0
+    assert trade_size_pct < 0.1
+    assert capital_context["position_allocation_pct_after"] > 99.9
+    assert capital_context["remaining_capacity_after"] > 0
+
+
+def test_sell_reduce_snapshot_includes_position_after_and_trade_notional() -> None:
+    strategy = StrategyV2.model_validate(_capital_context_config())
+
+    result = run_simulation(MarketDataBundle(tradable=_capital_context_frame(), references={}), strategy)
+
+    sell_snapshot = result.trade_signal_snapshots[2]
+    capital_context = sell_snapshot["capital_context"]
+    assert sell_snapshot["action"] == "SELL_REDUCE"
+    assert capital_context["trade_notional"] == 18180.0
+    assert capital_context["position_shares_before"] == 3031
+    assert capital_context["position_shares_after"] == 1516
+    assert capital_context["position_value_after"] == 18192.0
 
 
 def test_series_below_rule_persists_reference_value_in_timeline() -> None:
