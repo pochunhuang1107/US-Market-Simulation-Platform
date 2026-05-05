@@ -4,6 +4,7 @@ import pandas as pd
 
 from market_simulator.engine.execution import transaction_cost
 from market_simulator.engine.portfolio import PortfolioState
+from market_simulator.models.strategy_v2 import AtomicRule, GroupRule, NotRule, SequenceRule, WindowRule
 from market_simulator.models.result import SimulationResult
 from market_simulator.reporting.metrics import (
     build_summary,
@@ -11,6 +12,7 @@ from market_simulator.reporting.metrics import (
     build_yearly_report,
     build_overlay_diagnostics,
 )
+from market_simulator.strategy.dataframe_resolution import resolve_market_dataframe, row_position_for_date
 from market_simulator.strategy.enricher import enrich_market_data
 from market_simulator.strategy.evaluator import evaluate_rule
 
@@ -35,6 +37,94 @@ def _sell_overlay(portfolio: PortfolioState, shares: int, price: float, cost_bps
         portfolio.position.partial_take_profit_count = 0
 
     return gross, net, fee
+
+
+def _collect_atomic_rules(rule, out):
+    if isinstance(rule, AtomicRule):
+        out.append(rule)
+    elif isinstance(rule, NotRule):
+        _collect_atomic_rules(rule.rule, out)
+    elif isinstance(rule, WindowRule):
+        _collect_atomic_rules(rule.rule, out)
+    elif isinstance(rule, SequenceRule):
+        for step in rule.steps:
+            _collect_atomic_rules(step, out)
+    elif isinstance(rule, GroupRule):
+        for child in rule.rules:
+            _collect_atomic_rules(child, out)
+
+
+def _safe_timeline_value(row, column: str):
+    if column not in row:
+        return None
+    value = row[column]
+    if pd.isna(value):
+        return None
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float):
+        return round(value, 6)
+    return value
+
+
+def _timeline_rule_values(bundle, strategy, index: int) -> dict:
+    values: dict = {}
+    current_date = pd.Timestamp(bundle.tradable.iloc[index]["date"])
+    trade_row = bundle.tradable.iloc[index]
+
+    close_value = _safe_timeline_value(trade_row, "close")
+    if close_value is not None:
+        values["close"] = close_value
+
+    rules = []
+    _collect_atomic_rules(strategy.entry_rule, rules)
+    _collect_atomic_rules(strategy.exit_rule, rules)
+
+    for rule in rules:
+        try:
+            target_df = resolve_market_dataframe(bundle, rule.symbol, strategy.tradable_symbol)
+        except ValueError:
+            continue
+        row_pos = row_position_for_date(target_df, current_date)
+        if row_pos is None:
+            continue
+        row = target_df.iloc[row_pos]
+        symbol = (rule.symbol or strategy.tradable_symbol or "").upper()
+
+        if rule.type in {"rsi_below", "rsi_above"}:
+            column = f"rsi_{rule.lookback}"
+            value = _safe_timeline_value(row, column)
+            if value is not None:
+                values[f"signal_rsi_{rule.lookback}"] = value
+        elif rule.type in {"series_below", "series_above"}:
+            value = _safe_timeline_value(row, "value")
+            if value is None:
+                value = _safe_timeline_value(row, "close")
+            if value is not None:
+                values[f"signal_series_{symbol}"] = value
+        elif rule.type in {"sma_cross_above", "sma_cross_below", "sma_above"}:
+            for window in (rule.fast_window, rule.slow_window):
+                column = f"sma_{window}"
+                value = _safe_timeline_value(row, column)
+                if value is not None:
+                    values[column] = value
+        elif rule.type in {"macd_bullish_cross", "macd_bearish_cross"}:
+            for column in ("macd", "macd_signal", "macd_hist"):
+                value = _safe_timeline_value(row, column)
+                if value is not None:
+                    values[column] = value
+        elif rule.type in {"kd_golden_cross", "kd_dead_cross"}:
+            for column in ("k", "d"):
+                value = _safe_timeline_value(row, column)
+                if value is not None:
+                    values[column] = value
+        elif rule.type in {"realized_volatility_below", "realized_volatility_above"}:
+            column = f"realized_volatility_{rule.lookback}"
+            value = _safe_timeline_value(row, column)
+            if value is not None:
+                values[column] = value
+
+    return values
 
 
 def run_simulation(bundle, strategy):
@@ -403,6 +493,7 @@ def run_simulation(bundle, strategy):
             "exit_signal": bool(exit_signal),
             "cooldown_active": bool(in_cooldown),
             "action_taken": action,
+            **_timeline_rule_values(bundle, strategy, i),
         })
 
     tdf = pd.DataFrame(timeline)

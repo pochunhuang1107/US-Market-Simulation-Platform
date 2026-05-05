@@ -205,8 +205,20 @@ export interface TradeEventContext {
   shares: Nullable<number>;
   event_category: Nullable<string>;
   values_on_date: Record<string, string | number | boolean>;
+  rule_context: TradeEventRuleContext[];
   rule_summary: Nullable<string>;
   explanation: string;
+}
+
+export interface TradeEventRuleContext {
+  label: string;
+  summary: string;
+  actual_label: Nullable<string>;
+  actual_value: Nullable<string | number | boolean>;
+  operator: Nullable<string>;
+  threshold: Nullable<string | number | boolean>;
+  result: string;
+  limitation: Nullable<string>;
 }
 
 export interface TradeEventContextResponse {

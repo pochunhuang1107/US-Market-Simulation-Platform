@@ -293,6 +293,17 @@ class TradeMarkerPoint(BaseModel):
     reason: str | None = None
 
 
+class TradeEventRuleContext(BaseModel):
+    label: str
+    summary: str
+    actual_label: str | None = None
+    actual_value: Any | None = None
+    operator: str | None = None
+    threshold: Any | None = None
+    result: str
+    limitation: str | None = None
+
+
 class TradeEventContext(BaseModel):
     id: str
     date: str | None = None
@@ -302,6 +313,7 @@ class TradeEventContext(BaseModel):
     shares: float | None = None
     event_category: str | None = None
     values_on_date: dict[str, Any] = Field(default_factory=dict)
+    rule_context: list[TradeEventRuleContext] = Field(default_factory=list)
     rule_summary: str | None = None
     explanation: str
 

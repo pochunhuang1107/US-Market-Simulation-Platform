@@ -3069,9 +3069,96 @@ def test_get_run_trade_events_matches_trade_date_and_extracts_rsi_vix(
     assert event["values_on_date"]["VIX"] == 14.2
     assert event["values_on_date"]["RSI(14)"] == 33.8
     assert event["rule_summary"].startswith("Entry rule:")
-    assert event["explanation"].startswith("Matched entry rule.")
+    assert event["explanation"].startswith("Signal values:")
     assert "VIX 14.2" in event["explanation"]
     assert "RSI(14) 33.8" in event["explanation"]
+
+
+def test_get_run_trade_events_extracts_rule_threshold_context(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    tmp_path,
+):
+    create_user(user_id=current_user_ctx["id"], email="trade-events-thresholds@example.com")
+    config = _strategy_v2_config()
+    config["reference_symbols"] = ["VIX"]
+    config["entry_rule"] = {
+        "kind": "group",
+        "operator": "AND",
+        "rules": [
+            {"kind": "atomic", "type": "series_below", "symbol": "VIX", "threshold": 25},
+            {"kind": "atomic", "type": "rsi_below", "symbol": "QQQ", "lookback": 14, "threshold": 35},
+        ],
+    }
+    strategy, version = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=config,
+    )
+
+    run = _create_trade_event_artifact_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        artifact_dir=tmp_path / "trade-event-threshold-run",
+        trade_log_csv="date,action,shares,price\n01/02/2024,BUY,10,100.5\n",
+        timeline_csv=(
+            "date,entry_signal,exit_signal,signal_series_VIX,signal_rsi_14\n"
+            "2024/01/02,True,False,18.4,32.8\n"
+        ),
+    )
+
+    response = client.get(f"/runs/{run.id}/trade-events")
+    assert response.status_code == 200
+
+    event = response.json()["events"][0]
+    assert event["date"] == "2024-01-02"
+    contexts = {context["label"]: context for context in event["rule_context"]}
+    assert contexts["VIX"]["actual_value"] == 18.4
+    assert contexts["VIX"]["operator"] == "below"
+    assert contexts["VIX"]["threshold"] == 25
+    assert contexts["VIX"]["result"] == "matched"
+    assert contexts["QQQ RSI(14)"]["actual_value"] == 32.8
+    assert contexts["QQQ RSI(14)"]["operator"] == "below"
+    assert contexts["QQQ RSI(14)"]["threshold"] == 35
+    assert contexts["QQQ RSI(14)"]["result"] == "matched"
+
+
+def test_get_run_trade_events_reports_missing_artifact_values_gracefully(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    tmp_path,
+):
+    create_user(user_id=current_user_ctx["id"], email="trade-events-missing-values@example.com")
+    strategy, version = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=_strategy_v2_config(),
+    )
+
+    run = _create_trade_event_artifact_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        artifact_dir=tmp_path / "trade-event-missing-values-run",
+        trade_log_csv="date,action,shares,price\n2024-01-02,BUY,10,100.0\n",
+        timeline_csv="date,entry_signal,exit_signal\n2024-01-02,True,False\n",
+    )
+
+    response = client.get(f"/runs/{run.id}/trade-events")
+    assert response.status_code == 200
+
+    event = response.json()["events"][0]
+    assert event["values_on_date"] == {}
+    assert event["explanation"] == "No signal values were found in artifacts for this trade date."
+    assert event["rule_context"][0]["actual_value"] is None
+    assert event["rule_context"][0]["limitation"] == "Actual value was not present in timeline artifacts for this date."
 
 
 def test_get_run_trade_events_shows_limited_attribution_when_trigger_is_unclear(
@@ -3107,7 +3194,7 @@ def test_get_run_trade_events_shows_limited_attribution_when_trigger_is_unclear(
     event = response.json()["events"][0]
     assert event["event_category"] == "exit"
     assert event["values_on_date"]["VIX"] == 15.5
-    assert "exact trigger attribution may be limited" in event["explanation"]
+    assert event["explanation"].startswith("Signal values:")
 
 
 def test_get_run_trade_events_enforces_ownership(
@@ -3139,6 +3226,78 @@ def test_get_run_trade_events_enforces_ownership(
 
     current_user_ctx["id"] = other_user_id
     response = client.get(f"/runs/{run.id}/trade-events")
+    assert response.status_code == 404
+
+
+def test_get_sweep_variant_trade_events_loads_local_artifacts_and_enforces_parent_ownership(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+    tmp_path,
+):
+    owner_id = current_user_ctx["id"]
+    other_user_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="sweep-trade-events-owner@example.com")
+    create_user(user_id=other_user_id, email="sweep-trade-events-other@example.com")
+    config = _strategy_v2_config()
+    config["entry_rule"] = {**config["entry_rule"], "threshold": 35}
+
+    variant_dir = tmp_path / "sweep-run" / "variants" / "variant-a"
+    variant_dir.mkdir(parents=True)
+    (variant_dir / "trade_log.csv").write_text(
+        "date,action,shares,price\n2024-01-02,BUY,10,100.0\n",
+        encoding="utf-8",
+    )
+    (variant_dir / "timeline.csv").write_text(
+        "date,entry_signal,exit_signal,signal_rsi_14\n2024-01-02,True,False,31.5\n",
+        encoding="utf-8",
+    )
+    (variant_dir / "monthly_returns.csv").write_text("month,strategy_return_pct\n2024-01,1.0\n", encoding="utf-8")
+
+    run = create_run(
+        db_session,
+        owner_id,
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"base_config": config, "grid": {"entry_rule.threshold": [35]}},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    run = mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={
+            "run_type": "PARAMETER_SWEEP",
+            "ranking_metric": "sharpe_ratio",
+            "results": [
+                {
+                    "variant_id": "variant-a",
+                    "variant_name": "variant-a",
+                    "parameters": {"entry_rule.threshold": 35},
+                    "status": "SUCCEEDED",
+                    "trade_count": 1,
+                    "artifact_dir": str(variant_dir),
+                    "config": config,
+                }
+            ],
+        },
+        artifact_dir=str(tmp_path / "sweep-run"),
+        artifact_manifest_json={"sweep_summary": str(tmp_path / "sweep-run" / "sweep_summary.json")},
+    )
+
+    response = client.get(f"/runs/{run.id}/sweep/variants/variant-a/trade-events")
+    assert response.status_code == 200
+    event = response.json()["events"][0]
+    assert event["values_on_date"]["RSI(14)"] == 31.5
+    assert event["rule_context"][0]["threshold"] == 35
+
+    current_user_ctx["id"] = other_user_id
+    response = client.get(f"/runs/{run.id}/sweep/variants/variant-a/trade-events")
     assert response.status_code == 404
 
 

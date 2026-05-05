@@ -145,32 +145,16 @@ function numberFormatter(value: number): string {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
-function plural(value: number, singular: string, pluralValue = `${singular}s`): string {
-  return value === 1 ? singular : pluralValue;
-}
-
 export function formatTradeActivity(summary: unknown): string {
   if (!isRecord(summary)) return '—';
 
   const tradeCount = toNumber(summary.trade_count);
-  const fullExitCount = toNumber(summary.full_exit_count) ?? tradeCount;
   const eventCount = toNumber(summary.trade_event_count);
-  const addEventCount = toNumber(summary.add_event_count) ?? 0;
-  const reduceEventCount = toNumber(summary.reduce_event_count) ?? 0;
+  const fullExitCount = toNumber(summary.full_exit_count);
+  const displayedCount = eventCount ?? tradeCount ?? fullExitCount;
 
-  if (
-    eventCount !== null &&
-    fullExitCount !== null &&
-    eventCount !== fullExitCount &&
-    (addEventCount > 0 || reduceEventCount > 0)
-  ) {
-    return `${numberFormatter(fullExitCount)} ${plural(fullExitCount, 'exit')} · ${numberFormatter(
-      eventCount
-    )} ${plural(eventCount, 'event')}`;
-  }
-
-  if (tradeCount === null) return '—';
-  return `${numberFormatter(tradeCount)} ${plural(tradeCount, 'trade')}`;
+  if (displayedCount === null) return '—';
+  return numberFormatter(displayedCount);
 }
 
 export function formatParameterLabel(path: string, config?: unknown): string {

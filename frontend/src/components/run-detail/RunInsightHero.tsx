@@ -249,7 +249,7 @@ export function RunInsightHero({
       value: formatDecimal(sharpeRatio)
     },
     {
-      label: 'Activity',
+      label: 'Trades',
       value: formatTradeActivity(summary)
     }
   ];

@@ -67,4 +67,4 @@ def test_sweep_helpers_use_contextual_parameter_labels_and_trade_activity_copy()
     assert "formatTradeActivity(row)" in results_source
     assert "<th className=\"px-4 py-3\">Activity</th>" in results_source
     assert "formatParameterLabel(path, config)" in variant_source
-    assert "label: 'Activity'" in variant_source
+    assert "label: 'Trades'" in variant_source

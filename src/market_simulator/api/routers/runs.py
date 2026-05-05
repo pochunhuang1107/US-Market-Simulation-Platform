@@ -328,6 +328,17 @@ def _load_variant_chart_data(variant: dict) -> dict | None:
         return None
 
 
+def _load_variant_trade_events(variant: dict, config: dict | None) -> dict:
+    manifest = _variant_artifact_manifest(variant)
+    if manifest is None:
+        return {"total_count": 0, "events": []}
+
+    try:
+        return trade_event_inspector.load_trade_events(manifest, config=config)
+    except Exception:
+        return {"total_count": 0, "events": []}
+
+
 def _sweep_variant_items(run) -> list[dict]:
     results = (run.summary_json or {}).get("results")
     if not isinstance(results, list):
@@ -1048,6 +1059,35 @@ def get_sweep_variant_detail_api(
         saved_run_id=str(saved_run.id) if saved_run is not None else None,
         chart_data=_load_variant_chart_data(variant),
     )
+
+
+@router.get(
+    "/{run_id}/sweep/variants/{variant_id}/trade-events",
+    response_model=TradeEventContextResponse,
+)
+def get_sweep_variant_trade_events_api(
+    run_id: str,
+    variant_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    run = get_run_for_user(db, run_id, user["id"])
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.run_type != "PARAMETER_SWEEP":
+        raise HTTPException(status_code=400, detail="Only parameter sweep runs have variants")
+
+    if run.status != "SUCCEEDED":
+        raise HTTPException(status_code=400, detail="Trade events are only available for succeeded sweep runs")
+
+    variant = _find_sweep_variant(run, variant_id)
+    if variant is None:
+        raise HTTPException(status_code=404, detail="Sweep variant not found")
+
+    config = _get_sweep_variant_config(run, variant, variant_id)
+    variant = {**variant, "config": config}
+    return _load_variant_trade_events(variant, config)
 
 
 @router.get("/{run_id}", response_model=RunResponse)
