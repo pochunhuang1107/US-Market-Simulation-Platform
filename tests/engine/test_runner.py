@@ -10,12 +10,14 @@ from market_simulator.models.strategy_v2 import StrategyV2
 
 
 def _build_bundle() -> SimpleNamespace:
+    return _build_bundle_with_closes([100.0, 110.0, 105.0, 108.0])
+
+
+def _build_bundle_with_closes(closes: list[float]) -> SimpleNamespace:
     df = pd.DataFrame(
         {
-            "date": pd.to_datetime(
-                ["2021-04-19", "2021-04-20", "2021-04-21", "2021-04-22"]
-            ),
-            "close": [100.0, 110.0, 105.0, 108.0],
+            "date": pd.date_range("2021-04-19", periods=len(closes), freq="D"),
+            "close": closes,
         }
     )
     return SimpleNamespace(tradable=df)
@@ -67,6 +69,29 @@ def _build_strategy(
         config["position_management"] = position_management
 
     return StrategyV2.model_validate(config)
+
+
+def _patch_runner_signals(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    entry_indices: set[int],
+    exit_indices: set[int] | None = None,
+) -> None:
+    exit_indices = exit_indices or set()
+
+    def fake_enrich_market_data(input_bundle, _strategy):
+        return input_bundle
+
+    def fake_evaluate_rule(rule, _bundle, i, _tradable_symbol=None):
+        rule_type = getattr(rule, "type", None)
+        if rule_type == "sma_cross_above":
+            return i in entry_indices
+        if rule_type == "sma_cross_below":
+            return i in exit_indices
+        return False
+
+    monkeypatch.setattr(runner, "enrich_market_data", fake_enrich_market_data)
+    monkeypatch.setattr(runner, "evaluate_rule", fake_evaluate_rule)
 
 
 def test_run_simulation_accepts_composite_rsi_and_price_sma_rule() -> None:
@@ -219,3 +244,119 @@ def test_run_simulation_with_position_management_can_scale(monkeypatch: pytest.M
 
     assert "BUY" in actions
     assert "BUY_ADD" in actions or "SELL_REDUCE_PROFIT" in actions or "SELL_REDUCE" in actions
+
+
+def test_run_simulation_default_position_management_still_allows_repeated_buy_add(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([50.0] * 5)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 0.25,
+            "scale_out_fraction": 0.5,
+        }
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0, 1, 2, 3, 4})
+
+    result = runner.run_simulation(bundle, strategy)
+    actions = [trade["action"] for trade in result.trade_log]
+
+    assert actions == ["BUY", "BUY_ADD", "BUY_ADD", "BUY_ADD"]
+    assert result.trade_signal_snapshots[1]["capital_context"]["trade_notional"] == 250.0
+    assert result.trade_signal_snapshots[1]["signals"]
+
+
+def test_run_simulation_max_scale_in_steps_caps_buy_add_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 6)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 0.25,
+            "scale_out_fraction": 0.5,
+            "max_scale_in_steps": 2,
+        }
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0, 1, 2, 3, 4, 5})
+
+    result = runner.run_simulation(bundle, strategy)
+    actions = [trade["action"] for trade in result.trade_log]
+
+    assert actions == ["BUY", "BUY_ADD"]
+    assert result.trade_signal_snapshots[-1]["scale_step_after"] == 2
+    assert result.trade_signal_snapshots[-1]["max_scale_in_steps"] == 2
+
+
+def test_run_simulation_min_bars_between_scale_ins_blocks_consecutive_buy_add(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 8)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 0.25,
+            "scale_out_fraction": 0.5,
+            "max_scale_in_steps": 4,
+            "min_bars_between_scale_ins": 3,
+        }
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0, 1, 2, 3, 4, 5, 6, 7})
+
+    result = runner.run_simulation(bundle, strategy)
+    buy_dates = [trade["date"] for trade in result.trade_log if trade["action"].startswith("BUY")]
+
+    assert buy_dates == ["2021-04-19", "2021-04-22", "2021-04-25"]
+    assert [snapshot["bars_since_last_scale_in"] for snapshot in result.trade_signal_snapshots] == [
+        None,
+        3,
+        3,
+    ]
+
+
+def test_run_simulation_persistent_signal_requires_unbroken_entry_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 6)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 0.25,
+            "scale_out_fraction": 0.5,
+            "min_bars_between_scale_ins": 2,
+            "scale_in_requires_persistent_signal": True,
+        }
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0, 1, 3, 4, 5})
+
+    result = runner.run_simulation(bundle, strategy)
+    buy_dates = [trade["date"] for trade in result.trade_log if trade["action"].startswith("BUY")]
+
+    assert buy_dates == ["2021-04-19", "2021-04-24"]
+
+
+def test_run_simulation_full_exit_resets_scale_in_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 5)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 0.25,
+            "scale_out_fraction": 1.0,
+            "max_scale_in_steps": 2,
+        }
+    )
+    _patch_runner_signals(
+        monkeypatch,
+        entry_indices={0, 1, 3, 4},
+        exit_indices={2},
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+    actions = [trade["action"] for trade in result.trade_log]
+
+    assert actions == ["BUY", "BUY_ADD", "SELL_ALL", "BUY", "BUY_ADD"]
+    assert [snapshot.get("scale_step_after") for snapshot in result.trade_signal_snapshots] == [
+        1,
+        2,
+        None,
+        1,
+        2,
+    ]
