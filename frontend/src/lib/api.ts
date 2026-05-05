@@ -18,6 +18,7 @@ import type {
   SaveDraftRunAsStrategyRequest,
   SaveDraftRunAsStrategyResponse,
   SweepVariantDetailResponse,
+  TradeEventContextResponse,
   StrategyBuilderGenerateRequest,
   StrategyBuilderGenerateResponse,
   StrategyDashboardResponse,
@@ -163,6 +164,10 @@ export async function fetchRunProgress(runId: string): Promise<RunProgressRespon
 
 export async function fetchRunDashboard(runId: string): Promise<RunDashboardResponse> {
   return request<RunDashboardResponse>(`/api/runs/${runId}/dashboard`);
+}
+
+export async function fetchRunTradeEvents(runId: string): Promise<TradeEventContextResponse> {
+  return request<TradeEventContextResponse>(`/api/runs/${runId}/trade-events`);
 }
 
 export async function fetchSweepVariantDetail(

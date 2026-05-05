@@ -23,6 +23,7 @@ from market_simulator.api.schemas.runs import (
     SaveDraftRunAsStrategyRequest,
     SaveDraftRunAsStrategyResponse,
     SweepVariantDetailResponse,
+    TradeEventContextResponse,
 )
 from market_simulator.db.enums import RunStatus
 from market_simulator.models.strategy_v2 import StrategyV2
@@ -46,6 +47,7 @@ from market_simulator.platform.services.run_comparison_service import (
 )
 from market_simulator.platform.services.run_dispatcher_service import RunDispatcherService
 from market_simulator.platform.services.run_worker_service import RunWorkerService
+from market_simulator.platform.services.trade_event_inspector import TradeEventInspectorService
 from market_simulator.repositories.runs import (
     count_runs,
     create_run,
@@ -83,6 +85,7 @@ worker_service = RunWorkerService()
 artifact_store = build_artifact_store()
 chart_service = RunChartService()
 comparison_service = RunComparisonService()
+trade_event_inspector = TradeEventInspectorService()
 
 
 def _build_run_response(run) -> RunResponse:
@@ -153,6 +156,23 @@ def _sweep_origin_strategy_id(run) -> str | None:
         return origin_strategy_id
 
     return str(run.strategy_id) if run.strategy_id is not None else None
+
+
+def _run_strategy_config(run) -> dict | None:
+    if run.strategy_version is not None and isinstance(run.strategy_version.config_json, dict):
+        return run.strategy_version.config_json
+
+    payload = run.request_payload or {}
+    for key in ("draft_config", "base_config"):
+        config = payload.get(key)
+        if isinstance(config, dict):
+            return config
+
+    summary_config = (run.summary_json or {}).get("config")
+    if isinstance(summary_config, dict):
+        return summary_config
+
+    return None
 
 
 def _find_sweep_variant(run, variant_id: str) -> dict | None:
@@ -1159,6 +1179,31 @@ def get_run_chart_data_api(
             sleeve_equity_curve=chart_data["sleeve_equity_curve"],
             sleeve_weight_curve=chart_data["sleeve_weight_curve"],
             trade_markers=chart_data["trade_markers"],
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=500, detail=f"Missing required artifact: {exc}") from exc
+
+
+@router.get("/{run_id}/trade-events", response_model=TradeEventContextResponse)
+def get_run_trade_events_api(
+    run_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    run = get_run_for_user(db, run_id, user["id"])
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.status != "SUCCEEDED":
+        raise HTTPException(status_code=400, detail="Trade events are only available for succeeded runs")
+
+    if not run.artifact_manifest_json:
+        raise HTTPException(status_code=404, detail="Run artifacts not found")
+
+    try:
+        return trade_event_inspector.load_trade_events(
+            run.artifact_manifest_json,
+            config=_run_strategy_config(run),
         )
     except KeyError as exc:
         raise HTTPException(status_code=500, detail=f"Missing required artifact: {exc}") from exc

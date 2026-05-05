@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 from market_simulator.db.enums import RunStatus, SubscriptionStatus
 from market_simulator.db.models import Plan, UserPlanSubscription
@@ -2980,6 +2981,165 @@ def test_get_run_chart_data_preserves_trade_marker_actions(
     assert markers[1]["shares"] == 25.0
     assert markers[2]["reason"] == "exit_signal"
     assert markers[3]["price"] == 107.0
+
+
+def _create_trade_event_artifact_run(
+    db_session,
+    *,
+    user_id: str,
+    strategy_id: str,
+    strategy_version_id: str,
+    artifact_dir: Path,
+    trade_log_csv: str,
+    timeline_csv: str,
+):
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    trade_log_path = artifact_dir / "trade_log.csv"
+    timeline_path = artifact_dir / "timeline.csv"
+    trade_log_path.write_text(trade_log_csv, encoding="utf-8")
+    timeline_path.write_text(timeline_csv, encoding="utf-8")
+
+    run = create_run(
+        db_session,
+        user_id,
+        strategy_id,
+        strategy_version_id,
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "trade event inspector"},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    return mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"total_return_pct": 12.3},
+        artifact_dir=str(artifact_dir),
+        artifact_manifest_json={
+            "trade_log": str(trade_log_path),
+            "timeline": str(timeline_path),
+        },
+    )
+
+
+def test_get_run_trade_events_matches_trade_date_and_extracts_rsi_vix(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    tmp_path,
+):
+    create_user(user_id=current_user_ctx["id"], email="trade-events-owner@example.com")
+    strategy, version = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=_strategy_v2_config(),
+    )
+
+    run = _create_trade_event_artifact_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        artifact_dir=tmp_path / "trade-event-run",
+        trade_log_csv=(
+            "date,action,shares,price,fee\n"
+            "2024-01-02T16:00:00,BUY,10,100.5,1.0\n"
+        ),
+        timeline_csv=(
+            "date,entry_signal,exit_signal,action_taken,signal_series_VIX,signal_rsi_14,sma_20\n"
+            "2024-01-02,True,False,scale_in,14.2,33.8,99.4\n"
+        ),
+    )
+
+    response = client.get(f"/runs/{run.id}/trade-events")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["total_count"] == 1
+    event = body["events"][0]
+    assert event["date"] == "2024-01-02"
+    assert event["action"] == "BUY"
+    assert event["side"] == "BUY"
+    assert event["price"] == 100.5
+    assert event["shares"] == 10.0
+    assert event["values_on_date"]["VIX"] == 14.2
+    assert event["values_on_date"]["RSI(14)"] == 33.8
+    assert event["rule_summary"].startswith("Entry rule:")
+    assert event["explanation"].startswith("Matched entry rule.")
+    assert "VIX 14.2" in event["explanation"]
+    assert "RSI(14) 33.8" in event["explanation"]
+
+
+def test_get_run_trade_events_shows_limited_attribution_when_trigger_is_unclear(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    tmp_path,
+):
+    create_user(user_id=current_user_ctx["id"], email="trade-events-limited@example.com")
+    strategy, version = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=_strategy_v2_config(),
+    )
+
+    run = _create_trade_event_artifact_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        artifact_dir=tmp_path / "trade-event-limited-run",
+        trade_log_csv="date,action,shares,price\n2024-01-03,SELL_ALL,10,101.0\n",
+        timeline_csv=(
+            "date,entry_signal,exit_signal,action_taken,signal_series_VIX,signal_rsi_14\n"
+            "2024-01-03,False,False,,15.5,52.0\n"
+        ),
+    )
+
+    response = client.get(f"/runs/{run.id}/trade-events")
+    assert response.status_code == 200
+
+    event = response.json()["events"][0]
+    assert event["event_category"] == "exit"
+    assert event["values_on_date"]["VIX"] == 15.5
+    assert "exact trigger attribution may be limited" in event["explanation"]
+
+
+def test_get_run_trade_events_enforces_ownership(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    tmp_path,
+):
+    owner_id = str(uuid.uuid4())
+    other_user_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="trade-events-owner@example.com")
+    create_user(user_id=other_user_id, email="trade-events-other@example.com")
+    strategy, version = create_strategy_bundle(
+        user_id=owner_id,
+        config_json=_strategy_v2_config(),
+    )
+
+    run = _create_trade_event_artifact_run(
+        db_session,
+        user_id=owner_id,
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        artifact_dir=tmp_path / "trade-event-owner-run",
+        trade_log_csv="date,action,shares,price\n2024-01-02,BUY,10,100.0\n",
+        timeline_csv="date,entry_signal,exit_signal,signal_rsi_14\n2024-01-02,True,False,30.0\n",
+    )
+
+    current_user_ctx["id"] = other_user_id
+    response = client.get(f"/runs/{run.id}/trade-events")
+    assert response.status_code == 404
 
 
 def test_compare_runs_chart_requires_at_least_two_runs(
