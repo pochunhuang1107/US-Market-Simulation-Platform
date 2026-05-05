@@ -2208,7 +2208,9 @@ def test_generate_strategy_builder_draft_parses_scale_in_percentage(client):
     assert config["position_management"]["scale_in_fraction"] == 0.25
     assert config["position_management"]["scale_out_fraction"] == 0.5
     assert config["position_management"].get("profit_reduce_threshold") is None
-    assert "Scale in 25.0% per entry" in body["summary"]
+    assert "Scale in 25.0% per entry" not in body["summary"]
+    assert "Enter when QQQ RSI(14) is below 35." in body["summary"]
+    assert "Exit when QQQ RSI(14) is above 65." in body["summary"]
 
 
 def test_generate_strategy_builder_draft_parses_explicit_sell_all_exit_behavior(client):
@@ -2232,7 +2234,8 @@ def test_generate_strategy_builder_draft_parses_explicit_sell_all_exit_behavior(
     assert config["position_management"]["exit_behavior"] == "sell_all"
     assert "scale_out_fraction" not in config["position_management"]
     assert config["position_management"]["scale_in_fraction"] == 1.0
-    assert "Exit behavior: sell all" in body["summary"]
+    assert "Exit behavior: sell all" not in body["summary"]
+    assert "Exit when QQQ RSI(14) is above 65." in body["summary"]
 
 
 def test_generate_strategy_builder_draft_omits_scale_out_fraction_for_sell_all_with_scale_in(client):
@@ -2286,7 +2289,8 @@ def test_generate_strategy_builder_draft_parses_explicit_scale_out_exit_behavior
     assert config["position_management"]["exit_behavior"] == "scale_out"
     assert config["position_management"]["scale_out_fraction"] == 0.5
     assert config["position_management"]["scale_in_fraction"] == 1.0
-    assert "Exit behavior: scale out 50.0% at a time" in body["summary"]
+    assert "Exit behavior: scale out 50.0% at a time" not in body["summary"]
+    assert "Exit when QQQ RSI(14) is above 65." in body["summary"]
 
 
 def test_generate_strategy_builder_follow_up_sell_all_removes_scale_out_fraction(client):
@@ -2355,7 +2359,8 @@ def test_generate_strategy_builder_draft_parses_max_scale_ins(client):
 
     assert config["position_management"]["scale_in_fraction"] == 0.25
     assert config["position_management"]["max_scale_in_steps"] == 4
-    assert "Max scale-in entries: 4" in body["summary"]
+    assert "Max scale-in entries: 4" not in body["summary"]
+    assert "Enter when QQQ RSI(14) is below 35." in body["summary"]
 
 
 def test_generate_strategy_builder_draft_parses_full_scale_in_policy_from_manual_qa_prompt(client):
@@ -2377,9 +2382,11 @@ def test_generate_strategy_builder_draft_parses_full_scale_in_policy_from_manual
     assert config["position_management"]["scale_in_fraction"] == 0.25
     assert config["position_management"]["min_bars_between_scale_ins"] == 3
     assert config["position_management"]["max_scale_in_steps"] == 4
-    assert "Scale in 25.0% per entry" in body["summary"]
-    assert "Minimum bars between adds: 3" in body["summary"]
-    assert "Max scale-in entries: 4" in body["summary"]
+    assert "Scale in 25.0% per entry" not in body["summary"]
+    assert "Minimum bars between adds: 3" not in body["summary"]
+    assert "Max scale-in entries: 4" not in body["summary"]
+    assert "Enter when QQQ RSI(14) is below 35." in body["summary"]
+    assert "Exit when QQQ RSI(14) is above 65." in body["summary"]
 
 
 def test_generate_strategy_builder_draft_parses_add_up_to_scale_ins(client):
@@ -2417,7 +2424,8 @@ def test_generate_strategy_builder_draft_parses_bars_between_scale_ins(client):
 
     assert config["position_management"]["scale_in_fraction"] == 0.25
     assert config["position_management"]["min_bars_between_scale_ins"] == 3
-    assert "Minimum bars between adds: 3" in body["summary"]
+    assert "Minimum bars between adds: 3" not in body["summary"]
+    assert "Enter when QQQ RSI(14) is below 35." in body["summary"]
 
 
 def test_generate_strategy_builder_follow_up_adds_scale_in_policy(client):

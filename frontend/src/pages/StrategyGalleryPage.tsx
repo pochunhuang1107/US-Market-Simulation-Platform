@@ -12,6 +12,7 @@ import {
 } from '../lib/strategyGalleryTemplates';
 import { ApiRequestError, createRun, enqueueRun } from '../lib/api';
 import { explainRule } from '../lib/ruleSummaries';
+import { getStrategyBehaviorFields } from '../lib/strategyBehaviorSummary';
 
 function cloneConfig(config: StrategyV2TemplateConfig): Record<string, unknown> {
   return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
@@ -256,6 +257,7 @@ function TemplatePreview({
   const config = template.config;
   const entrySummary = explainRule(config.entry_rule, { tradableSymbol: config.tradable_symbol });
   const exitSummary = explainRule(config.exit_rule, { tradableSymbol: config.tradable_symbol });
+  const behaviorFields = getStrategyBehaviorFields(config as unknown as Record<string, unknown>);
 
   return (
     <aside className="xl:sticky xl:top-28 xl:self-start">
@@ -281,32 +283,11 @@ function TemplatePreview({
 
           <dl className="grid gap-3 text-sm">
             <PreviewRow label="Tradable" value={config.tradable_symbol} />
-            <PreviewRow label="Benchmark" value={config.benchmark_symbol} />
             <PreviewRow label="Date range" value={`${config.start_date} to ${config.end_date}`} />
             <PreviewRow label="Reference symbols" value={config.reference_symbols.join(', ') || 'None'} />
-            <PreviewRow
-              label={config.position_management ? 'Entry sizing' : 'Allocation'}
-              value={
-                config.position_management
-                  ? `${Math.round(config.position_management.scale_in_fraction * 100)}% per scale-in entry`
-                  : `${Math.round(config.allocation.entry_value * 100)}% of equity`
-              }
-            />
-            {config.position_management ? (
-              <>
-                <PreviewRow
-                  label="Exit behavior"
-                  value={
-                    config.position_management.exit_behavior === 'sell_all'
-                      ? 'Sell all'
-                      : `Scale out ${Math.round((config.position_management.scale_out_fraction ?? 0.5) * 100)}% at a time`
-                  }
-                />
-                <PreviewRow label="Scale in" value={`${Math.round(config.position_management.scale_in_fraction * 100)}% per entry`} />
-                <PreviewRow label="Max scale-in entries" value={config.position_management.max_scale_in_steps ? String(config.position_management.max_scale_in_steps) : '—'} />
-                <PreviewRow label="Bars between adds" value={String(config.position_management.min_bars_between_scale_ins ?? 0)} />
-              </>
-            ) : null}
+            {behaviorFields.map((field) => (
+              <PreviewRow key={`${field.label}-${field.value}`} label={field.label} value={field.value} />
+            ))}
           </dl>
 
           <div className="grid gap-3">

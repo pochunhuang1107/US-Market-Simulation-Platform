@@ -38,6 +38,32 @@ def test_strategy_draft_and_saved_config_use_shared_rule_summary_helper():
     assert "summarizeStrategyRule(config.exit_rule" in saved_version_source
 
 
+def test_strategy_behavior_summary_helper_keeps_position_copy_compact():
+    helper_source = (ROOT / "frontend/src/lib/strategyBehaviorSummary.ts").read_text()
+    draft_source = (
+        ROOT / "frontend/src/components/strategy-chat/StrategyDraftCard.tsx"
+    ).read_text()
+    gallery_source = (ROOT / "frontend/src/pages/StrategyGalleryPage.tsx").read_text()
+    saved_version_source = (ROOT / "frontend/src/pages/StrategyPage.tsx").read_text()
+    run_create_source = (ROOT / "frontend/src/pages/CreateSimulationPage.tsx").read_text()
+
+    assert "getStrategyBehaviorFields" in helper_source
+    assert "Entry sizing" in helper_source
+    assert "`${formatPercent(scaleInFraction)} per entry`" in helper_source
+    assert "Max entries" in helper_source
+    assert "Wait between adds" in helper_source
+    assert "`${minBarsBetweenAdds} bars`" in helper_source
+    assert "Requires persistent signal" in helper_source
+    assert "Sell all" in helper_source
+    assert "Scale out ${formatPercent(scaleOutFraction)} at a time" in helper_source
+    assert "scale_out_fraction" not in helper_source.split("positionManagement?.exit_behavior === 'sell_all'")[1].split("} else if")[0]
+    assert "Entry allocation" in helper_source
+    assert "field.label === 'Entry sizing'" in saved_version_source
+
+    for source in [draft_source, gallery_source, saved_version_source, run_create_source]:
+        assert "getStrategyBehaviorFields" in source
+
+
 def test_strategy_name_helper_knows_realized_volatility_rules():
     source = (ROOT / "frontend/src/lib/suggestStrategyName.ts").read_text()
 

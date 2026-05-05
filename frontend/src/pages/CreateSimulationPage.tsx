@@ -13,6 +13,7 @@ import {
   formatStrategyStatus,
   formatStrategyType
 } from '../lib/formatters';
+import { getStrategyBehaviorFields } from '../lib/strategyBehaviorSummary';
 import type { CreateRunRequest, RunType, StrategyDashboardResponse, StrategyListItem } from '../types/api';
 
 const RUN_TYPE_OPTIONS = [
@@ -189,6 +190,10 @@ export function CreateSimulationPage() {
   }, [selectedVersion?.id]);
 
   const executorType = useMemo(() => getExecutorTypeForRunType(runType), [runType]);
+  const selectedBehaviorFields = useMemo(
+    () => getStrategyBehaviorFields(selectedVersion?.config_json),
+    [selectedVersion?.config_json]
+  );
 
   async function handleSubmit(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -403,6 +408,9 @@ export function CreateSimulationPage() {
               <Row label="Executor type" value={formatExecutorType(executorType)} />
               <Row label="Version created" value={selectedVersion ? formatDateTime(selectedVersion.created_at) : '—'} />
               <Row label="Change note" value={selectedVersion?.change_note ?? '—'} />
+              {selectedBehaviorFields.map((field) => (
+                <Row key={`${field.label}-${field.value}`} label={field.label} value={field.value} />
+              ))}
             </dl>
           </SectionCard>
 
