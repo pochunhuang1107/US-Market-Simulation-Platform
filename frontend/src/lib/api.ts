@@ -24,7 +24,7 @@ import type {
   StrategyDashboardResponse,
   StrategyListItem
 } from '../types/api';
-import { getAccessToken } from './authToken';
+import { getAccessToken, isAccessTokenUnavailableError } from './authToken';
 
 type ErrorBody = {
   detail?: unknown;
@@ -70,7 +70,28 @@ function formatErrorBody(body: ErrorBody): string {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  const token = await getAccessToken();
+  let token: string | null;
+
+  try {
+    token = await getAccessToken();
+  } catch (error) {
+    if (isAccessTokenUnavailableError(error)) {
+      const status = error.reason === 'loading' ? 0 : 401;
+      const reason =
+        error.reason === 'loading'
+          ? 'auth_loading'
+          : error.reason === 'unauthenticated'
+            ? 'auth_unauthenticated'
+            : 'auth_token_unavailable';
+
+      throw new ApiRequestError(error.message, status, {
+        detail: error.message,
+        reason
+      });
+    }
+
+    throw error;
+  }
 
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json');

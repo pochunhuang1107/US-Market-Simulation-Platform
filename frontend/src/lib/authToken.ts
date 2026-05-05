@@ -3,6 +3,17 @@ export const ACCESS_TOKEN_STORAGE_KEY = 'market_simulator_access_token';
 type MaybePromise<T> = T | Promise<T>;
 
 export type AccessTokenProvider = () => MaybePromise<string | null>;
+export type AccessTokenUnavailableReason = 'loading' | 'unauthenticated' | 'failed';
+
+export class AccessTokenUnavailableError extends Error {
+  reason: AccessTokenUnavailableReason;
+
+  constructor(reason: AccessTokenUnavailableReason, message: string) {
+    super(message);
+    this.name = 'AccessTokenUnavailableError';
+    this.reason = reason;
+  }
+}
 
 function readStoredAccessToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -20,6 +31,10 @@ let accessTokenProvider: AccessTokenProvider = readStoredAccessToken;
 export async function getAccessToken(): Promise<string | null> {
   const token = await accessTokenProvider();
   return token?.trim() ? token : null;
+}
+
+export function isAccessTokenUnavailableError(error: unknown): error is AccessTokenUnavailableError {
+  return error instanceof AccessTokenUnavailableError;
 }
 
 export function getDevelopmentAccessToken(): string | null {
