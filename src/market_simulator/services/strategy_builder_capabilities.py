@@ -43,6 +43,10 @@ DEFAULT_GUIDANCE_ACTIONS = [
     "Use composite sequence steps",
     "Remove sequence steps",
     "Adjust position management",
+    "Change scale-in fraction",
+    "Change max scale-in entries",
+    "Change bars between adds",
+    "Remove scale-in policy",
     "Enable / disable core allocation",
     "Change capital",
     "Change dates",
@@ -65,7 +69,8 @@ UNSUPPORTED_EDIT_SUGGESTED_ACTION = (
     "NOT inner-rule edits, removing a NOT wrapper, window inner-rule edits, removing a window wrapper, "
     "X then Y sequence rules, window/sequence bars and modes, sequence step edits, "
     "composite sequence-step replacements, removing sequence steps, "
-    "position management, core allocation, capital, or dates."
+    "position management, scale-in fraction, max scale-in entries, bars between adds, "
+    "removing scale-in policy, core allocation, capital, or dates."
 )
 
 UNSUPPORTED_EDIT_MESSAGE = (
@@ -79,7 +84,8 @@ UNSUPPORTED_EDIT_MESSAGE = (
     "any/all within N bars, NOT inner-rule edits, removing a NOT wrapper, "
     "window inner-rule edits, removing a window wrapper, X then Y sequence rules, "
     "window/sequence bars and modes, sequence step edits, composite sequence-step replacements, "
-    "removing sequence steps, position management, core allocation, capital, and dates."
+    "removing sequence steps, position management, scale-in fraction, max scale-in entries, "
+    "bars between adds, removing scale-in policy, core allocation, capital, and dates."
 )
 
 NO_CHANGE_MESSAGE = (
@@ -96,5 +102,6 @@ NO_CHANGE_MESSAGE = (
     "using any/all within N bars, changing or removing the NOT wrapper, changing or removing the window wrapper, "
     "using X then Y sequence rules, changing window/sequence bars or window mode, "
     "changing sequence steps, using composite sequence steps, "
-    "changing or removing sequence steps, position management, core allocation, capital, or dates."
+    "changing or removing sequence steps, position management, scale-in fraction, "
+    "max scale-in entries, bars between adds, removing scale-in policy, core allocation, capital, or dates."
 )

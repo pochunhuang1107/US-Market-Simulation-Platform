@@ -124,8 +124,8 @@ export function StrategyDraftCard({
     const allocation = (config.allocation as Record<string, unknown> | undefined) ?? {};
     const risk = (config.risk as Record<string, unknown> | undefined) ?? {};
     const coreOverlay = (config.core_overlay as Record<string, unknown> | undefined) ?? {};
+    const positionManagement = (config.position_management as Record<string, unknown> | undefined) ?? {};
 
-    const entryValue = typeof allocation.entry_value === 'number' ? `${(allocation.entry_value * 100).toFixed(1)}% of equity` : '—';
     const maxPosition = typeof allocation.max_position_pct === 'number' ? `${(allocation.max_position_pct * 100).toFixed(1)}%` : '—';
     const stopLoss = formatPercent(risk.stop_loss_pct);
     const takeProfit = formatPercent(risk.take_profit_pct);
@@ -139,6 +139,28 @@ export function StrategyDraftCard({
     const coreAllocation = coreAllocationValue === '—' ? '—' : `${coreAllocationValue} core`;
     const overlaySleeveAllocation =
       overlayAllocationValue === '—' ? '—' : `${overlayAllocationValue} overlay`;
+    const scaleInFraction =
+      typeof positionManagement.scale_in_fraction === 'number'
+        ? positionManagement.scale_in_fraction
+        : null;
+    const scaleIn =
+      scaleInFraction !== null
+        ? `${(scaleInFraction * 100).toFixed(1)}% per entry`
+        : '—';
+    const hasScaleInPolicy = scaleInFraction !== null;
+    const entryValue = hasScaleInPolicy
+      ? `${scaleIn} via scale-in policy`
+      : typeof allocation.entry_value === 'number'
+        ? `${(allocation.entry_value * 100).toFixed(1)}% of equity`
+        : '—';
+    const maxScaleIns =
+      typeof positionManagement.max_scale_in_steps === 'number'
+        ? String(positionManagement.max_scale_in_steps)
+        : '—';
+    const minBarsBetweenScaleIns =
+      typeof positionManagement.min_bars_between_scale_ins === 'number'
+        ? String(positionManagement.min_bars_between_scale_ins)
+        : '—';
     const strategyHeadline = typeof config.name === 'string' && config.name.trim() ? config.name : 'Generated strategy';
 
     return {
@@ -160,6 +182,9 @@ export function StrategyDraftCard({
       takeProfit,
       cooldown,
       coreOverlayLabel: coreOverlayEnabled ? `Enabled · ${coreAllocation} · ${overlaySleeveAllocation}` : 'Disabled',
+      scaleIn,
+      maxScaleIns,
+      minBarsBetweenScaleIns,
       readableExplanation: [
         `Trade ${typeof config.tradable_symbol === 'string' ? config.tradable_symbol : 'the selected asset'} from ${typeof config.start_date === 'string' ? config.start_date : 'the chosen start date'} to ${typeof config.end_date === 'string' ? config.end_date : 'the chosen end date'}.`,
         typeof config.benchmark_symbol === 'string'
@@ -167,7 +192,7 @@ export function StrategyDraftCard({
           : null,
         `Enter when ${explainRule(config.entry_rule, { tradableSymbol: config.tradable_symbol })}.`,
         `Exit when ${explainRule(config.exit_rule, { tradableSymbol: config.tradable_symbol })}.`,
-        !coreOverlayEnabled && typeof allocation.entry_value === 'number'
+        !coreOverlayEnabled && !hasScaleInPolicy && typeof allocation.entry_value === 'number'
           ? `Use ${(allocation.entry_value * 100).toFixed(1)}% of equity per entry.`
           : null,
         !coreOverlayEnabled && typeof allocation.max_position_pct === 'number'
@@ -181,6 +206,15 @@ export function StrategyDraftCard({
           : null,
         coreOverlayEnabled && typeof allocation.max_position_pct === 'number'
           ? `Cap overlay positions at ${(allocation.max_position_pct * 100).toFixed(1)}% of equity.`
+          : null,
+        hasScaleInPolicy
+          ? `Scale in ${(scaleInFraction * 100).toFixed(1)}% per entry.`
+          : null,
+        typeof positionManagement.max_scale_in_steps === 'number'
+          ? `Cap scale-in entries at ${positionManagement.max_scale_in_steps}.`
+          : null,
+        typeof positionManagement.min_bars_between_scale_ins === 'number'
+          ? `Wait at least ${positionManagement.min_bars_between_scale_ins} bars between adds.`
           : null,
         typeof risk.stop_loss_pct === 'number'
           ? `Protect downside with a ${formatPercent(risk.stop_loss_pct)} stop loss.`
@@ -304,7 +338,7 @@ export function StrategyDraftCard({
             </>
           ) : (
             <>
-              <InfoPill label="Allocation" value={viewModel.entryValue} />
+              <InfoPill label="Entry Sizing" value={viewModel.entryValue} />
               <InfoPill label="Max Position" value={viewModel.maxPosition} />
             </>
           )}
@@ -341,6 +375,9 @@ export function StrategyDraftCard({
               <InfoPill label="Stop Loss" value={viewModel.stopLoss} />
               <InfoPill label="Take Profit" value={viewModel.takeProfit} />
               <InfoPill label="Cooldown" value={viewModel.cooldown} />
+              <InfoPill label="Scale In" value={viewModel.scaleIn} />
+              <InfoPill label="Max Scale-In Entries" value={viewModel.maxScaleIns} />
+              <InfoPill label="Bars Between Adds" value={viewModel.minBarsBetweenScaleIns} />
               <InfoPill label="Core / Overlay" value={viewModel.coreOverlayLabel} />
             </div>
           </Section>

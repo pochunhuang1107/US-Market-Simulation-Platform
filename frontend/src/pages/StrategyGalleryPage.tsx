@@ -284,7 +284,21 @@ function TemplatePreview({
             <PreviewRow label="Benchmark" value={config.benchmark_symbol} />
             <PreviewRow label="Date range" value={`${config.start_date} to ${config.end_date}`} />
             <PreviewRow label="Reference symbols" value={config.reference_symbols.join(', ') || 'None'} />
-            <PreviewRow label="Allocation" value={`${Math.round(config.allocation.entry_value * 100)}% of equity`} />
+            <PreviewRow
+              label={config.position_management ? 'Entry sizing' : 'Allocation'}
+              value={
+                config.position_management
+                  ? `${Math.round(config.position_management.scale_in_fraction * 100)}% per scale-in entry`
+                  : `${Math.round(config.allocation.entry_value * 100)}% of equity`
+              }
+            />
+            {config.position_management ? (
+              <>
+                <PreviewRow label="Scale in" value={`${Math.round(config.position_management.scale_in_fraction * 100)}% per entry`} />
+                <PreviewRow label="Max scale-in entries" value={config.position_management.max_scale_in_steps ? String(config.position_management.max_scale_in_steps) : '—'} />
+                <PreviewRow label="Bars between adds" value={String(config.position_management.min_bars_between_scale_ins ?? 0)} />
+              </>
+            ) : null}
           </dl>
 
           <div className="grid gap-3">

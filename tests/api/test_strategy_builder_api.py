@@ -2189,6 +2189,332 @@ def test_generate_strategy_builder_draft_parses_partial_take_profit_position_man
     assert "take_profit_pct" not in config["risk"]
 
 
+def test_generate_strategy_builder_draft_parses_scale_in_percentage(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                "Exit when RSI above 65. Buy 25% first."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["scale_out_fraction"] == 0.5
+    assert config["position_management"].get("profit_reduce_threshold") is None
+    assert "Scale in 25.0% per entry" in body["summary"]
+
+
+def test_generate_strategy_builder_draft_parses_max_scale_ins(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                "Exit when RSI above 65. Max 4 scale-ins."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["max_scale_in_steps"] == 4
+    assert "Max scale-in entries: 4" in body["summary"]
+
+
+def test_generate_strategy_builder_draft_parses_full_scale_in_policy_from_manual_qa_prompt(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Buy QQQ when RSI is below 35 and sell when RSI is above 65. "
+                "Scale in 25% at a time, wait 3 days between adds, max 4 entries."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["min_bars_between_scale_ins"] == 3
+    assert config["position_management"]["max_scale_in_steps"] == 4
+    assert "Scale in 25.0% per entry" in body["summary"]
+    assert "Minimum bars between adds: 3" in body["summary"]
+    assert "Max scale-in entries: 4" in body["summary"]
+
+
+def test_generate_strategy_builder_draft_parses_add_up_to_scale_ins(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                "Exit when RSI above 65. Scale in 25% at a time and add up to 4 times."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    config = response.json()["config"]
+
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["max_scale_in_steps"] == 4
+
+
+def test_generate_strategy_builder_draft_parses_bars_between_scale_ins(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI stays below 35. "
+                "Exit when RSI rises above 65. Add 25% every 3 days while RSI stays below 35."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["min_bars_between_scale_ins"] == 3
+    assert "Minimum bars between adds: 3" in body["summary"]
+
+
+def test_generate_strategy_builder_follow_up_adds_scale_in_policy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "make it scale in 25% at a time, wait 5 days between adds, max 3 adds",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": _qqq_sma_current_config(),
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["max_scale_in_steps"] == 3
+    assert config["position_management"]["min_bars_between_scale_ins"] == 5
+    assert "Updated scale in fraction from none to 25.0%." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_sets_max_scale_in_entries(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["position_management"]["min_bars_between_scale_ins"] = 3
+    original_entry_rule = current_config["entry_rule"]
+    original_exit_rule = current_config["exit_rule"]
+    original_risk = current_config["risk"]
+    original_allocation = current_config["allocation"]
+    original_core_overlay = current_config["core_overlay"]
+    original_reference_symbols = current_config["reference_symbols"]
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Set max scale-in entries to 4.",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["position_management"]["max_scale_in_steps"] == 4
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["min_bars_between_scale_ins"] == 3
+    assert config["entry_rule"] == original_entry_rule
+    assert config["exit_rule"] == original_exit_rule
+    assert config["risk"] == original_risk
+    assert config["allocation"] == original_allocation
+    assert config["core_overlay"] == original_core_overlay
+    assert config["reference_symbols"] == original_reference_symbols
+    assert "No draft changes made" not in body["message"]
+    assert "Updated max scale-in steps from none to 4." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_changes_max_adds(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["position_management"]["max_scale_in_steps"] = 4
+    current_config["position_management"]["min_bars_between_scale_ins"] = 3
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Change max adds to 3.",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["position_management"]["max_scale_in_steps"] == 3
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["min_bars_between_scale_ins"] == 3
+    assert "Updated max scale-in steps from 4 to 3." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_changes_scale_in_fraction(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "make it scale in 30% at a time",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": _qqq_rsi_core_overlay_current_config(),
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["position_management"]["scale_in_fraction"] == 0.30
+    assert config["position_management"]["scale_out_fraction"] == 0.5
+    assert "Updated scale in fraction from 25.0% to 30.0%." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_removes_scale_in_limit(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["position_management"]["max_scale_in_steps"] = 4
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove scale-in limit",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert "max_scale_in_steps" not in config["position_management"]
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert "Updated max scale-in steps from 4 to none." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_waits_between_adds(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["position_management"]["max_scale_in_steps"] = 4
+    original_entry_rule = current_config["entry_rule"]
+    original_exit_rule = current_config["exit_rule"]
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Wait 5 days between adds.",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["position_management"]["min_bars_between_scale_ins"] == 5
+    assert config["position_management"]["max_scale_in_steps"] == 4
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["entry_rule"] == original_entry_rule
+    assert config["exit_rule"] == original_exit_rule
+    assert "Updated minimum bars between scale-ins from 0 to 5." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_turns_off_scale_in_controls(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "turn off scale-in controls",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": _qqq_rsi_core_overlay_current_config(),
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert "position_management" not in config or config["position_management"] is None
+    assert "Updated scale in fraction from 25.0% to none." in body["changes"]
+
+
+def test_generate_strategy_builder_draft_warns_on_invalid_scale_in_values(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                "Exit when RSI above 65. Scale in 150%, max 0 entries, "
+                "and wait -2 bars between adds."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert "position_management" not in config or config["position_management"] is None
+    assert "Scale-in percentage must be greater than 0% and no more than 100%; ignored that value." in body["warnings"]
+    assert "Max scale-ins must be a positive whole number; ignored that value." in body["warnings"]
+    assert "Minimum bars between adds must be 0 or greater; ignored that value." in body["warnings"]
+
+
+def test_generate_strategy_builder_existing_vix_rsi_prompt_still_works(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Only trade QQQ when VIX is below 25 and RSI is below 35."},
+    )
+
+    assert response.status_code == 200
+    config = response.json()["config"]
+
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["reference_symbols"] == ["VIX"]
+    assert config["entry_rule"]["kind"] == "group"
+    assert any(rule.get("type") == "rsi_below" for rule in config["entry_rule"]["rules"])
+    assert any(rule.get("type") == "series_below" for rule in config["entry_rule"]["rules"])
+
+
 def test_generate_strategy_builder_draft_parses_core_overlay_prompt(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -6529,6 +6855,10 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert "Change window inner rule" in body["guidance_data"]["suggested_actions"]
     assert "Adjust partial take profit" in body["guidance_data"]["suggested_actions"]
     assert "Adjust position management" in body["guidance_data"]["suggested_actions"]
+    assert "Change scale-in fraction" in body["guidance_data"]["suggested_actions"]
+    assert "Change max scale-in entries" in body["guidance_data"]["suggested_actions"]
+    assert "Change bars between adds" in body["guidance_data"]["suggested_actions"]
+    assert "Remove scale-in policy" in body["guidance_data"]["suggested_actions"]
     assert "Enable / disable core allocation" in body["guidance_data"]["suggested_actions"]
     assert "Change NOT inner rule" in body["guidance_data"]["suggested_actions"]
     assert "Remove NOT wrapper" in body["guidance_data"]["suggested_actions"]

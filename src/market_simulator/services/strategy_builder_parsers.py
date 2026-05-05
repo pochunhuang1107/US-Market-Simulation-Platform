@@ -402,7 +402,7 @@ def _has_date_edit_intent(text: str) -> bool:
 def _looks_like_edit_request(text: str) -> bool:
     return bool(
         re.search(
-            r"\b(change|set|update|add|remove|delete|use|replace|switch|make)\b",
+            r"\b(change|set|update|add|remove|delete|use|replace|switch|make|wait|turn\s+off|max|maximum|limit)\b",
             text,
             flags=re.IGNORECASE,
         )
@@ -468,6 +468,15 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\b(remove|delete)\s+(first|second)\s+step\s+of\s+(entry|exit)\s+sequence\b",
         r"\bpartial\s+take\s+profit\b",
         r"\bscale\s+in\b",
+        r"\bscale[-\s]+ins?\b",
+        r"\bbuild\s+position\s+over\b",
+        r"\bbuy\s+(?:a\s+)?quarter\s+at\s+a\s+time\b",
+        r"\bbuy\s+\d+(?:\.\d+)?%\s+first\b",
+        r"\bwait\s+\d+\s+(?:bars?|days?)\s+between\s+adds?\b",
+        r"\badd\s+up\s+to\s+\d+\s+times?\b",
+        r"\bmax(?:imum)?\s+\d+\s+(?:entries|adds?|scale[-\s]+ins?)\b",
+        r"\bmax\s+(?:scale[-\s]+in\s+)?(?:entries|adds?|scale[-\s]+ins?)\s+(?:to|at)\s+\d+\b",
+        r"\blimit\s+(?:entries|adds?|scale[-\s]+ins?)\s+to\s+\d+\b",
         r"\bscale\s+out\b",
         r"\bprofit\s+reduce\s+threshold\b",
         r"\bposition\s+management\b",
@@ -2039,13 +2048,39 @@ def _extract_partial_take_profit(
 
 
 def _extract_scale_in_fraction_edit(text: str) -> float | None:
-    return _extract_percent(
+    value = _extract_percent(
         text,
         [
-            r"scale\s+in\s+(?:to|at)\s+(\d+(?:\.\d+)?)%",
-            r"set\s+scale\s+in\s+to\s+(\d+(?:\.\d+)?)%",
+            r"(?:make\s+it\s+)?scale[-\s]+in\s+(\d+(?:\.\d+)?)%\s+at\s+a\s+time",
+            r"(?:make\s+it\s+)?scale[-\s]+in\s+(\d+(?:\.\d+)?)%",
+            r"scale[-\s]+in\s+(?:to|at)\s+(\d+(?:\.\d+)?)%",
+            r"set\s+scale[-\s]+in\s+to\s+(\d+(?:\.\d+)?)%",
+            r"buy\s+(\d+(?:\.\d+)?)%\s+first",
+            r"add\s+(\d+(?:\.\d+)?)%\s+every\s+\d+\s+(?:bars?|days?)",
+            r"add\s+(\d+(?:\.\d+)?)%\s+(?:at\s+a\s+time|per\s+(?:entry|add))",
         ],
     )
+    if value is not None:
+        return value
+
+    if re.search(
+        r"\bbuy\s+(?:a\s+)?quarter\s+at\s+a\s+time\b|\bquarter\s+position\s+at\s+a\s+time\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return 0.25
+
+    entries_match = re.search(
+        r"\bbuild\s+(?:the\s+)?position\s+over\s+(\d+)\s+entries\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if entries_match:
+        entries = int(entries_match.group(1))
+        if entries > 0:
+            return 1.0 / entries
+
+    return None
 
 
 def _extract_scale_out_fraction_edit(text: str) -> float | None:
@@ -2068,6 +2103,73 @@ def _extract_profit_reduce_threshold_edit(text: str) -> float | None:
     )
 
 
+def _extract_max_scale_in_steps_edit(text: str) -> int | None:
+    return _extract_int(
+        text,
+        [
+            r"max\s+scale[-\s]+in\s+entries\s+(?:to|at)\s+(\d+)",
+            r"(?:set|change|update)\s+max\s+scale[-\s]+in\s+entries\s+to\s+(\d+)",
+            r"(?:set|change|update)\s+max\s+(?:adds?|scale[-\s]+ins?|entries)\s+to\s+(\d+)",
+            r"limit\s+(?:scale[-\s]+ins?|adds?|entries)\s+to\s+(\d+)",
+            r"maximum\s+(\d+)\s+(?:entries|adds?|scale[-\s]+ins?)",
+            r"max\s+(\d+)\s+scale[-\s]+ins?",
+            r"max\s+(\d+)\s+adds?",
+            r"max\s+(\d+)\s+entries",
+            r"add\s+up\s+to\s+(\d+)\s+times?",
+            r"build\s+(?:the\s+)?position\s+over\s+(\d+)\s+entries",
+        ],
+    )
+
+
+def _extract_min_bars_between_scale_ins_edit(text: str) -> int | None:
+    value = _extract_int(
+        text,
+        [
+            r"wait\s+(?<!-)(\d+)\s+(?:bars?|days?)\s+between\s+adds?",
+            r"wait\s+(?<!-)(\d+)\s+(?:bars?|days?)\s+between\s+scale[-\s]+ins?",
+            r"(?<!-)(\d+)\s+(?:bars?|days?)\s+between\s+adds?",
+            r"(?<!-)(\d+)\s+(?:bars?|days?)\s+between\s+scale[-\s]+ins?",
+            r"add\s+\d+(?:\.\d+)?%\s+every\s+(?<!-)(\d+)\s+(?:bars?|days?)",
+        ],
+    )
+    if value is not None:
+        return value
+
+    if re.search(
+        r"\bdo\s+not\s+add\s+every\s+day\b|\bdon't\s+add\s+every\s+day\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return 2
+
+    return None
+
+
+def _has_scale_in_limit_removal(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:remove|clear|delete|disable)\s+scale[-\s]+in\s+limit|"
+            r"(?:remove|clear|delete|disable)\s+max\s+scale[-\s]+in\s+limit|"
+            r"(?:remove|clear|delete|disable)\s+max\s+(?:adds?|scale[-\s]+ins?)|"
+            r"no\s+max\s+(?:adds?|scale[-\s]+ins?)|"
+            r"unlimited\s+(?:adds?|scale[-\s]+ins?)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _has_scale_in_controls_removal(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:turn\s+off|disable|remove|clear|delete)\s+scale[-\s]+in\s+controls?|"
+            r"without\s+scale[-\s]+in\s+controls?",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _has_position_management_removal(text: str) -> bool:
     return bool(
         re.search(
@@ -2084,11 +2186,16 @@ def _build_position_management(
     scale_in_fraction: float | None,
     scale_out_fraction: float | None,
     profit_reduce_threshold: float | None,
+    max_scale_in_steps: int | None = None,
+    min_bars_between_scale_ins: int | None = None,
+    remove_max_scale_in_steps: bool = False,
 ) -> dict[str, Any] | None:
     if (
         scale_in_fraction is None
         and scale_out_fraction is None
         and profit_reduce_threshold is None
+        and max_scale_in_steps is None
+        and min_bars_between_scale_ins is None
         and existing is None
     ):
         return None
@@ -2108,6 +2215,12 @@ def _build_position_management(
         base["scale_out_fraction"] = scale_out_fraction
     if profit_reduce_threshold is not None:
         base["profit_reduce_threshold"] = profit_reduce_threshold
+    if max_scale_in_steps is not None:
+        base["max_scale_in_steps"] = max_scale_in_steps
+    elif remove_max_scale_in_steps:
+        base["max_scale_in_steps"] = None
+    if min_bars_between_scale_ins is not None:
+        base["min_bars_between_scale_ins"] = min_bars_between_scale_ins
 
     return base
 
@@ -2186,6 +2299,8 @@ __all__ = [
     "_extract_initial_capital",
     "_extract_int",
     "_extract_max_position_pct_edit",
+    "_extract_max_scale_in_steps_edit",
+    "_extract_min_bars_between_scale_ins_edit",
     "_extract_month_values",
     "_extract_not_inner_rule_edit",
     "_extract_overlay_allocation_pct",
@@ -2234,6 +2349,8 @@ __all__ = [
     "_has_partial_sma_window_edit",
     "_has_partial_take_profit_removal",
     "_has_position_management_removal",
+    "_has_scale_in_controls_removal",
+    "_has_scale_in_limit_removal",
     "_has_remove_group_condition_intent",
     "_has_remove_not_wrapper_intent",
     "_has_remove_sequence_step_intent",

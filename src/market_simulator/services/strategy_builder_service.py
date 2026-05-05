@@ -91,7 +91,9 @@ from market_simulator.services.strategy_builder_parsers import (
     _extract_group_condition_edit,
     _extract_group_operator_edit,
     _extract_initial_capital,
+    _extract_max_scale_in_steps_edit,
     _extract_max_position_pct_edit,
+    _extract_min_bars_between_scale_ins_edit,
     _extract_month_values,
     _extract_not_inner_rule_edit,
     _extract_overlay_allocation_pct,
@@ -135,6 +137,8 @@ from market_simulator.services.strategy_builder_parsers import (
     _has_partial_sma_window_edit,
     _has_partial_take_profit_removal,
     _has_position_management_removal,
+    _has_scale_in_controls_removal,
+    _has_scale_in_limit_removal,
     _has_remove_group_condition_intent,
     _has_remove_not_wrapper_intent,
     _has_remove_sequence_step_intent,
@@ -229,6 +233,7 @@ def _requires_existing_draft_context(prompt: str) -> bool:
         "delete ",
         "replace ",
         "switch ",
+        "turn off ",
     )
     if text.startswith(contextual_starters):
         return True
@@ -374,6 +379,7 @@ def _extract_risk_and_position_inputs(
     *,
     prompt: str,
     assumptions: list[str],
+    warnings: list[str],
 ) -> dict[str, Any]:
     stop_loss_removed = _has_stop_loss_removal(prompt)
     stop_loss_pct = None if stop_loss_removed else _extract_percent(
@@ -415,13 +421,65 @@ def _extract_risk_and_position_inputs(
     scale_in_fraction_edit = _extract_scale_in_fraction_edit(prompt)
     scale_out_fraction_edit = _extract_scale_out_fraction_edit(prompt)
     profit_reduce_threshold_edit = _extract_profit_reduce_threshold_edit(prompt)
+    max_scale_in_steps_edit = _extract_max_scale_in_steps_edit(prompt)
+    min_bars_between_scale_ins_edit = _extract_min_bars_between_scale_ins_edit(prompt)
+    remove_max_scale_in_steps = _has_scale_in_limit_removal(prompt)
 
-    position_management_removed = _has_position_management_removal(prompt)
+    if scale_in_fraction_edit is not None and not (0 < scale_in_fraction_edit <= 1):
+        warnings.append(
+            "Scale-in percentage must be greater than 0% and no more than 100%; ignored that value."
+        )
+        scale_in_fraction_edit = None
+    elif re.search(r"scale[-\s]+in\s+-\d+(?:\.\d+)?%", prompt, flags=re.IGNORECASE):
+        warnings.append(
+            "Scale-in percentage must be greater than 0% and no more than 100%; ignored that value."
+        )
+    if scale_out_fraction_edit is not None and not (0 < scale_out_fraction_edit <= 1):
+        warnings.append(
+            "Scale-out percentage must be greater than 0% and no more than 100%; ignored that value."
+        )
+        scale_out_fraction_edit = None
+    if profit_reduce_threshold_edit is not None and not (0 < profit_reduce_threshold_edit < 1):
+        warnings.append(
+            "Profit reduce threshold must be greater than 0% and less than 100%; ignored that value."
+        )
+        profit_reduce_threshold_edit = None
+    if max_scale_in_steps_edit is not None and max_scale_in_steps_edit <= 0:
+        warnings.append("Max scale-ins must be a positive whole number; ignored that value.")
+        max_scale_in_steps_edit = None
+    elif re.search(
+        r"max(?:imum)?\s+-\d+\s+(?:entries|adds?|scale[-\s]+ins?)|"
+        r"(?:set|change|update)\s+max\s+(?:scale[-\s]+in\s+)?(?:entries|adds?|scale[-\s]+ins?)\s+to\s+-\d+|"
+        r"limit\s+(?:entries|adds?|scale[-\s]+ins?)\s+to\s+-\d+",
+        prompt,
+        flags=re.IGNORECASE,
+    ):
+        warnings.append("Max scale-ins must be a positive whole number; ignored that value.")
+    if min_bars_between_scale_ins_edit is not None and min_bars_between_scale_ins_edit < 0:
+        warnings.append("Minimum bars between adds must be 0 or greater; ignored that value.")
+        min_bars_between_scale_ins_edit = None
+    elif re.search(
+        r"(?:wait\s+)?-\d+\s+(?:bars?|days?)\s+between\s+(?:adds?|scale[-\s]+ins?)",
+        prompt,
+        flags=re.IGNORECASE,
+    ):
+        warnings.append("Minimum bars between adds must be 0 or greater; ignored that value.")
+    if re.search(
+        r"\bdo\s+not\s+add\s+every\s+day\b|\bdon't\s+add\s+every\s+day\b",
+        prompt,
+        flags=re.IGNORECASE,
+    ):
+        warnings.append("Interpreted 'do not add every day' as waiting 2 bars between adds.")
+
+    position_management_removed = _has_position_management_removal(prompt) or _has_scale_in_controls_removal(prompt)
     has_position_management_edit = (
         position_management_removed
         or scale_in_fraction_edit is not None
         or scale_out_fraction_edit is not None
         or profit_reduce_threshold_edit is not None
+        or max_scale_in_steps_edit is not None
+        or min_bars_between_scale_ins_edit is not None
+        or remove_max_scale_in_steps
     )
 
     core_allocation_pct = _extract_core_allocation_pct(prompt)
@@ -448,6 +506,9 @@ def _extract_risk_and_position_inputs(
         "scale_in_fraction_edit": scale_in_fraction_edit,
         "scale_out_fraction_edit": scale_out_fraction_edit,
         "profit_reduce_threshold_edit": profit_reduce_threshold_edit,
+        "max_scale_in_steps_edit": max_scale_in_steps_edit,
+        "min_bars_between_scale_ins_edit": min_bars_between_scale_ins_edit,
+        "remove_max_scale_in_steps": remove_max_scale_in_steps,
         "position_management_removed": position_management_removed,
         "has_position_management_edit": has_position_management_edit,
         "core_allocation_pct": core_allocation_pct,
@@ -1429,6 +1490,9 @@ def _apply_update_flow_edits(
     scale_in_fraction_edit: float | None,
     scale_out_fraction_edit: float | None,
     profit_reduce_threshold_edit: float | None,
+    max_scale_in_steps_edit: int | None,
+    min_bars_between_scale_ins_edit: int | None,
+    remove_max_scale_in_steps: bool,
     position_management_removed: bool,
     has_position_management_edit: bool,
     core_overlay_enabled: bool,
@@ -2253,6 +2317,9 @@ def _apply_update_flow_edits(
                 scale_in_fraction=scale_in_fraction_edit,
                 scale_out_fraction=scale_out_fraction_edit,
                 profit_reduce_threshold=profit_reduce_threshold_edit,
+                max_scale_in_steps=max_scale_in_steps_edit,
+                min_bars_between_scale_ins=min_bars_between_scale_ins_edit,
+                remove_max_scale_in_steps=remove_max_scale_in_steps,
             )
 
     if core_overlay_disabled:
@@ -2352,6 +2419,7 @@ def _generate_strategy_draft(
     risk_and_position = _extract_risk_and_position_inputs(
         prompt=prompt,
         assumptions=assumptions,
+        warnings=warnings,
     )
 
     stop_loss_removed = risk_and_position["stop_loss_removed"]
@@ -2366,6 +2434,9 @@ def _generate_strategy_draft(
     scale_in_fraction_edit = risk_and_position["scale_in_fraction_edit"]
     scale_out_fraction_edit = risk_and_position["scale_out_fraction_edit"]
     profit_reduce_threshold_edit = risk_and_position["profit_reduce_threshold_edit"]
+    max_scale_in_steps_edit = risk_and_position["max_scale_in_steps_edit"]
+    min_bars_between_scale_ins_edit = risk_and_position["min_bars_between_scale_ins_edit"]
+    remove_max_scale_in_steps = risk_and_position["remove_max_scale_in_steps"]
     position_management_removed = risk_and_position["position_management_removed"]
     has_position_management_edit = risk_and_position["has_position_management_edit"]
     core_allocation_pct = risk_and_position["core_allocation_pct"]
@@ -2531,6 +2602,9 @@ def _generate_strategy_draft(
             scale_in_fraction_edit=scale_in_fraction_edit,
             scale_out_fraction_edit=scale_out_fraction_edit,
             profit_reduce_threshold_edit=profit_reduce_threshold_edit,
+            max_scale_in_steps_edit=max_scale_in_steps_edit,
+            min_bars_between_scale_ins_edit=min_bars_between_scale_ins_edit,
+            remove_max_scale_in_steps=remove_max_scale_in_steps,
             assumptions=assumptions,
         )
     else:
@@ -2574,6 +2648,9 @@ def _generate_strategy_draft(
             scale_in_fraction_edit=scale_in_fraction_edit,
             scale_out_fraction_edit=scale_out_fraction_edit,
             profit_reduce_threshold_edit=profit_reduce_threshold_edit,
+            max_scale_in_steps_edit=max_scale_in_steps_edit,
+            min_bars_between_scale_ins_edit=min_bars_between_scale_ins_edit,
+            remove_max_scale_in_steps=remove_max_scale_in_steps,
             position_management_removed=position_management_removed,
             has_position_management_edit=has_position_management_edit,
             core_overlay_enabled=core_overlay_enabled,

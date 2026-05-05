@@ -70,17 +70,26 @@ function configSummaryRows(config: Record<string, unknown> | null | undefined) {
   const risk = getRecord(config.risk);
   const allocation = getRecord(config.allocation);
   const coreOverlay = getRecord(config.core_overlay);
+  const positionManagement = getRecord(config.position_management);
   const dateRange = [config.start_date, config.end_date].filter(Boolean).map(formatConfigValue).join(' to ');
   const riskParts = [
     risk?.stop_loss_pct !== undefined ? `Stop ${formatConfigPct(risk.stop_loss_pct) ?? formatConfigValue(risk.stop_loss_pct)}` : null,
     risk?.take_profit_pct !== undefined ? `Take profit ${formatConfigPct(risk.take_profit_pct) ?? formatConfigValue(risk.take_profit_pct)}` : null,
     risk?.cooldown_bars !== undefined ? `Cooldown ${formatConfigValue(risk.cooldown_bars)} bars` : null,
-    allocation?.entry_value !== undefined ? `Position ${formatConfigPct(allocation.entry_value) ?? formatConfigValue(allocation.entry_value)}` : null
+    allocation?.entry_value !== undefined && !positionManagement ? `Position ${formatConfigPct(allocation.entry_value) ?? formatConfigValue(allocation.entry_value)}` : null,
+    allocation?.max_position_pct !== undefined && positionManagement ? `Position cap ${formatConfigPct(allocation.max_position_pct) ?? formatConfigValue(allocation.max_position_pct)}` : null
   ].filter(Boolean);
   const coreOverlayText = coreOverlay
     ? [
         `Core ${coreOverlay.enabled ? 'enabled' : 'disabled'}`,
         coreOverlay.core_allocation_pct !== undefined ? formatConfigPct(coreOverlay.core_allocation_pct) : null
+      ].filter(Boolean).join(' · ')
+    : null;
+  const scaleInText = positionManagement
+    ? [
+        positionManagement.scale_in_fraction !== undefined ? `Scale in ${formatConfigPct(positionManagement.scale_in_fraction) ?? formatConfigValue(positionManagement.scale_in_fraction)} per entry` : null,
+        positionManagement.max_scale_in_steps !== undefined ? `Max scale-in entries ${formatConfigValue(positionManagement.max_scale_in_steps)}` : null,
+        positionManagement.min_bars_between_scale_ins !== undefined ? `Minimum bars between adds ${formatConfigValue(positionManagement.min_bars_between_scale_ins)}` : null
       ].filter(Boolean).join(' · ')
     : null;
 
@@ -91,6 +100,7 @@ function configSummaryRows(config: Record<string, unknown> | null | undefined) {
     { label: 'Entry rule', value: summarizeStrategyRule(config.entry_rule, { tradableSymbol: config.tradable_symbol }).text },
     { label: 'Exit rule', value: summarizeStrategyRule(config.exit_rule, { tradableSymbol: config.tradable_symbol }).text },
     { label: 'Risk controls', value: riskParts.length ? riskParts.join(' · ') : '—' },
+    { label: 'Scale-in policy', value: scaleInText || '—' },
     { label: 'Core / overlay', value: coreOverlayText ?? '—' }
   ];
 }
