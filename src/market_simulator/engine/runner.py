@@ -35,8 +35,44 @@ def _sell_overlay(portfolio: PortfolioState, shares: int, price: float, cost_bps
     if portfolio.position.shares == 0:
         portfolio.position.avg_entry_price = 0.0
         portfolio.position.partial_take_profit_count = 0
+        portfolio.position.scale_steps = 0
+        portfolio.last_scale_in_bar_index = None
 
     return gross, net, fee
+
+
+def _scale_in_allowed(
+    portfolio: PortfolioState,
+    *,
+    index: int,
+    max_scale_in_steps: int | None,
+    min_bars_between_scale_ins: int,
+    requires_persistent_signal: bool,
+    entry_signal_streak: int,
+) -> bool:
+    if not portfolio.position.in_position:
+        return True
+
+    if (
+        max_scale_in_steps is not None
+        and portfolio.position.scale_steps >= max_scale_in_steps
+    ):
+        return False
+
+    last_scale_in_bar_index = portfolio.last_scale_in_bar_index
+    if last_scale_in_bar_index is None:
+        return True
+
+    bars_since_last_scale_in = index - last_scale_in_bar_index
+    if bars_since_last_scale_in < min_bars_between_scale_ins:
+        return False
+
+    if requires_persistent_signal:
+        required_streak = min_bars_between_scale_ins + 1
+        if entry_signal_streak < required_streak:
+            return False
+
+    return True
 
 
 def _collect_atomic_rules(rule, out):
@@ -379,11 +415,13 @@ def run_simulation(bundle, strategy):
     timeline = []
     events = []
     trade_signal_snapshots = []
+    entry_signal_streak = 0
 
     def record_trade(
         trade: dict,
         signals: list[dict],
         capital_context: dict | None = None,
+        metadata: dict | None = None,
     ) -> None:
         event_index = len(trade_log)
         trade_log.append(trade)
@@ -401,6 +439,8 @@ def run_simulation(bundle, strategy):
         }
         if capital_context:
             snapshot["capital_context"] = capital_context
+        if metadata:
+            snapshot.update(metadata)
         trade_signal_snapshots.append(snapshot)
 
     for i, row in df.iterrows():
@@ -409,6 +449,7 @@ def run_simulation(bundle, strategy):
 
         entry_signal = evaluate_rule(strategy.entry_rule, bundle, i, strategy.tradable_symbol)
         exit_signal = evaluate_rule(strategy.exit_rule, bundle, i, strategy.tradable_symbol)
+        entry_signal_streak = entry_signal_streak + 1 if entry_signal else 0
         action = ""
 
         # === POSITION MANAGEMENT CONFIG (NEW) ===
@@ -418,6 +459,11 @@ def run_simulation(bundle, strategy):
         scale_in_fraction = pm.scale_in_fraction if pm else 1.0
         scale_out_fraction = pm.scale_out_fraction if pm else 1.0
         profit_reduce_threshold = pm.profit_reduce_threshold if pm else None
+        max_scale_in_steps = pm.max_scale_in_steps if pm else None
+        min_bars_between_scale_ins = pm.min_bars_between_scale_ins if pm else 0
+        scale_in_requires_persistent_signal = (
+            pm.scale_in_requires_persistent_signal if pm else False
+        )
 
         # risk / exits for overlay sleeve only
         if portfolio.position.in_position and action == "":
@@ -734,6 +780,14 @@ def run_simulation(bundle, strategy):
 
         # === ENTRY ===
         if entry_signal and (not in_cooldown) and (action == ""):
+            can_scale_in = _scale_in_allowed(
+                portfolio,
+                index=i,
+                max_scale_in_steps=max_scale_in_steps,
+                min_bars_between_scale_ins=min_bars_between_scale_ins,
+                requires_persistent_signal=scale_in_requires_persistent_signal,
+                entry_signal_streak=entry_signal_streak,
+            )
 
             increment_pct = (
                 scale_in_fraction
@@ -751,7 +805,11 @@ def run_simulation(bundle, strategy):
             remaining_capacity = max(0.0, max_position_value - current_position_value)
 
             target_increment = overlay_base_capital * increment_pct
-            buy_budget = min(target_increment, remaining_capacity, portfolio.overlay_cash)
+            buy_budget = (
+                min(target_increment, remaining_capacity, portfolio.overlay_cash)
+                if can_scale_in
+                else 0.0
+            )
 
             shares = int(buy_budget // close)
 
@@ -763,6 +821,11 @@ def run_simulation(bundle, strategy):
                 if total <= portfolio.overlay_cash:
 
                     existing = portfolio.position.shares
+                    bars_since_last_scale_in = (
+                        None
+                        if portfolio.last_scale_in_bar_index is None
+                        else i - portfolio.last_scale_in_bar_index
+                    )
                     capital_before = _overlay_capital_state(portfolio, close)
                     new_total = existing + shares
 
@@ -777,6 +840,7 @@ def run_simulation(bundle, strategy):
                     portfolio.position.shares = new_total
                     portfolio.position.avg_entry_price = new_avg
                     portfolio.position.scale_steps += 1
+                    portfolio.last_scale_in_bar_index = i
                     capital_context = _buy_capital_context(
                         capital_before,
                         portfolio,
@@ -803,6 +867,11 @@ def run_simulation(bundle, strategy):
                             "entry_rule",
                         ),
                         capital_context,
+                        {
+                            "scale_step_after": portfolio.position.scale_steps,
+                            "max_scale_in_steps": max_scale_in_steps,
+                            "bars_since_last_scale_in": bars_since_last_scale_in,
+                        } if position_management_enabled else None,
                     )
 
                     action = "scale_in"

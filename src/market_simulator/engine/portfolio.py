@@ -30,6 +30,7 @@ class PortfolioState:
     overlay_fees_paid: float = 0.0
     position: PositionState = field(default_factory=PositionState)
     last_exit_bar_index: int | None = None
+    last_scale_in_bar_index: int | None = None
 
     # core sleeve state
     core_shares: int = 0
