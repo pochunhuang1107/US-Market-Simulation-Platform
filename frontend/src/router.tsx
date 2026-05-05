@@ -9,6 +9,7 @@ import { RunDetailPage } from './pages/RunDetailPage';
 import { RunsPage } from './pages/RunsPage';
 import { StrategyBuilderPage } from './pages/StrategyBuilderPage';
 import { StrategyChatPage } from './pages/StrategyChatPage';
+import { StrategyGalleryPage } from './pages/StrategyGalleryPage';
 import { StrategyLibraryPage } from './pages/StrategyLibraryPage';
 import { StrategyPage } from './pages/StrategyPage';
 import { SweepVariantDetailPage } from './pages/SweepVariantDetailPage';
@@ -25,6 +26,7 @@ export const router = createBrowserRouter([
       { path: '/runs/:runId', element: <RunDetailPage /> },
       { path: '/runs/:runId/variants/:variantId', element: <SweepVariantDetailPage /> },
       { path: '/compare', element: <ComparePage /> },
+      { path: '/gallery', element: <StrategyGalleryPage /> },
       { path: '/strategy-builder', element: <StrategyBuilderPage /> },
       { path: '/strategies', element: <StrategyLibraryPage /> },
       { path: '/strategies/new', element: <CreateStrategyPage /> },

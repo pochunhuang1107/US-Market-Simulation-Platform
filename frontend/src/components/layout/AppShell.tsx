@@ -9,6 +9,7 @@ import { AuthRequiredState } from '../shared/AuthRequiredState';
 
 const navItems = [
   { to: '/', label: 'Home', end: true },
+  { to: '/gallery', label: 'Gallery', end: true },
   { to: '/runs', label: 'Results', end: true },
   { to: '/compare', label: 'Compare', end: true },
   { to: '/strategies', label: 'Library', end: false },
