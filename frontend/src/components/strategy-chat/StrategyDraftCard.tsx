@@ -157,6 +157,18 @@ export function StrategyDraftCard({
       typeof positionManagement.max_scale_in_steps === 'number'
         ? String(positionManagement.max_scale_in_steps)
         : '—';
+    const exitBehaviorValue =
+      positionManagement.exit_behavior === 'sell_all' || positionManagement.exit_behavior === 'scale_out'
+        ? positionManagement.exit_behavior
+        : typeof positionManagement.scale_out_fraction === 'number'
+          ? 'scale_out'
+          : null;
+    const exitBehavior =
+      exitBehaviorValue === 'sell_all'
+        ? 'sell all'
+        : exitBehaviorValue === 'scale_out' && typeof positionManagement.scale_out_fraction === 'number'
+          ? `scale out ${(positionManagement.scale_out_fraction * 100).toFixed(1)}% at a time`
+          : '—';
     const minBarsBetweenScaleIns =
       typeof positionManagement.min_bars_between_scale_ins === 'number'
         ? String(positionManagement.min_bars_between_scale_ins)
@@ -183,6 +195,7 @@ export function StrategyDraftCard({
       cooldown,
       coreOverlayLabel: coreOverlayEnabled ? `Enabled · ${coreAllocation} · ${overlaySleeveAllocation}` : 'Disabled',
       scaleIn,
+      exitBehavior,
       maxScaleIns,
       minBarsBetweenScaleIns,
       readableExplanation: [
@@ -216,6 +229,11 @@ export function StrategyDraftCard({
         typeof positionManagement.min_bars_between_scale_ins === 'number'
           ? `Wait at least ${positionManagement.min_bars_between_scale_ins} bars between adds.`
           : null,
+        exitBehaviorValue === 'sell_all'
+          ? 'Exit behavior: sell all.'
+          : exitBehaviorValue === 'scale_out' && typeof positionManagement.scale_out_fraction === 'number'
+            ? `Exit behavior: scale out ${(positionManagement.scale_out_fraction * 100).toFixed(1)}% at a time.`
+            : null,
         typeof risk.stop_loss_pct === 'number'
           ? `Protect downside with a ${formatPercent(risk.stop_loss_pct)} stop loss.`
           : null,
@@ -375,6 +393,7 @@ export function StrategyDraftCard({
               <InfoPill label="Stop Loss" value={viewModel.stopLoss} />
               <InfoPill label="Take Profit" value={viewModel.takeProfit} />
               <InfoPill label="Cooldown" value={viewModel.cooldown} />
+              <InfoPill label="Exit Behavior" value={viewModel.exitBehavior} />
               <InfoPill label="Scale In" value={viewModel.scaleIn} />
               <InfoPill label="Max Scale-In Entries" value={viewModel.maxScaleIns} />
               <InfoPill label="Bars Between Adds" value={viewModel.minBarsBetweenScaleIns} />

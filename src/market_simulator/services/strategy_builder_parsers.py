@@ -402,7 +402,7 @@ def _has_date_edit_intent(text: str) -> bool:
 def _looks_like_edit_request(text: str) -> bool:
     return bool(
         re.search(
-            r"\b(change|set|update|add|remove|delete|use|replace|switch|make|wait|turn\s+off|max|maximum|limit)\b",
+            r"\b(change|set|update|add|remove|delete|use|replace|switch|make|wait|close|sell|exit|turn\s+off|max|maximum|limit)\b",
             text,
             flags=re.IGNORECASE,
         )
@@ -478,6 +478,13 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bmax\s+(?:scale[-\s]+in\s+)?(?:entries|adds?|scale[-\s]+ins?)\s+(?:to|at)\s+\d+\b",
         r"\blimit\s+(?:entries|adds?|scale[-\s]+ins?)\s+to\s+\d+\b",
         r"\bscale\s+out\b",
+        r"\bsell\s+all\b",
+        r"\bexit\s+fully\b",
+        r"\bfully\s+exit\b",
+        r"\bclose\s+(?:the\s+)?(?:whole|full|entire)\s+position\b",
+        r"\bsell\s+(?:the\s+)?(?:whole|full|entire)\s+position\b",
+        r"\bsell\s+half\s+at\s+a\s+time\b",
+        r"\bsell\s+\d+(?:\.\d+)?%\s+each\s+exit\b",
         r"\bprofit\s+reduce\s+threshold\b",
         r"\bposition\s+management\b",
         r"\bcore\s+allocation\b",
@@ -1016,7 +1023,7 @@ def _extract_relative_strength_threshold_edit(text: str) -> float | None:
 
 def _extract_entry_exit_rule_clauses(text: str) -> tuple[str | None, str | None]:
     match = re.search(
-        r"(?:entry|buys?|buying)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:,\s*|\s+)(?:and\s+)?(?:exit|sells?|selling)(?:\s+[A-Z]{2,5})?\s+when\s+(.+)$",
+        r"(?:entry|buys?|buying)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:,\s*|\s+)(?:and\s+)?(?:exit|sells?|selling)(?:\s+all|\s+fully|\s+(?:the\s+)?(?:whole|full|entire)\s+position)?(?:\s+[A-Z]{2,5})?\s+when\s+(.+)$",
         text,
         flags=re.IGNORECASE,
     )
@@ -1054,7 +1061,7 @@ def _extract_entry_rule_clause(text: str) -> str | None:
 
 def _extract_exit_rule_clause(text: str) -> str | None:
     patterns = [
-        r"(?:exit|sells?|selling)(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:\.(?!\d)|;|$)",
+        r"(?:exit|sells?|selling)(?:\s+all|\s+fully|\s+(?:the\s+)?(?:whole|full|entire)\s+position)?(?:\s+[A-Z]{2,5})?\s+when\s+(.+?)(?:\.(?!\d)|;|$)",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -2084,13 +2091,49 @@ def _extract_scale_in_fraction_edit(text: str) -> float | None:
 
 
 def _extract_scale_out_fraction_edit(text: str) -> float | None:
-    return _extract_percent(
+    value = _extract_percent(
         text,
         [
             r"scale\s+out\s+(?:to|at)\s+(\d+(?:\.\d+)?)%",
+            r"scale\s+out\s+(\d+(?:\.\d+)?)%\s+at\s+a\s+time",
+            r"scale\s+out\s+(\d+(?:\.\d+)?)%",
             r"set\s+scale\s+out\s+to\s+(\d+(?:\.\d+)?)%",
+            r"sell\s+(\d+(?:\.\d+)?)%\s+at\s+a\s+time",
+            r"sell\s+(\d+(?:\.\d+)?)%\s+each\s+exit",
         ],
     )
+    if value is not None:
+        return value
+
+    if re.search(r"\bsell\s+half\s+at\s+a\s+time\b", text, flags=re.IGNORECASE):
+        return 0.5
+
+    return None
+
+
+def _extract_exit_behavior_edit(text: str) -> str | None:
+    if re.search(
+        r"\bscale\s+out\b|"
+        r"\bsell\s+half\s+at\s+a\s+time\b|"
+        r"\bsell\s+\d+(?:\.\d+)?%\s+at\s+a\s+time\b|"
+        r"\bsell\s+\d+(?:\.\d+)?%\s+each\s+exit\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "scale_out"
+
+    if re.search(
+        r"\bsell\s+all\b|"
+        r"\bexit\s+fully\b|"
+        r"\bfully\s+exit\b|"
+        r"\bclose\s+(?:the\s+)?(?:whole|full|entire)\s+position\b|"
+        r"\bsell\s+(?:the\s+)?(?:whole|full|entire)\s+position\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "sell_all"
+
+    return None
 
 
 def _extract_profit_reduce_threshold_edit(text: str) -> float | None:
@@ -2186,6 +2229,7 @@ def _build_position_management(
     scale_in_fraction: float | None,
     scale_out_fraction: float | None,
     profit_reduce_threshold: float | None,
+    exit_behavior: str | None = None,
     max_scale_in_steps: int | None = None,
     min_bars_between_scale_ins: int | None = None,
     remove_max_scale_in_steps: bool = False,
@@ -2193,6 +2237,7 @@ def _build_position_management(
     if (
         scale_in_fraction is None
         and scale_out_fraction is None
+        and exit_behavior is None
         and profit_reduce_threshold is None
         and max_scale_in_steps is None
         and min_bars_between_scale_ins is None
@@ -2200,19 +2245,39 @@ def _build_position_management(
     ):
         return None
 
-    base = dict(
-        existing
-        or {
-            "scale_in_fraction": 0.25,
-            "scale_out_fraction": 0.5,
+    if existing:
+        base = dict(existing)
+    else:
+        default_scale_in_fraction = (
+            1.0
+            if (
+                scale_in_fraction is None
+                and max_scale_in_steps is None
+                and min_bars_between_scale_ins is None
+                and (exit_behavior is not None or scale_out_fraction is not None)
+            )
+            else 0.25
+        )
+        base = {
+            "scale_in_fraction": default_scale_in_fraction,
             "profit_reduce_threshold": None,
         }
-    )
+        if exit_behavior != "sell_all":
+            base["scale_out_fraction"] = 0.5
 
     if scale_in_fraction is not None:
         base["scale_in_fraction"] = scale_in_fraction
-    if scale_out_fraction is not None:
+    if exit_behavior == "sell_all":
+        if existing and "scale_out_fraction" in existing:
+            base["scale_out_fraction"] = None
+        else:
+            base.pop("scale_out_fraction", None)
+    elif scale_out_fraction is not None:
         base["scale_out_fraction"] = scale_out_fraction
+    elif exit_behavior == "scale_out":
+        base.setdefault("scale_out_fraction", 0.5)
+    if exit_behavior is not None:
+        base["exit_behavior"] = exit_behavior
     if profit_reduce_threshold is not None:
         base["profit_reduce_threshold"] = profit_reduce_threshold
     if max_scale_in_steps is not None:
@@ -2292,6 +2357,7 @@ __all__ = [
     "_extract_entry_fast_window_edit",
     "_extract_entry_rule_clause",
     "_extract_entry_slow_window_edit",
+    "_extract_exit_behavior_edit",
     "_extract_exit_rule_clause",
     "_extract_explicit_date_edits",
     "_extract_group_condition_edit",

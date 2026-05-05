@@ -32,7 +32,8 @@ class CoreOverlaySpec(BaseModel):
 
 class PositionManagementSpec(BaseModel):
     scale_in_fraction: float = Field(default=0.25, gt=0.0, le=1.0)
-    scale_out_fraction: float = Field(default=0.5, gt=0.0, le=1.0)
+    scale_out_fraction: Optional[float] = Field(default=None, gt=0.0, le=1.0)
+    exit_behavior: Literal["scale_out", "sell_all"] = "scale_out"
     profit_reduce_threshold: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
     max_scale_in_steps: Optional[int] = Field(default=None, gt=0)
     min_bars_between_scale_ins: int = Field(default=0, ge=0)

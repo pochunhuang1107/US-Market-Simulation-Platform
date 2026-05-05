@@ -294,6 +294,14 @@ function TemplatePreview({
             />
             {config.position_management ? (
               <>
+                <PreviewRow
+                  label="Exit behavior"
+                  value={
+                    config.position_management.exit_behavior === 'sell_all'
+                      ? 'Sell all'
+                      : `Scale out ${Math.round((config.position_management.scale_out_fraction ?? 0.5) * 100)}% at a time`
+                  }
+                />
                 <PreviewRow label="Scale in" value={`${Math.round(config.position_management.scale_in_fraction * 100)}% per entry`} />
                 <PreviewRow label="Max scale-in entries" value={config.position_management.max_scale_in_steps ? String(config.position_management.max_scale_in_steps) : '—'} />
                 <PreviewRow label="Bars between adds" value={String(config.position_management.min_bars_between_scale_ins ?? 0)} />

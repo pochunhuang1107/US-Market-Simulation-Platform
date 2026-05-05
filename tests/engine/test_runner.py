@@ -246,6 +246,92 @@ def test_run_simulation_with_position_management_can_scale(monkeypatch: pytest.M
     assert "BUY_ADD" in actions or "SELL_REDUCE_PROFIT" in actions or "SELL_REDUCE" in actions
 
 
+def test_run_simulation_position_management_without_exit_behavior_preserves_scale_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 5)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 1.0,
+            "scale_out_fraction": 0.5,
+        }
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0}, exit_indices={1, 2, 3, 4})
+
+    result = runner.run_simulation(bundle, strategy)
+    actions = [trade["action"] for trade in result.trade_log]
+
+    assert actions == ["BUY", "SELL_REDUCE", "SELL_REDUCE", "SELL_REDUCE", "SELL_REDUCE"]
+
+
+def test_run_simulation_sell_all_exit_behavior_exits_in_one_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 5)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 1.0,
+            "exit_behavior": "sell_all",
+        }
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0}, exit_indices={1, 2, 3, 4})
+
+    result = runner.run_simulation(bundle, strategy)
+    actions = [trade["action"] for trade in result.trade_log]
+
+    assert actions == ["BUY", "SELL_ALL"]
+    assert result.trade_log[1]["shares"] == 10
+
+
+def test_run_simulation_sell_all_exit_behavior_resets_scale_in_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 5)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 0.25,
+            "exit_behavior": "sell_all",
+            "max_scale_in_steps": 2,
+        }
+    )
+    _patch_runner_signals(
+        monkeypatch,
+        entry_indices={0, 1, 3, 4},
+        exit_indices={2},
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+    actions = [trade["action"] for trade in result.trade_log]
+
+    assert actions == ["BUY", "BUY_ADD", "SELL_ALL", "BUY", "BUY_ADD"]
+    assert [snapshot.get("scale_step_after") for snapshot in result.trade_signal_snapshots] == [
+        1,
+        2,
+        None,
+        1,
+        2,
+    ]
+
+
+def test_run_simulation_explicit_scale_out_exit_behavior_still_reduces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 3)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 1.0,
+            "scale_out_fraction": 0.5,
+            "exit_behavior": "scale_out",
+        }
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0}, exit_indices={1, 2})
+
+    result = runner.run_simulation(bundle, strategy)
+    actions = [trade["action"] for trade in result.trade_log]
+
+    assert actions == ["BUY", "SELL_REDUCE", "SELL_REDUCE"]
+
+
 def test_run_simulation_default_position_management_still_allows_repeated_buy_add(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
