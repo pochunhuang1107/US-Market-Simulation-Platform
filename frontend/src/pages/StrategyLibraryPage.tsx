@@ -179,7 +179,7 @@ export function StrategyLibraryPage() {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Link
-                to="/"
+                to="/workspace"
                 className="app-button-primary inline-flex rounded-xl px-4 py-2 text-sm font-semibold transition"
               >
                 Build a strategy

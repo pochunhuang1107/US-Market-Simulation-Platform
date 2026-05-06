@@ -18,7 +18,7 @@ interface AppAuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   userLabel: string | null;
-  login: () => Promise<void>;
+  login: (returnTo?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -31,6 +31,7 @@ const auth0Audience = import.meta.env.VITE_AUTH0_AUDIENCE?.trim() ?? '';
 const rawAuth0CacheLocation = import.meta.env.VITE_AUTH0_CACHE_LOCATION?.trim().toLowerCase();
 const auth0CacheLocation: Auth0CacheLocation = rawAuth0CacheLocation === 'localstorage' ? 'localstorage' : 'memory';
 const auth0UseRefreshTokens = import.meta.env.VITE_AUTH0_USE_REFRESH_TOKENS?.trim().toLowerCase() === 'true';
+const AUTH0_RETURN_TO_STORAGE_KEY = 'us-market-strategy-auth-return-to';
 
 function getRedirectUri(): string {
   const configuredRedirectUri = import.meta.env.VITE_AUTH0_REDIRECT_URI?.trim();
@@ -43,6 +44,49 @@ function getRedirectUri(): string {
 function getReturnToPath(): string {
   if (typeof window === 'undefined') return '/';
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function normalizeReturnToPath(returnTo?: string | null): string {
+  const fallback = '/';
+  const rawReturnTo = returnTo?.trim() || getReturnToPath();
+
+  if (!rawReturnTo) return fallback;
+  if (typeof window === 'undefined') {
+    return rawReturnTo.startsWith('/') && !rawReturnTo.startsWith('//') ? rawReturnTo : fallback;
+  }
+
+  try {
+    const parsedUrl = new URL(rawReturnTo, window.location.origin);
+    if (parsedUrl.origin !== window.location.origin) return fallback;
+    return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}` || fallback;
+  } catch {
+    return rawReturnTo.startsWith('/') && !rawReturnTo.startsWith('//') ? rawReturnTo : fallback;
+  }
+}
+
+function storeAuthReturnTo(returnTo: string) {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(AUTH0_RETURN_TO_STORAGE_KEY, returnTo);
+}
+
+function consumeStoredAuthReturnTo(): string | null {
+  if (typeof window === 'undefined') return null;
+  const returnTo = window.sessionStorage.getItem(AUTH0_RETURN_TO_STORAGE_KEY);
+  window.sessionStorage.removeItem(AUTH0_RETURN_TO_STORAGE_KEY);
+  return returnTo;
+}
+
+function replaceBrowserRoute(returnTo: string) {
+  window.history.replaceState({}, document.title, returnTo);
+  window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+}
+
+function isAuth0CallbackRequest(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  const params = new URLSearchParams(window.location.search);
+  const hasState = params.has('state');
+  return hasState && (params.has('code') || params.has('error'));
 }
 
 const defaultContextValue: AppAuthContextValue = {
@@ -149,10 +193,13 @@ function Auth0RuntimeProvider({ children }: { children: ReactNode }) {
       isLoading,
       isAuthenticated,
       userLabel: user?.name ?? user?.email ?? null,
-      login: async () => {
+      login: async (returnTo?: string) => {
+        const normalizedReturnTo = normalizeReturnToPath(returnTo);
+        storeAuthReturnTo(normalizedReturnTo);
+
         await loginWithRedirect({
           appState: {
-            returnTo: getReturnToPath()
+            returnTo: normalizedReturnTo
           },
           authorizationParams: {
             audience: auth0Audience
@@ -160,6 +207,7 @@ function Auth0RuntimeProvider({ children }: { children: ReactNode }) {
         });
       },
       logout: async () => {
+        consumeStoredAuthReturnTo();
         await logout({
           logoutParams: {
             returnTo: typeof window === 'undefined' ? undefined : window.location.origin
@@ -170,7 +218,33 @@ function Auth0RuntimeProvider({ children }: { children: ReactNode }) {
     [isAuthenticated, isLoading, loginWithRedirect, logout, user?.email, user?.name]
   );
 
+  if (isLoading && isAuth0CallbackRequest()) {
+    return (
+      <AppAuthContext.Provider value={value}>
+        <Auth0CallbackLoadingState />
+      </AppAuthContext.Provider>
+    );
+  }
+
   return <AppAuthContext.Provider value={value}>{children}</AppAuthContext.Provider>;
+}
+
+function Auth0CallbackLoadingState() {
+  return (
+    <div className="app-shell min-h-screen">
+      <main className="mx-auto flex min-h-screen max-w-3xl items-center px-6 py-10">
+        <section className="app-card w-full rounded-3xl border p-8 app-shadow-soft">
+          <p className="app-eyebrow text-xs font-semibold uppercase tracking-[0.26em]">
+            Authentication
+          </p>
+          <h1 className="mt-2 text-2xl font-semibold app-title">Restoring session...</h1>
+          <p className="mt-3 text-sm leading-6 app-text-muted">
+            Finishing sign-in before loading your research workspace.
+          </p>
+        </section>
+      </main>
+    </div>
+  );
 }
 
 function Auth0ConfigurationProvider() {
@@ -230,8 +304,8 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
         redirect_uri: getRedirectUri()
       }}
       onRedirectCallback={(appState) => {
-        const returnTo = appState?.returnTo ?? '/';
-        window.history.replaceState({}, document.title, returnTo);
+        const returnTo = normalizeReturnToPath(appState?.returnTo ?? consumeStoredAuthReturnTo() ?? '/');
+        replaceBrowserRoute(returnTo);
       }}
     >
       <Auth0RuntimeProvider>{children}</Auth0RuntimeProvider>

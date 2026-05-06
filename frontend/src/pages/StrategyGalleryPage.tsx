@@ -95,7 +95,7 @@ export function StrategyGalleryPage() {
   }
 
   function handleUseInBuilder(template: StrategyGalleryTemplate) {
-    navigate('/', {
+    navigate('/workspace', {
       state: {
         source: 'strategy_gallery',
         sourceLabel: 'Strategy Gallery',
@@ -145,7 +145,7 @@ export function StrategyGalleryPage() {
         actions={
           <>
             <Link to="/" className="app-button-secondary rounded-xl px-4 py-2 text-sm transition">
-              Back to home
+              Landing
             </Link>
             <button
               type="button"

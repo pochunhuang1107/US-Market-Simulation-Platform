@@ -1,6 +1,6 @@
 import type { MouseEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAppAuth } from '../../auth/AppAuthProvider';
 import { fetchMeEntitlements, isUnauthorizedError } from '../../lib/api';
@@ -10,7 +10,7 @@ import { AuthRequiredState } from '../shared/AuthRequiredState';
 import { StateCard } from '../shared/StateCard';
 
 const navItems = [
-  { to: '/', label: 'Home', end: true },
+  { to: '/workspace', label: 'Workspace', end: true },
   { to: '/gallery', label: 'Gallery', end: true },
   { to: '/runs', label: 'Results', end: true },
   { to: '/compare', label: 'Compare', end: true },
@@ -116,9 +116,9 @@ export function AppShell() {
   }, [auth.isAuthenticated]);
 
   function handleNavClick(event: MouseEvent<HTMLAnchorElement>, to: string) {
-    if (to === '/' && (location.pathname === '/' || location.pathname === '/chat')) {
+    if (to === '/workspace' && (location.pathname === '/workspace' || location.pathname === '/chat')) {
       event.preventDefault();
-      navigate('/', {
+      navigate('/workspace', {
         replace: location.search === '',
         state: { homeResetKey: Date.now() }
       });
@@ -138,15 +138,16 @@ export function AppShell() {
   const userInitial = auth.userLabel?.trim().charAt(0).toUpperCase() ?? '?';
   const shortUserLabel = getShortUserLabel(auth.userLabel);
   const fullUserLabel = auth.userLabel ?? 'Signed in';
+  const currentRoute = `${location.pathname}${location.search}${location.hash}`;
 
   return (
     <div className="app-shell min-h-screen">
       <header className="app-header sticky top-0 z-30 border-b backdrop-blur">
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 px-6 py-4 lg:grid-cols-[minmax(160px,190px)_minmax(0,1fr)_auto] lg:items-center lg:gap-4 lg:px-8 xl:grid-cols-[minmax(180px,220px)_minmax(0,1fr)_auto]">
-          <div className="min-w-0">
+          <Link to="/" className="min-w-0 transition hover:opacity-85">
             <p className="app-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">US Market</p>
             <h1 className="mt-1 text-lg font-semibold app-title sm:text-xl">Research Workspace</h1>
-          </div>
+          </Link>
 
           <nav className="app-nav flex min-w-0 flex-wrap items-center gap-1 rounded-2xl border p-1.5 sm:gap-1.5 lg:flex-nowrap lg:justify-self-center lg:overflow-hidden">
             {navItems.map((item) => (
@@ -236,7 +237,7 @@ export function AppShell() {
                   <button
                     type="button"
                     onClick={() => {
-                      void auth.login();
+                      void auth.login(currentRoute);
                     }}
                     disabled={auth.isLoading}
                     className="app-button-primary shrink-0 rounded-full px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
@@ -258,11 +259,12 @@ export function AppShell() {
             description="Checking your Auth0 session before loading protected research data."
           />
         ) : auth.isAuth0Mode && !auth.isAuthenticated && !hasManualAccessToken ? (
-          <AuthRequiredState />
+          <AuthRequiredState returnTo={currentRoute} />
         ) : authRequiredMessage ? (
           <AuthRequiredState
             errorMessage={authRequiredMessage}
             loading={isRetryingAuth}
+            returnTo={currentRoute}
             onRetry={() => {
               setHasManualAccessToken(Boolean(getDevelopmentAccessToken()));
               void checkAuthRequired();

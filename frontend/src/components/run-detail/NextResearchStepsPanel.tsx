@@ -35,7 +35,7 @@ export function NextResearchStepsPanel({
         <div className="flex flex-wrap items-center gap-3">
           {modifyBuilderState ? (
             <Link
-              to="/chat"
+              to="/workspace"
               state={modifyBuilderState}
               className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
             >
