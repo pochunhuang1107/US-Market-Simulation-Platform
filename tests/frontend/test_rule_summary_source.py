@@ -105,3 +105,17 @@ def test_sweep_helpers_use_contextual_parameter_labels_and_trade_activity_copy()
     assert "<th className=\"px-4 py-3\">Activity</th>" in results_source
     assert "formatParameterLabel(path, config)" in variant_source
     assert "label: 'Trades'" in variant_source
+
+
+def test_sweep_variant_detail_reuses_result_breakdown_below_main_chart():
+    source = (ROOT / "frontend/src/pages/SweepVariantDetailPage.tsx").read_text()
+    insight_index = source.index("<RunInsightHero run={displayRun}")
+    breakdown_index = source.index("<RunInsightBreakdown run={displayRun} />")
+    lower_charts_index = source.index("<RunCharts run={displayRun}")
+    inspector_index = source.index("<TradeEventInspector")
+
+    assert "import { RunInsightBreakdown }" in source
+    assert "<RunInsightBreakdown run={displayRun} />" in source
+    assert insight_index < breakdown_index
+    assert breakdown_index < lower_charts_index
+    assert lower_charts_index < inspector_index

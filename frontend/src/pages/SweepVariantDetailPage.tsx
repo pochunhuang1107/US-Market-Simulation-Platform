@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { RunCharts } from '../components/run-detail/RunCharts';
+import { RunInsightBreakdown } from '../components/run-detail/RunInsightBreakdown';
 import { RunInsightHero } from '../components/run-detail/RunInsightHero';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
 import { TradeEventInspector } from '../components/run-detail/TradeEventInspector';
@@ -306,6 +307,7 @@ export function SweepVariantDetailPage() {
       {hasChartData && data.chart_data && displayRun ? (
         <>
           <RunInsightHero run={displayRun} chartData={data.chart_data} />
+          <RunInsightBreakdown run={displayRun} />
           <RunCharts run={displayRun} chartData={data.chart_data} />
         </>
       ) : (
