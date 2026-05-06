@@ -131,11 +131,22 @@ def _artifact_storage_check(settings: Settings) -> CheckResult:
 
     path_configured = bool(settings.artifacts_dir)
     creatable = _path_is_creatable(settings.artifacts_dir)
+    local_ready = path_configured and creatable
+    if local_ready and settings.is_protected_env:
+        return {
+            "status": "warning",
+            "message": "Local artifact storage is available but S3 is preferred for beta/production.",
+            "backend": backend,
+            "path_configured": path_configured,
+            "path_creatable": creatable,
+            "s3_preferred": True,
+        }
+
     return {
-        "status": "ready" if path_configured and creatable else "not_ready",
+        "status": "ready" if local_ready else "not_ready",
         "message": (
             "Local artifact storage directory is available."
-            if path_configured and creatable
+            if local_ready
             else "Local artifact storage requires a creatable ARTIFACTS_DIR."
         ),
         "backend": backend,

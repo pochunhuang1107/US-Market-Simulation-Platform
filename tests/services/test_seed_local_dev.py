@@ -123,7 +123,7 @@ def test_beta_tester_plan_provisions_with_high_entitlements(db_session, monkeypa
         email="founder@example.com",
         plan_code="BETA_TESTER",
         external_provider="auth0",
-        external_subject="google-oauth2|112608715746802455074",
+        external_subject="auth0|example-subject",
     )
 
     subscription = db_session.query(UserPlanSubscription).one()
@@ -155,7 +155,7 @@ def test_beta_tester_assignment_takes_precedence_over_existing_free_plan(
         email="founder@example.com",
         plan_code="FREE",
         external_provider="auth0",
-        external_subject="google-oauth2|112608715746802455074",
+        external_subject="auth0|example-subject",
     )
 
     beta_result = provision_user(
@@ -163,7 +163,7 @@ def test_beta_tester_assignment_takes_precedence_over_existing_free_plan(
         email="founder@example.com",
         plan_code="BETA_TESTER",
         external_provider="auth0",
-        external_subject="google-oauth2|112608715746802455074",
+        external_subject="auth0|example-subject",
     )
 
     subscriptions = db_session.query(UserPlanSubscription).all()
@@ -195,7 +195,7 @@ def test_provision_user_script_accepts_beta_tester_plan_code(
             "--external-provider",
             "auth0",
             "--external-subject",
-            "google-oauth2|112608715746802455074",
+            "auth0|example-subject",
         ]
     )
 
