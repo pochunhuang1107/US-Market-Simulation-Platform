@@ -46,6 +46,10 @@ def test_get_market_data_routes_etf_and_reference_series_symbols(tmp_path) -> No
         tmp_path / "curated" / "etf_daily_prices" / "symbol=SPY" / "year=2021" / "data.parquet",
     )
     _write_parquet(
+        _etf_rows("TLT", [150.0, 151.0, 152.0]),
+        tmp_path / "curated" / "etf_daily_prices" / "symbol=TLT" / "year=2021" / "data.parquet",
+    )
+    _write_parquet(
         pd.DataFrame(
             {
                 "date": pd.date_range("2021-01-04", periods=3, freq="B"),
@@ -76,7 +80,7 @@ def test_get_market_data_routes_etf_and_reference_series_symbols(tmp_path) -> No
 
     bundle = _repository(tmp_path).get_market_data(
         tradable_symbol="QQQ",
-        reference_symbols=["SPY", "VIX", "DGS10"],
+        reference_symbols=["SPY", "TLT", "VIX", "DGS10"],
         start_date="2021-01-05",
         end_date="2021-01-06",
     )
@@ -88,6 +92,11 @@ def test_get_market_data_routes_etf_and_reference_series_symbols(tmp_path) -> No
     assert "value" not in spy.columns
     assert spy["symbol"].tolist() == ["SPY", "SPY"]
     assert spy["close"].tolist() == [371.0, 372.0]
+
+    tlt = bundle.references["TLT"]
+    assert "value" not in tlt.columns
+    assert tlt["symbol"].tolist() == ["TLT", "TLT"]
+    assert tlt["close"].tolist() == [151.0, 152.0]
 
     vix = bundle.references["VIX"]
     assert vix["date"].tolist() == list(pd.to_datetime(["2021-01-05", "2021-01-06"]))

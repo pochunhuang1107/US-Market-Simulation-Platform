@@ -5,7 +5,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from market_simulator.api.schemas.runs import CreateRunRequest
+from market_simulator.data.repository import MarketDataBundle
+from market_simulator.engine.runner import run_simulation
 from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.services.draft_validation import validate_draft_config
 
@@ -81,6 +85,40 @@ def _template_by_id(templates: list[dict[str, Any]], template_id: str) -> dict[s
     return next(template for template in templates if template["id"] == template_id)
 
 
+def _synthetic_bars(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+    dates = pd.date_range(start_date, end_date, freq="B")
+    closes = [
+        100.0 + (index * 0.04) + ((index % 23) - 11) * 0.15
+        for index in range(len(dates))
+    ]
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "symbol": [symbol] * len(dates),
+            "open": [close - 0.2 for close in closes],
+            "high": [close + 0.7 for close in closes],
+            "low": [close - 0.7 for close in closes],
+            "close": closes,
+            "volume": [1_000_000.0] * len(dates),
+            "vwap": closes,
+            "transactions": [10_000.0] * len(dates),
+        }
+    )
+
+
+def _synthetic_reference_series(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+    dates = pd.date_range(start_date, end_date, freq="B")
+    values = [24.0 + ((index % 40) - 20) * 0.45 for index in range(len(dates))]
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "symbol": [symbol] * len(dates),
+            "value": values,
+            "close": values,
+        }
+    )
+
+
 def test_strategy_gallery_templates_validate_and_build_run_payloads():
     templates = _load_gallery_templates()
     assert len(templates) >= 10
@@ -102,6 +140,57 @@ def test_strategy_gallery_templates_validate_and_build_run_payloads():
                 "max_attempts": 1,
             }
         )
+
+
+def test_strategy_gallery_reference_templates_remain_runnable_with_synthetic_data():
+    templates = _load_gallery_templates()
+    reference_templates = [
+        template for template in templates if template["config"]["reference_symbols"]
+    ]
+
+    assert {template["id"] for template in reference_templates} >= {
+        "qqq-vix-risk-on-risk-off",
+        "qqq-core-vix-overlay",
+        "xlk-sector-relative-strength",
+        "qqq-tlt-defensive-relative-strength",
+        "spy-vix-rsi-regime-pullback",
+        "spy-core-defensive-vix-overlay",
+        "xlu-defensive-sector-relative-strength",
+        "qqq-ief-trend-filtered-pullback",
+    }
+
+    for template in reference_templates:
+        config = template["config"]
+        strategy = StrategyV2.model_validate(config)
+        references = {}
+        for symbol in config["reference_symbols"]:
+            if symbol == "VIX":
+                references[symbol] = _synthetic_reference_series(
+                    symbol,
+                    config["start_date"],
+                    config["end_date"],
+                )
+            else:
+                references[symbol] = _synthetic_bars(
+                    symbol,
+                    config["start_date"],
+                    config["end_date"],
+                )
+
+        result = run_simulation(
+            MarketDataBundle(
+                tradable=_synthetic_bars(
+                    config["tradable_symbol"],
+                    config["start_date"],
+                    config["end_date"],
+                ),
+                references=references,
+            ),
+            strategy,
+        )
+
+        assert len(result.timeline) > 0
+        assert result.summary["initial_capital"] == config["initial_capital"]
 
 
 def test_strategy_gallery_templates_include_discovery_metadata():

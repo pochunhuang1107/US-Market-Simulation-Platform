@@ -169,6 +169,22 @@ def test_vix_series_below_falls_back_to_close() -> None:
     assert evaluate_rule(rule, bundle, 2, "QQQ") is False
 
 
+def test_vix_series_above_falls_back_to_close() -> None:
+    bundle = _bundle(
+        reference_df=_reference_series(
+            "VIX",
+            ["2021-01-04", "2021-01-05", "2021-01-06"],
+            closes=[20.0, 30.0, 24.0],
+        )
+    )
+    rule = AtomicRule.model_validate(
+        {"kind": "atomic", "type": "series_above", "symbol": "VIX", "threshold": 25}
+    )
+
+    assert evaluate_rule(rule, bundle, 1, "QQQ") is True
+    assert evaluate_rule(rule, bundle, 2, "QQQ") is False
+
+
 def test_dgs10_series_above_and_below_use_value() -> None:
     bundle = _bundle(
         reference_symbol="DGS10",
