@@ -51,11 +51,11 @@ python scripts/provision_user.py --email user@example.com --display-name "User N
 
 ```bash
 python scripts/provision_user.py \
-  --email pochun.huang1107@gmail.com \
-  --display-name "Po-Chun Huang" \
+  --email user@example.com \
+  --display-name "User Name" \
   --plan-code BETA_TESTER \
   --external-provider auth0 \
-  --external-subject "google-oauth2|112608715746802455074"
+  --external-subject "auth0-or-social-provider|subject"
 ```
 
 - If the provider subject is not known yet, provision by email and allow the first valid login to link the subject while `OIDC_ALLOW_EMAIL_LINKING=true`:
@@ -69,6 +69,7 @@ python scripts/provision_user.py --email user@example.com --display-name "User N
 - If OIDC is not configured, protected environments return `401` with `Authenticated user provider is not configured.` for user-scoped routes.
 - Use a durable Postgres database in `DATABASE_URL`.
 - Use S3 artifact storage for persisted run outputs.
+- Use `.env.beta.example` and `frontend/.env.beta.example` as placeholder-only templates for protected beta configuration. Do not commit copied real env files.
 
 ## Frontend Bearer Tokens
 
@@ -117,7 +118,16 @@ Use a private market-data bucket in local `.env` or protected environment config
 
 Use `GET /health/readiness` before beta testing to verify the deployed environment without exposing secrets or requiring AWS credentials. The endpoint always returns HTTP 200 and includes `overall_status` plus structured checks for app environment, resolved auth mode, database connectivity, artifact storage configuration, curated data paths, and supported ETF/reference-series symbol counts.
 
-Treat `overall_status=ready` as the expected beta starting point. Investigate `warning` or `not_ready` checks before testers begin, especially placeholder curated-data paths, missing `OIDC_JWKS_URL` in protected environments, or missing `ARTIFACT_S3_BUCKET` when S3 artifact storage is selected.
+Treat `overall_status=ready` as the expected beta starting point. Investigate `warning` or `not_ready` checks before testers begin, especially placeholder curated-data paths, missing `OIDC_JWKS_URL` in protected environments, local artifact storage in beta/prod, or missing `ARTIFACT_S3_BUCKET` when S3 artifact storage is selected.
+
+Use the static preflight before startup or image promotion when you only need config-shape checks:
+
+```bash
+python scripts/beta_preflight.py \
+  --backend-env .env.beta \
+  --frontend-env frontend/.env.beta \
+  --target-env beta
+```
 
 ## Verification
 

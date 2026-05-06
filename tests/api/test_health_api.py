@@ -109,6 +109,8 @@ def test_readiness_reports_oidc_config_present(client, monkeypatch, tmp_path):
         oidc_jwks_url="https://issuer.example.test/.well-known/jwks.json",
         oidc_issuer="https://issuer.example.test",
         oidc_audience="market-simulator-api",
+        artifact_storage_backend="S3",
+        artifact_s3_bucket="beta-artifacts",
     )
 
     response = client.get("/health/readiness")
@@ -122,6 +124,33 @@ def test_readiness_reports_oidc_config_present(client, monkeypatch, tmp_path):
     assert auth["oidc_jwks_url_configured"] is True
     assert auth["oidc_issuer_configured"] is True
     assert auth["oidc_audience_configured"] is True
+
+
+def test_readiness_warns_for_local_artifacts_in_protected_env(
+    client,
+    monkeypatch,
+    tmp_path,
+):
+    _set_readiness_settings(
+        monkeypatch,
+        artifacts_dir=tmp_path / "artifacts",
+        env="beta",
+        auth_mode="oidc",
+        oidc_jwks_url="https://issuer.example.test/.well-known/jwks.json",
+        oidc_issuer="https://issuer.example.test",
+        oidc_audience="market-simulator-api",
+        artifact_storage_backend="LOCAL",
+    )
+
+    response = client.get("/health/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    artifact_storage = body["checks"]["artifact_storage"]
+    assert body["overall_status"] == "warning"
+    assert artifact_storage["status"] == "warning"
+    assert artifact_storage["backend"] == "LOCAL"
+    assert artifact_storage["s3_preferred"] is True
 
 
 def test_readiness_does_not_leak_secrets(client, monkeypatch, tmp_path):

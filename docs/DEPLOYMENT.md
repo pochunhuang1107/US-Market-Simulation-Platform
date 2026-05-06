@@ -15,6 +15,8 @@ The backend image is intentionally reusable for the API and worker. Runtime envi
 
 CI validates that the backend image, frontend image, and beta-local compose configuration still build or parse successfully. That validation does not push images to a registry, deploy infrastructure, or require secrets or AWS credentials.
 
+For the concise release gate, use [Beta Release Checklist](BETA_RELEASE_CHECKLIST.md).
+
 ## Local Beta-Like Compose
 
 Start the packaged local stack:
@@ -74,6 +76,17 @@ For beta, configure these values in the target runtime environment or secret man
 - `SUPPORTED_REFERENCE_SERIES_SYMBOLS`: optional override for supported reference series.
 - `ARTIFACT_STORAGE_BACKEND`: `LOCAL` or `S3`.
 
+Use `.env.beta.example` and `frontend/.env.beta.example` as placeholder-only templates. Local development still uses `.env.example` and `frontend/.env.example`; `docker-compose.beta-local.yml` remains self-contained for packaging smoke.
+
+Validate the shape of a beta configuration without printing secrets:
+
+```bash
+python scripts/beta_preflight.py \
+  --backend-env .env.beta \
+  --frontend-env frontend/.env.beta \
+  --target-env beta
+```
+
 See [Beta Environment](BETA_ENVIRONMENT.md) for the existing auth and beta configuration notes.
 
 ## Artifact Storage
@@ -85,7 +98,7 @@ ARTIFACT_STORAGE_BACKEND=LOCAL
 ARTIFACTS_DIR=/app/data/local_artifacts
 ```
 
-For beta, use S3 when run outputs must survive container replacement and be shared across API and worker processes:
+For beta and production, prefer S3 so run outputs survive container replacement and are shared across API and worker processes:
 
 ```text
 ARTIFACT_STORAGE_BACKEND=S3
@@ -106,6 +119,8 @@ curl -fsS http://127.0.0.1:8000/health/readiness
 ```
 
 The endpoint returns `overall_status` plus checks for app environment, database connectivity, auth configuration, artifact storage, data paths, and supported symbols. Treat `overall_status=ready` as the beta target. A `warning` usually means placeholder data paths are still configured; `not_ready` needs investigation before testers begin.
+
+In beta/production, local artifact storage is reported as a warning even when the local directory is writable. API readiness alone does not prove queued simulations will execute; also check `checks.run_queue` and confirm the worker process is running.
 
 ## User Provisioning
 

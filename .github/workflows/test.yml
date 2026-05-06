@@ -152,3 +152,10 @@ jobs:
       - name: Validate compose config
         run: |
           docker compose -f docker-compose.beta-local.yml config
+
+      - name: Validate beta preflight templates
+        run: |
+          python3 scripts/beta_preflight.py \
+            --backend-env .env.beta.example \
+            --frontend-env frontend/.env.beta.example \
+            --target-env beta

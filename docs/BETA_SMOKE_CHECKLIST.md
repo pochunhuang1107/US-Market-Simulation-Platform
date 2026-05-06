@@ -4,6 +4,8 @@ Use this as a concise manual pass before handing a beta build to testers. Keep t
 
 Before switching between local dev, compose smoke, and Auth0 beta QA, read the [Beta Operator Runbook](BETA_OPERATOR_RUNBOOK.md) so only one stack owns the shared ports.
 
+For the release gate before tester handoff, use [Beta Release Checklist](BETA_RELEASE_CHECKLIST.md).
+
 ## Local Setup
 
 - [ ] Copy `.env.example` to `.env` and keep `ENV=local` with `AUTH_MODE=dev`.
@@ -19,11 +21,11 @@ python scripts/seed_user.py
 
 ```bash
 python scripts/provision_user.py \
-  --email pochun.huang1107@gmail.com \
-  --display-name "Po-Chun Huang" \
+  --email user@example.com \
+  --display-name "User Name" \
   --plan-code BETA_TESTER \
   --external-provider auth0 \
-  --external-subject "google-oauth2|112608715746802455074"
+  --external-subject "auth0-or-social-provider|subject"
 ```
 
 - [ ] For `docker-compose.beta-local.yml` smoke, skip manual seed commands; compose runs migrations and local dev seeding during API startup.

@@ -65,6 +65,8 @@ Docker Compose owns Postgres, API, worker, and frontend. Do not run local `uvico
 
 `docker-compose.beta-local.yml` uses placeholder data paths so the stack can boot without private datasets. Placeholder market-data paths may produce readiness warnings. That is expected for packaging smoke and is not a substitute for QA against real curated market data.
 
+This mode does not load `.env.beta.example` or `frontend/.env.beta.example`.
+
 ### Start
 
 Stop any existing beta-local compose stack, then run the helper:
@@ -106,6 +108,15 @@ OIDC_PROVIDER_NAME=auth0
 OIDC_JWKS_URL=https://your-tenant.region.auth0.com/.well-known/jwks.json
 OIDC_ISSUER=https://your-tenant.region.auth0.com/
 OIDC_AUDIENCE=your-api-audience
+```
+
+For a deployed or local Auth0 beta QA env file, validate the shape before starting services:
+
+```bash
+python scripts/beta_preflight.py \
+  --backend-env .env.beta \
+  --frontend-env frontend/.env.beta \
+  --target-env beta
 ```
 
 Auth0 values:
@@ -167,6 +178,8 @@ npm run dev
 ```
 
 Open `http://localhost:5173`, sign in with Auth0, confirm user entitlements show the `BETA_TESTER` plan, and verify sign-out returns the frontend to the auth-required state.
+
+Before tester handoff, confirm `/health/readiness` reports `checks.run_queue.status` as `ready` or `warning` only because of old queued work, and confirm the worker terminal is still running. API alone is not enough for queued simulations.
 
 ### Restore Local Dev Mode
 
@@ -235,4 +248,3 @@ git ls-files | grep -E '(^|/)\.env($|\.local|\.production|\.development)' || tru
 ```
 
 Only `.env.example`-style templates should be committed.
-

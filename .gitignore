@@ -17,8 +17,12 @@ __MACOSX/
 .venv/
 venv/
 .env
+.env.*
+!.env*.example
 config/app.yaml
 frontend/.env.local
+frontend/.env.*
+!frontend/.env*.example
 
 # Test / local outputs
 .pytest_cache/

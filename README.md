@@ -141,7 +141,7 @@ The backend will typically be available at:
 http://127.0.0.1:8000
 ```
 
-For beta-oriented Docker packaging and deployment notes, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). For switching between local dev, compose smoke, and Auth0 beta QA modes, see [docs/BETA_OPERATOR_RUNBOOK.md](docs/BETA_OPERATOR_RUNBOOK.md).
+For beta-oriented Docker packaging and deployment notes, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). For the handoff gate, use [docs/BETA_RELEASE_CHECKLIST.md](docs/BETA_RELEASE_CHECKLIST.md). For switching between local dev, compose smoke, and Auth0 beta QA modes, see [docs/BETA_OPERATOR_RUNBOOK.md](docs/BETA_OPERATOR_RUNBOOK.md).
 
 ---
 
