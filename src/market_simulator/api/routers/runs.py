@@ -63,6 +63,7 @@ from market_simulator.repositories.strategies import (
     create_strategy_version,
     get_strategy_for_user,
     get_strategy_version,
+    get_strategy_version_for_user,
     set_strategy_version_reference_run,
 )
 from market_simulator.services.draft_validation import validate_backtest_window, validate_draft_config
@@ -418,7 +419,7 @@ def _resolve_comparable_results(db: Session, *, user_id: str, result_refs: list[
         if parsed.result_type == "RUN":
             run = get_run_for_user(db, parsed.run_id, user_id)
             if run is None:
-                raise HTTPException(status_code=404, detail=f"Run not found: {parsed.run_id}")
+                raise HTTPException(status_code=404, detail="Run not found")
             if run.run_type == "PARAMETER_SWEEP":
                 raise HTTPException(
                     status_code=400,
@@ -432,7 +433,7 @@ def _resolve_comparable_results(db: Session, *, user_id: str, result_refs: list[
         if parsed.result_type == "SWEEP_VARIANT":
             run = get_run_for_user(db, parsed.sweep_run_id, user_id)
             if run is None:
-                raise HTTPException(status_code=404, detail=f"Sweep run not found: {parsed.sweep_run_id}")
+                raise HTTPException(status_code=404, detail="Sweep run not found")
             if run.run_type != "PARAMETER_SWEEP":
                 raise HTTPException(status_code=400, detail="Only parameter sweep runs have comparable variants")
             if run.status != "SUCCEEDED":
@@ -440,7 +441,7 @@ def _resolve_comparable_results(db: Session, *, user_id: str, result_refs: list[
 
             variant = find_sweep_variant(run, parsed.variant_id or "")
             if variant is None:
-                raise HTTPException(status_code=404, detail=f"Sweep variant not found: {parsed.variant_id}")
+                raise HTTPException(status_code=404, detail="Sweep variant not found")
 
             resolved.append(
                 build_sweep_variant_comparable_result(
@@ -469,7 +470,7 @@ def _validate_run_strategy_access(
         raise HTTPException(status_code=404, detail="Strategy not found")
 
     if strategy_version_id is not None:
-        version = get_strategy_version(db, strategy_version_id)
+        version = get_strategy_version_for_user(db, strategy_version_id, user_id)
         if version is None or str(version.strategy_id) != str(strategy.id):
             raise HTTPException(status_code=404, detail="Strategy version not found")
 
@@ -1289,6 +1290,7 @@ def cancel_run_api(
 @router.post("/admin/recover-stale", response_model=RecoverStaleRunsResponse)
 def recover_stale_runs_api(
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ):
     try:
         result = worker_service.recover_stale_runs(db)

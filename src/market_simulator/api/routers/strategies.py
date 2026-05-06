@@ -20,7 +20,7 @@ from market_simulator.repositories.strategies import (
     create_strategy,
     create_strategy_version,
     get_strategy_for_user,
-    get_strategy_version,
+    get_strategy_version_for_user,
     get_strategy_version_reference_run,
     list_strategies,
     list_strategy_versions,
@@ -138,7 +138,7 @@ def create_strategy_version_api(
         config=req.config,
     )
     current_version = (
-        get_strategy_version(db, strategy.current_version_id)
+        get_strategy_version_for_user(db, strategy.current_version_id, user["id"])
         if strategy.current_version_id is not None
         else None
     )

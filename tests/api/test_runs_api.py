@@ -2177,7 +2177,7 @@ def test_compare_invalid_sweep_variant_returns_clear_404(
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Sweep variant not found: missing-variant"
+    assert response.json()["detail"] == "Sweep variant not found"
 
 
 def test_compare_limit_counts_sweep_variants(
