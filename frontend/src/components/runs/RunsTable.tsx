@@ -31,7 +31,7 @@ export function RunsTable({
   compact = false,
   referenceRunId = null,
   emptyTitle = 'No results match these filters.',
-  emptyDescription = 'Try clearing filters or start from the Home builder.'
+  emptyDescription = 'Try clearing filters or start from the Workspace builder.'
 }: RunsTableProps) {
   const columns = compact ? 7 : 9;
 
@@ -66,7 +66,7 @@ export function RunsTable({
                     <p className="app-title text-sm font-semibold">{emptyTitle}</p>
                     <p className="app-text-muted mt-2 text-sm">{emptyDescription}</p>
                     {!compact ? (
-                      <Link to="/" className="app-button-secondary mt-4 inline-flex rounded-xl px-3 py-1.5 text-xs font-medium">
+                      <Link to="/workspace" className="app-button-secondary mt-4 inline-flex rounded-xl px-3 py-1.5 text-xs font-medium">
                         Build a strategy
                       </Link>
                     ) : null}

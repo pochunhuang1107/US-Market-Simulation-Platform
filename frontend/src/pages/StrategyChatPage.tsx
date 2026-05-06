@@ -358,37 +358,6 @@ function EntitlementSummary({
   return null;
 }
 
-const HOME_GUIDANCE_ITEMS = [
-  'Build ETF strategies from plain English',
-  'Run historical simulations',
-  'Compare strategy variants',
-  'Save promising drafts to Strategy Library'
-];
-
-function HomeGuidancePanel() {
-  return (
-    <div className="app-home-guidance rounded-xl border px-4 py-3">
-      <div>
-        <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
-          What you can do
-        </div>
-        <div className="mt-2.5 grid gap-x-4 gap-y-2 sm:grid-cols-2">
-          {HOME_GUIDANCE_ITEMS.map((item) => (
-            <div key={item} className="flex items-start gap-2 text-sm app-text-muted">
-              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--accent)] opacity-70" />
-              <span>{item}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <p className="mt-3 border-t app-border-soft pt-2.5 text-xs app-text-soft">
-        ETF-only research · Historical backtests · Not financial advice
-      </p>
-    </div>
-  );
-}
-
 function FeaturedStrategyIdeas({
   onUseTemplate
 }: {
@@ -565,7 +534,7 @@ export function StrategyChatPage() {
     if (!homeResetKey) return;
 
     clearChatWorkspace();
-    navigate('/', {
+    navigate('/workspace', {
       replace: true,
       state: null
     });
@@ -805,7 +774,7 @@ export function StrategyChatPage() {
   }
 
   function handleUseGalleryTemplate(template: StrategyGalleryTemplate) {
-    navigate('/', {
+    navigate('/workspace', {
       state: {
         source: 'strategy_gallery',
         sourceLabel: 'Strategy Gallery',
@@ -839,10 +808,6 @@ export function StrategyChatPage() {
                   loading={isLoadingEntitlements}
                   error={entitlementError}
                 />
-              </div>
-
-              <div className="mt-6 w-full max-w-3xl">
-                <HomeGuidancePanel />
               </div>
 
               <div className="mt-6 w-full max-w-3xl">

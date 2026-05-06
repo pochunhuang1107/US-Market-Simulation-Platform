@@ -7,12 +7,14 @@ interface AuthRequiredStateProps {
   errorMessage?: string | null;
   loading?: boolean;
   onRetry?: () => void;
+  returnTo?: string;
 }
 
 export function AuthRequiredState({
   errorMessage,
   loading = false,
-  onRetry
+  onRetry,
+  returnTo
 }: AuthRequiredStateProps) {
   const auth = useAppAuth();
   const [hasSavedToken, setHasSavedToken] = useState(() => Boolean(getDevelopmentAccessToken()));
@@ -70,7 +72,7 @@ export function AuthRequiredState({
                 <button
                   type="button"
                   onClick={() => {
-                    void auth.login();
+                    void auth.login(returnTo);
                   }}
                   disabled={auth.isLoading}
                   className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"

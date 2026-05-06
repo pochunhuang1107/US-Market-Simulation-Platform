@@ -451,11 +451,11 @@ export function StrategyPage() {
             )}
             {canContinueInChat ? (
               <Link
-                to="/chat"
-                state={chatState}
-                className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
-              >
-                Continue in Chat
+                to="/workspace"
+              state={chatState}
+              className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+            >
+                Continue in Workspace
               </Link>
             ) : null}
             <Link

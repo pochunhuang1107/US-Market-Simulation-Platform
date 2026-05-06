@@ -251,7 +251,7 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
     const sourceDraftConfig = getDraftConfig(run);
 
     setOpenedPrompt(prompt);
-    navigate('/chat', {
+    navigate('/workspace', {
       state: {
         prefillPrompt: prompt,
         source: 'run_insight',
