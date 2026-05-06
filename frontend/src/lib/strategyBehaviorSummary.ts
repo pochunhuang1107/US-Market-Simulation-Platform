@@ -26,14 +26,34 @@ export function getStrategyBehaviorFields(config: Record<string, unknown> | null
   if (!config) return [];
 
   const allocation = getRecord(config.allocation);
+  const coreOverlay = getRecord(config.core_overlay);
   const positionManagement = getRecord(config.position_management);
   const fields: StrategyBehaviorField[] = [];
   const scaleInFraction = positionManagement?.scale_in_fraction;
+  const coreAllocationPct =
+    coreOverlay?.enabled === true && typeof coreOverlay.core_allocation_pct === 'number'
+      ? coreOverlay.core_allocation_pct
+      : null;
+  const hasCoreOverlay = coreAllocationPct !== null && coreAllocationPct > 0;
 
   if (typeof scaleInFraction === 'number') {
-    fields.push({ label: 'Entry sizing', value: `${formatPercent(scaleInFraction)} per entry` });
+    fields.push({
+      label: 'Entry sizing',
+      value: hasCoreOverlay
+        ? `${formatPercent(scaleInFraction)} of tactical sleeve per entry`
+        : `${formatPercent(scaleInFraction)} per entry`
+    });
   } else if (typeof allocation?.entry_value === 'number') {
-    fields.push({ label: 'Entry allocation', value: `${formatPercent(allocation.entry_value)} of equity` });
+    fields.push({
+      label: 'Entry allocation',
+      value: hasCoreOverlay
+        ? `${formatPercent(allocation.entry_value)} of tactical sleeve`
+        : `${formatPercent(allocation.entry_value)} of equity`
+    });
+  }
+
+  if (hasCoreOverlay) {
+    fields.push({ label: 'Core allocation', value: formatPercent(coreAllocationPct) });
   }
 
   if (typeof positionManagement?.max_scale_in_steps === 'number') {
@@ -58,7 +78,12 @@ export function getStrategyBehaviorFields(config: Record<string, unknown> | null
   }
 
   if (typeof allocation?.max_position_pct === 'number') {
-    fields.push({ label: 'Max position', value: formatPercent(allocation.max_position_pct) });
+    fields.push({
+      label: hasCoreOverlay ? 'Max overlay position' : 'Max position',
+      value: hasCoreOverlay
+        ? `${formatPercent(allocation.max_position_pct)} of tactical sleeve`
+        : formatPercent(allocation.max_position_pct)
+    });
   }
 
   if (typeof positionManagement?.minimum_trade_notional === 'number') {

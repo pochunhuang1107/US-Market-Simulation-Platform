@@ -27,6 +27,9 @@ type PositionManagementSpec = {
   max_scale_in_steps?: number | null;
   min_bars_between_scale_ins?: number;
   scale_in_requires_persistent_signal?: boolean;
+  minimum_trade_notional?: number;
+  minimum_trade_pct_of_equity?: number;
+  minimum_trade_shares?: number;
 };
 
 type AtomicRule = {
@@ -96,41 +99,45 @@ const TEMPLATE_BACKTEST_YEARS = 5;
 const TEMPLATE_BACKTEST_SAFETY_DAYS = 3;
 
 function toIsoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function shiftUtcDays(value: Date, days: number): Date {
+function shiftDays(value: Date, days: number): Date {
   const next = new Date(value);
-  next.setUTCDate(next.getUTCDate() + days);
+  next.setDate(next.getDate() + days);
   return next;
 }
 
-function shiftUtcYears(value: Date, years: number): Date {
+function shiftYears(value: Date, years: number): Date {
   const next = new Date(value);
-  next.setUTCFullYear(next.getUTCFullYear() + years);
+  next.setFullYear(next.getFullYear() + years);
   return next;
 }
 
 function rollBackToWeekday(value: Date): Date {
   const next = new Date(value);
-  const day = next.getUTCDay();
-  if (day === 0) return shiftUtcDays(next, -2);
-  if (day === 6) return shiftUtcDays(next, -1);
+  const day = next.getDay();
+  if (day === 0) return shiftDays(next, -2);
+  if (day === 6) return shiftDays(next, -1);
   return next;
 }
 
 function rollForwardToWeekday(value: Date): Date {
   const next = new Date(value);
-  const day = next.getUTCDay();
-  if (day === 0) return shiftUtcDays(next, 1);
-  if (day === 6) return shiftUtcDays(next, 2);
+  const day = next.getDay();
+  if (day === 0) return shiftDays(next, 1);
+  if (day === 6) return shiftDays(next, 2);
   return next;
 }
 
 function getDefaultTemplateDateRange(today = new Date()) {
-  const latestSupportedEnd = rollBackToWeekday(today);
-  const approximateStart = shiftUtcDays(
-    shiftUtcYears(latestSupportedEnd, -TEMPLATE_BACKTEST_YEARS),
+  const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const latestSupportedEnd = rollBackToWeekday(localToday);
+  const approximateStart = shiftDays(
+    shiftYears(latestSupportedEnd, -TEMPLATE_BACKTEST_YEARS),
     TEMPLATE_BACKTEST_SAFETY_DAYS
   );
   const start = rollForwardToWeekday(approximateStart);
@@ -179,14 +186,14 @@ export const STRATEGY_GALLERY_TEMPLATES = [
   {
     id: 'qqq-rsi-mean-reversion',
     title: 'QQQ RSI Mean Reversion',
-    shortExplanation: 'Tests whether QQQ pullbacks can be entered after short-term oversold RSI readings.',
+    shortExplanation: 'Tests a simple QQQ pullback idea using RSI oversold entries and RSI recovery exits.',
     symbols: ['QQQ'],
     style: 'Mean reversion',
     riskLevel: 'Moderate',
-    expectedBehavior: 'Starts with 25% position, adds only after the RSI signal persists and the spacing rule allows, and exits fully when RSI recovers.',
+    expectedBehavior: 'Enters 25% at a time while RSI stays oversold, waits between adds, skips very small trades, and sells the full position when RSI recovers.',
     entryRuleText: 'Enter QQQ when RSI(14) falls below 35.',
-    exitRuleText: 'Exits the full position when RSI recovers above 65.',
-    riskControls: ['10% stop loss', 'Full exit above RSI 65', 'Starts with 25% position', 'Adds only after signal persists and spacing rule allows', 'Caps scale-in steps', '5 bps transaction cost'],
+    exitRuleText: 'Exit the full QQQ position when RSI(14) rises above 65.',
+    riskControls: ['10% stop loss', '25% entries', 'Up to 4 entries', '3-bar wait between adds', 'Skips trades below $500', '5 bps transaction cost'],
     config: {
       ...BASE_CONFIG,
       name: 'QQQ RSI Mean Reversion',
@@ -213,21 +220,22 @@ export const STRATEGY_GALLERY_TEMPLATES = [
         profit_reduce_threshold: null,
         max_scale_in_steps: 4,
         min_bars_between_scale_ins: 3,
-        scale_in_requires_persistent_signal: true
+        scale_in_requires_persistent_signal: true,
+        minimum_trade_notional: 500
       }
     }
   },
   {
     id: 'qqq-vix-risk-on-risk-off',
     title: 'QQQ VIX Risk-On/Risk-Off',
-    shortExplanation: 'Tests whether QQQ entries should require calmer VIX conditions plus an RSI pullback.',
+    shortExplanation: 'Tests a volatility-filtered QQQ pullback: buy only when VIX is calmer and QQQ is oversold.',
     symbols: ['QQQ', 'VIX'],
     style: 'Risk filter',
     riskLevel: 'Moderate',
-    expectedBehavior: 'May reduce exposure when volatility is elevated, while still looking for QQQ pullbacks.',
+    expectedBehavior: 'Uses VIX as a risk filter, scales into qualifying RSI pullbacks, skips very small trades, and sells all when volatility spikes or RSI rebounds.',
     entryRuleText: 'Enter when VIX is below 25 and QQQ RSI(14) is below 40.',
-    exitRuleText: 'Exit when VIX rises above 35 or QQQ RSI(14) rises above 70.',
-    riskControls: ['10% stop loss', 'VIX regime filter', '5 bps transaction cost'],
+    exitRuleText: 'Exit the full QQQ position when VIX rises above 35 or QQQ RSI(14) rises above 70.',
+    riskControls: ['10% stop loss', 'VIX regime filter', '25% entries', 'Up to 3 entries', '3-bar wait between adds', 'Skips trades below $500', '5 bps transaction cost'],
     config: {
       ...BASE_CONFIG,
       name: 'QQQ VIX Risk-On Risk-Off',
@@ -271,20 +279,29 @@ export const STRATEGY_GALLERY_TEMPLATES = [
             threshold: 70
           }
         ]
+      },
+      position_management: {
+        scale_in_fraction: 0.25,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 3,
+        min_bars_between_scale_ins: 3,
+        scale_in_requires_persistent_signal: true,
+        minimum_trade_notional: 500
       }
     }
   },
   {
     id: 'qqq-core-vix-overlay',
     title: 'QQQ Core + VIX Tactical Overlay',
-    shortExplanation: 'Tests a QQQ core position with tactical overlay exposure controlled by VIX thresholds.',
+    shortExplanation: 'Tests a 60% QQQ core with a tactical overlay that turns on only in calmer VIX regimes.',
     symbols: ['QQQ', 'VIX'],
     style: 'Overlay',
     riskLevel: 'Moderate',
-    expectedBehavior: 'Designed to keep a core allocation while adding overlay exposure when VIX is calmer.',
+    expectedBehavior: 'Keeps the core sleeve invested while the overlay adds exposure below the VIX threshold and sells the overlay when volatility rises.',
     entryRuleText: 'Keep a 60% QQQ core. Add overlay exposure when VIX is below 15.',
-    exitRuleText: 'Reduce overlay exposure when VIX is above 35.',
-    riskControls: ['60% core allocation', 'Tactical overlay exits on high VIX', '5 bps transaction cost'],
+    exitRuleText: 'Sell the tactical overlay when VIX rises above 35; the QQQ core stays invested.',
+    riskControls: ['60% core allocation', '40% tactical sleeve', 'Full overlay exit above VIX 35', 'Skips overlay trades below $500', '5 bps transaction cost'],
     config: {
       ...BASE_CONFIG,
       name: 'QQQ Core VIX Tactical Overlay',
@@ -310,6 +327,13 @@ export const STRATEGY_GALLERY_TEMPLATES = [
         type: 'series_above',
         symbol: 'VIX',
         threshold: 35
+      },
+      position_management: {
+        scale_in_fraction: 1.0,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 1,
+        minimum_trade_notional: 500
       }
     }
   },
@@ -320,10 +344,10 @@ export const STRATEGY_GALLERY_TEMPLATES = [
     symbols: ['SPY'],
     style: 'Trend',
     riskLevel: 'Lower',
-    expectedBehavior: 'Designed to participate in broad uptrends and move to cash after trend breaks.',
+    expectedBehavior: 'Uses one full-sized trend entry, skips very small trades, and sells all when SPY breaks below its long-term average.',
     entryRuleText: 'Enter SPY when price is above its 200-day SMA.',
-    exitRuleText: 'Exit when price crosses below its 200-day SMA.',
-    riskControls: ['Trend-state filter', '10% stop loss', '5 bps transaction cost'],
+    exitRuleText: 'Exit the full SPY position when price crosses below its 200-day SMA.',
+    riskControls: ['Trend-state filter', 'Single full entry', 'Full exit on trend break', '10% stop loss', 'Skips trades below $500', '5 bps transaction cost'],
     config: {
       ...BASE_CONFIG,
       name: 'SPY Moving Average Trend Filter',
@@ -343,6 +367,13 @@ export const STRATEGY_GALLERY_TEMPLATES = [
         symbol: 'SPY',
         fast_window: 1,
         slow_window: 200
+      },
+      position_management: {
+        scale_in_fraction: 1.0,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 1,
+        minimum_trade_notional: 500
       }
     }
   },
@@ -353,10 +384,10 @@ export const STRATEGY_GALLERY_TEMPLATES = [
     symbols: ['XLK', 'SPY'],
     style: 'Relative strength',
     riskLevel: 'Higher',
-    expectedBehavior: 'Designed to focus on technology-sector strength, not rotate among every sector yet.',
+    expectedBehavior: 'Uses one full-sized XLK entry when it leads SPY, skips very small trades, and sells all when that leadership fades.',
     entryRuleText: 'Enter XLK when XLK outperforms SPY by more than 3% over 60 trading days.',
-    exitRuleText: 'Exit when XLK no longer outperforms SPY by more than 3% over 60 trading days.',
-    riskControls: ['Relative strength confirmation', '10% stop loss', '5 bps transaction cost'],
+    exitRuleText: 'Exit the full XLK position when XLK no longer outperforms SPY by more than 3% over 60 trading days.',
+    riskControls: ['Relative strength confirmation', 'Single full entry', 'Full exit when leadership fades', '10% stop loss', 'Skips trades below $500', '5 bps transaction cost'],
     config: {
       ...BASE_CONFIG,
       name: 'XLK Sector Relative Strength',
@@ -381,6 +412,13 @@ export const STRATEGY_GALLERY_TEMPLATES = [
           lookback: 60,
           threshold: 0.03
         }
+      },
+      position_management: {
+        scale_in_fraction: 1.0,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 1,
+        minimum_trade_notional: 500
       }
     }
   },
@@ -391,10 +429,10 @@ export const STRATEGY_GALLERY_TEMPLATES = [
     symbols: ['QQQ', 'TLT'],
     style: 'Risk filter',
     riskLevel: 'Higher',
-    expectedBehavior: 'May step out of QQQ when defensive TLT strength is comparatively stronger.',
+    expectedBehavior: 'Uses one full-sized QQQ entry while it leads TLT, skips very small trades, and sells all when defensive strength takes over.',
     entryRuleText: 'Enter QQQ when QQQ outperforms TLT over 60 trading days.',
-    exitRuleText: 'Exit when QQQ no longer outperforms TLT over 60 trading days.',
-    riskControls: ['Defensive relative strength filter', '10% stop loss', '5 bps transaction cost'],
+    exitRuleText: 'Exit the full QQQ position when QQQ no longer outperforms TLT over 60 trading days.',
+    riskControls: ['Defensive relative strength filter', 'Single full entry', 'Full exit when QQQ leadership fades', '10% stop loss', 'Skips trades below $500', '5 bps transaction cost'],
     config: {
       ...BASE_CONFIG,
       name: 'QQQ TLT Defensive Relative Strength',
@@ -419,6 +457,13 @@ export const STRATEGY_GALLERY_TEMPLATES = [
           lookback: 60,
           threshold: 0
         }
+      },
+      position_management: {
+        scale_in_fraction: 1.0,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 1,
+        minimum_trade_notional: 500
       }
     }
   }

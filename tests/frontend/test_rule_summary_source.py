@@ -51,7 +51,7 @@ def test_strategy_behavior_summary_helper_keeps_position_copy_compact():
     assert "getStrategyBehaviorWarnings" in helper_source
     assert "Minimum trade size may block entries" in helper_source
     assert "Entry sizing" in helper_source
-    assert "`${formatPercent(scaleInFraction)} per entry`" in helper_source
+    assert "of tactical sleeve per entry" in helper_source
     assert "Max entries" in helper_source
     assert "Wait between adds" in helper_source
     assert "`${minBarsBetweenAdds} bars`" in helper_source
@@ -62,6 +62,8 @@ def test_strategy_behavior_summary_helper_keeps_position_copy_compact():
     assert "minimum_trade_notional" in helper_source
     assert "minimum_trade_pct_of_equity" in helper_source
     assert "Minimum shares" in helper_source
+    assert "Core allocation" in helper_source
+    assert "Max overlay position" in helper_source
     assert "scale_out_fraction" not in helper_source.split("positionManagement?.exit_behavior === 'sell_all'")[1].split("} else if")[0]
     assert "Entry allocation" in helper_source
     assert "field.label === 'Entry sizing'" in saved_version_source
