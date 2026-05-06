@@ -112,7 +112,7 @@ function isFiniteNumber(value: unknown): value is number {
 function formatCompareError(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Failed to compare results';
   if (message.toLowerCase().includes('comparison limit reached')) {
-    return `Comparison limit reached for your plan. Select up to ${MAX_COMPARE_RUNS} results.`;
+    return message.replace(/\bruns\b/g, 'results');
   }
   return message;
 }

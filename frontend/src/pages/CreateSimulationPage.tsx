@@ -256,7 +256,7 @@ export function CreateSimulationPage() {
       <PageHeader
         eyebrow="Advanced"
         title="Advanced Manual Run"
-        description="Manually submit a new run using existing strategy and version records. The chat-first builder remains the primary path for drafting and running ideas."
+        description="Manually submit a new run using existing strategy and version records. The workspace builder remains the primary path for drafting and running ideas."
         actions={
           <>
             <Link to="/runs" className="app-button-secondary rounded-xl px-4 py-2 text-sm transition">
