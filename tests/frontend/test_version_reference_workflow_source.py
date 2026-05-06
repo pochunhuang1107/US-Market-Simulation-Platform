@@ -20,6 +20,7 @@ def test_run_detail_polls_active_runs_more_responsively():
     api_source = (ROOT / "frontend/src/lib/api.ts").read_text()
 
     assert "const ACTIVE_RUN_INITIAL_POLL_INTERVAL_MS = 750" in source
+    assert "const UNSUCCESSFUL_RUN_STATUSES = new Set(['FAILED', 'CANCELED', 'CANCELLED']);" in source
     assert "const ACTIVE_RUN_STEADY_POLL_INTERVAL_MS = 1500" in source
     assert "const ACTIVE_RUN_LONG_POLL_INTERVAL_MS = 3000" in source
     assert "const HIDDEN_TAB_POLL_INTERVAL_MS = 5000" in source
@@ -141,6 +142,7 @@ def test_compare_page_uses_typed_result_refs_and_sweep_variant_groups():
     assert "Parameter sweep · {variantCount} variants" in source
     assert "toggleResult(variant.comparable_result_ref)" in source
     assert "selectedResultRefs.length" in source
+    assert "message.replace(/\\bruns\\b/g, 'results')" in source
 
 
 def test_compare_page_does_not_auto_run_comparison_from_selection_or_url():

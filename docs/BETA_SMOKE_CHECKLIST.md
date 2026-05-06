@@ -134,7 +134,7 @@ scripts/smoke_local_api.sh
 
 ## Product Loop
 
-- [ ] In Strategy Chat, create a simple RSI draft such as: `Create a QQQ mean reversion strategy with RSI below 35 and exit when RSI is above 65.`
+- [ ] In the Workspace, create a simple RSI draft such as: `Create a QQQ mean reversion strategy with RSI below 35 and exit when RSI is above 65.`
 - [ ] Confirm the draft preview shows the expected symbol, entry rule, exit rule, date range, and warnings/assumptions.
 - [ ] Create a VIX + RSI draft such as: `Only trade QQQ when VIX is below 25 and RSI is below 35.`
 - [ ] Confirm the draft includes `VIX` as a reference symbol and combines VIX with RSI.

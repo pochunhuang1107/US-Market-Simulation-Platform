@@ -16,6 +16,7 @@ import { suggestStrategyNameFromConfig } from '../lib/suggestStrategyName';
 import type { RunDashboardResponse, RunResponse } from '../types/api';
 
 const ACTIVE_RUN_STATUSES = new Set(['PENDING', 'QUEUED', 'RUNNING']);
+const UNSUCCESSFUL_RUN_STATUSES = new Set(['FAILED', 'CANCELED', 'CANCELLED']);
 const ACTIVE_RUN_INITIAL_POLL_INTERVAL_MS = 750;
 const ACTIVE_RUN_STEADY_POLL_INTERVAL_MS = 1500;
 const ACTIVE_RUN_LONG_POLL_INTERVAL_MS = 3000;
@@ -198,7 +199,7 @@ export function RunDetailPage() {
           }
         }
 
-        if (runResponse.status === 'FAILED' || runResponse.status === 'CANCELLED') {
+        if (UNSUCCESSFUL_RUN_STATUSES.has(runResponse.status)) {
           setData(null);
           setIsFinalizing(false);
           setErrorMessage(runResponse.error_message ?? `Run ${runResponse.status.toLowerCase()}.`);
@@ -312,7 +313,7 @@ export function RunDetailPage() {
     );
   }
 
-  if (run && (run.status === 'FAILED' || run.status === 'CANCELLED')) {
+  if (run && UNSUCCESSFUL_RUN_STATUSES.has(run.status)) {
     return (
       <div className="space-y-6">
         {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}

@@ -231,8 +231,8 @@ export function StrategyPage() {
   const strategyStatus = data?.strategy.status?.toUpperCase();
   const isArchived = strategyStatus === 'ARCHIVED';
   const isActive = strategyStatus === 'ACTIVE';
-  const canContinueInChat = hasConfig(selectedConfig);
-  const chatState = canContinueInChat
+  const canContinueInWorkspace = hasConfig(selectedConfig);
+  const workspaceState = canContinueInWorkspace
     ? {
         source: 'strategy',
         sourceDraftConfig: selectedConfig,
@@ -416,7 +416,7 @@ export function StrategyPage() {
               Continue Research
             </div>
             <p className="app-text-muted mt-2 text-sm leading-6">
-              Open the selected version's reference result, compare reference performance, or continue from that saved config in chat.
+              Open the selected version's reference result, compare reference performance, or continue from that saved config in the workspace.
             </p>
             {referenceIsSavedSweepVariant && referencePerformance ? (
               <div className="app-note mt-3 inline-flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2 text-xs">
@@ -449,12 +449,12 @@ export function StrategyPage() {
                 Compare reference result
               </span>
             )}
-            {canContinueInChat ? (
+            {canContinueInWorkspace ? (
               <Link
                 to="/workspace"
-              state={chatState}
-              className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
-            >
+                state={workspaceState}
+                className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+              >
                 Continue in Workspace
               </Link>
             ) : null}

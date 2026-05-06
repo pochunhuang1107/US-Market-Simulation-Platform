@@ -10,7 +10,7 @@ Users can describe strategies in natural language, convert them into a structure
 
 This project combines:
 
-- Natural language strategy input through a chat-style strategy builder
+- Natural language strategy input through the workspace strategy builder
 - A deterministic backtesting engine powered by the Strategy V2 schema
 - A full run lifecycle for creating, queuing, executing, and reviewing simulations
 - A React frontend for strategy building and run analysis
@@ -34,7 +34,7 @@ Natural language is an input method, not the execution engine.
 
 ### Frontend
 - React + Vite + TypeScript + Tailwind
-- Chat-style Strategy Builder
+- Workspace Strategy Builder
 - Structured strategy preview UI
 - Run detail and dashboard views
 
@@ -67,7 +67,7 @@ Natural language is an input method, not the execution engine.
 ### Strategy Gallery
 - Curated Strategy V2 templates for beta users who do not want to start from a blank prompt
 - Preview cards with symbols, style, expected behavior, rules, benchmark, date range, and risk controls
-- One-click draft simulation runs through the same unsaved `draft_config` run flow as the chat builder
+- One-click draft simulation runs through the same unsaved `draft_config` run flow as the workspace builder
 
 ### Strategy Engine
 - RSI, SMA, EMA, MACD, KD indicators
