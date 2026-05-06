@@ -200,9 +200,14 @@ def test_series_below_rule_persists_reference_value_in_timeline() -> None:
     assert "VIX_value" in result.timeline[0]
     assert result.timeline[0]["VIX_value"] == 30.0
     assert result.trade_signal_snapshots
-    assert result.trade_signal_snapshots[0]["signals"][0]["label"] == "VIX"
-    assert result.trade_signal_snapshots[0]["signals"][0]["actual"] < 20
-    assert result.trade_signal_snapshots[0]["signals"][0]["actual_value"] < 20
+    signal = result.trade_signal_snapshots[0]["signals"][0]
+    assert signal["label"] == "VIX"
+    assert signal["actual"] < 20
+    assert signal["actual_value"] < 20
+    assert signal["operator"] == "below"
+    assert signal["threshold"] == 20
+    assert signal["status"] == "matched"
+    assert signal["source"] == "entry_rule"
 
 
 def test_write_artifacts_writes_rsi_timeline_column_and_trade_signal_snapshots_json(tmp_path) -> None:
@@ -274,5 +279,10 @@ def test_write_artifacts_writes_vix_timeline_column_and_snapshot_actual(tmp_path
     timeline_header = (tmp_path / "timeline.csv").read_text(encoding="utf-8").splitlines()[0]
     assert "VIX_value" in timeline_header
     snapshots = json.loads((tmp_path / "trade_signal_snapshots.json").read_text(encoding="utf-8"))
-    assert snapshots[0]["signals"][0]["label"] == "VIX"
-    assert snapshots[0]["signals"][0]["actual"] < 20
+    signal = snapshots[0]["signals"][0]
+    assert signal["label"] == "VIX"
+    assert signal["actual"] < 20
+    assert signal["actual_value"] < 20
+    assert signal["operator"] == "below"
+    assert signal["threshold"] == 20
+    assert signal["status"] == "matched"
