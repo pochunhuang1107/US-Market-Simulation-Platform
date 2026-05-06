@@ -48,6 +48,8 @@ def test_strategy_behavior_summary_helper_keeps_position_copy_compact():
     run_create_source = (ROOT / "frontend/src/pages/CreateSimulationPage.tsx").read_text()
 
     assert "getStrategyBehaviorFields" in helper_source
+    assert "getStrategyBehaviorWarnings" in helper_source
+    assert "Minimum trade size may block entries" in helper_source
     assert "Entry sizing" in helper_source
     assert "`${formatPercent(scaleInFraction)} per entry`" in helper_source
     assert "Max entries" in helper_source
@@ -56,12 +58,19 @@ def test_strategy_behavior_summary_helper_keeps_position_copy_compact():
     assert "Requires persistent signal" in helper_source
     assert "Sell all" in helper_source
     assert "Scale out ${formatPercent(scaleOutFraction)} at a time" in helper_source
+    assert "Minimum trade" in helper_source
+    assert "minimum_trade_notional" in helper_source
+    assert "minimum_trade_pct_of_equity" in helper_source
+    assert "Minimum shares" in helper_source
     assert "scale_out_fraction" not in helper_source.split("positionManagement?.exit_behavior === 'sell_all'")[1].split("} else if")[0]
     assert "Entry allocation" in helper_source
     assert "field.label === 'Entry sizing'" in saved_version_source
 
     for source in [draft_source, gallery_source, saved_version_source, run_create_source]:
         assert "getStrategyBehaviorFields" in source
+
+    assert "getStrategyBehaviorWarnings" in draft_source
+    assert "getStrategyBehaviorWarnings" in (ROOT / "frontend/src/pages/CreateStrategyPage.tsx").read_text()
 
 
 def test_strategy_name_helper_knows_realized_volatility_rules():

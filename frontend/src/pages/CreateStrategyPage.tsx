@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { createStrategy } from '../lib/api';
 import { summarizeRule } from '../lib/ruleSummaries';
+import { getStrategyBehaviorWarnings } from '../lib/strategyBehaviorSummary';
 import type { CreateStrategyRequest } from '../types/api';
 
 const DEFAULT_CONFIG = `{
@@ -399,35 +400,44 @@ function ConfigSummary({ config }: { config: JsonRecord | null }) {
 
   const risk = isRecord(config.risk) ? config.risk : null;
   const coreOverlay = isRecord(config.core_overlay) ? config.core_overlay : null;
+  const warnings = getStrategyBehaviorWarnings(config);
 
   return (
-    <div className="app-surface-soft mt-5 overflow-hidden rounded-2xl border">
-      <SummaryRow label="Tradable" value={formatSymbol(config.tradable_symbol)} />
-      <SummaryRow label="Benchmark" value={formatSymbol(config.benchmark_symbol)} />
-      <SummaryRow label="Window" value={formatDateRange(config)} />
-      <SummaryRow
-        label="Capital"
-        value={`${formatCurrency(config.initial_capital)} · ${formatBps(config.transaction_cost_bps)}`}
-      />
-      <SummaryRow
-        label="Entry"
-        value={summarizeRule(config.entry_rule, {
-          tradableSymbol: config.tradable_symbol,
-          complexText: 'Complex rule group · review JSON',
-          reviewJsonForComplex: true
-        }).text}
-      />
-      <SummaryRow
-        label="Exit"
-        value={summarizeRule(config.exit_rule, {
-          tradableSymbol: config.tradable_symbol,
-          complexText: 'Complex rule group · review JSON',
-          reviewJsonForComplex: true
-        }).text}
-      />
-      <SummaryRow label="Risk" value={formatRiskSummary(risk)} />
-      <SummaryRow label="Core / Overlay" value={formatCoreOverlaySummary(coreOverlay)} />
-    </div>
+    <>
+      {warnings.length > 0 ? (
+        <div className="app-alert-warning mt-5 rounded-2xl px-4 py-3 text-sm">
+          {warnings[0]}
+        </div>
+      ) : null}
+
+      <div className="app-surface-soft mt-5 overflow-hidden rounded-2xl border">
+        <SummaryRow label="Tradable" value={formatSymbol(config.tradable_symbol)} />
+        <SummaryRow label="Benchmark" value={formatSymbol(config.benchmark_symbol)} />
+        <SummaryRow label="Window" value={formatDateRange(config)} />
+        <SummaryRow
+          label="Capital"
+          value={`${formatCurrency(config.initial_capital)} · ${formatBps(config.transaction_cost_bps)}`}
+        />
+        <SummaryRow
+          label="Entry"
+          value={summarizeRule(config.entry_rule, {
+            tradableSymbol: config.tradable_symbol,
+            complexText: 'Complex rule group · review JSON',
+            reviewJsonForComplex: true
+          }).text}
+        />
+        <SummaryRow
+          label="Exit"
+          value={summarizeRule(config.exit_rule, {
+            tradableSymbol: config.tradable_symbol,
+            complexText: 'Complex rule group · review JSON',
+            reviewJsonForComplex: true
+          }).text}
+        />
+        <SummaryRow label="Risk" value={formatRiskSummary(risk)} />
+        <SummaryRow label="Core / Overlay" value={formatCoreOverlaySummary(coreOverlay)} />
+      </div>
+    </>
   );
 }
 

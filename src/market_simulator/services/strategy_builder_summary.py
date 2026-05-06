@@ -513,10 +513,22 @@ def _format_pct(value: Any) -> str:
     return f"{float(value) * 100:.1f}%"
 
 
+def _format_compact_pct(value: Any) -> str:
+    if value is None:
+        return "none"
+    return f"{float(value) * 100:.1f}".rstrip("0").rstrip(".") + "%"
+
+
 def _format_number(value: Any) -> str:
     if value is None:
         return "none"
     return f"{float(value):g}"
+
+
+def _format_money(value: Any) -> str:
+    if value is None:
+        return "none"
+    return f"${float(value):,.0f}"
 
 
 def _format_month_values(value: Any) -> str:
@@ -876,6 +888,27 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     )
     _record_change(
         changes,
+        base_position_management.get("minimum_trade_notional"),
+        final_position_management.get("minimum_trade_notional"),
+        "minimum trade size",
+        _format_money,
+    )
+    _record_change(
+        changes,
+        base_position_management.get("minimum_trade_pct_of_equity"),
+        final_position_management.get("minimum_trade_pct_of_equity"),
+        "minimum trade percent of equity",
+        _format_pct,
+    )
+    _record_change(
+        changes,
+        base_position_management.get("minimum_trade_shares"),
+        final_position_management.get("minimum_trade_shares"),
+        "minimum trade shares",
+        _format_number,
+    )
+    _record_change(
+        changes,
         base_core_overlay.get("enabled", False),
         final_core_overlay.get("enabled", False),
         "core allocation",
@@ -1068,6 +1101,20 @@ def _build_strategy_summary(
             f"sell {partial_take_profit['sell_fraction_of_position'] * 100:.1f}%, "
             f"max {partial_take_profit['max_triggers']} times."
         )
+
+    position_management = config.get("position_management") or {}
+    if isinstance(position_management, dict):
+        minimum_trade_notional = position_management.get("minimum_trade_notional")
+        minimum_trade_pct_of_equity = position_management.get("minimum_trade_pct_of_equity")
+        minimum_trade_shares = position_management.get("minimum_trade_shares")
+        if minimum_trade_notional is not None:
+            summary_parts.append(f"Minimum trade: {_format_money(minimum_trade_notional)}.")
+        if minimum_trade_pct_of_equity is not None:
+            summary_parts.append(
+                f"Minimum trade: {_format_compact_pct(minimum_trade_pct_of_equity)} of equity."
+            )
+        if minimum_trade_shares is not None:
+            summary_parts.append(f"Minimum shares: {int(minimum_trade_shares)}.")
 
     if core_overlay_disabled:
         summary_parts.append("Core allocation disabled.")

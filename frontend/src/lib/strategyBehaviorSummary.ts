@@ -3,12 +3,23 @@ export type StrategyBehaviorField = {
   value: string;
 };
 
+export const MINIMUM_TRADE_SELF_BLOCKING_WARNING =
+  'Minimum trade size may block entries because entry size is at or below the minimum trade threshold. Whole-share rounding can make trades smaller than the minimum.';
+
 function getRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
+function getNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1).replace(/\.0$/, '')}%`;
+}
+
+function formatCurrency(value: number): string {
+  return `$${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
 export function getStrategyBehaviorFields(config: Record<string, unknown> | null | undefined): StrategyBehaviorField[] {
@@ -50,9 +61,38 @@ export function getStrategyBehaviorFields(config: Record<string, unknown> | null
     fields.push({ label: 'Max position', value: formatPercent(allocation.max_position_pct) });
   }
 
+  if (typeof positionManagement?.minimum_trade_notional === 'number') {
+    fields.push({ label: 'Minimum trade', value: formatCurrency(positionManagement.minimum_trade_notional) });
+  }
+
+  if (typeof positionManagement?.minimum_trade_pct_of_equity === 'number') {
+    fields.push({ label: 'Minimum trade', value: `${formatPercent(positionManagement.minimum_trade_pct_of_equity)} of equity` });
+  }
+
+  if (typeof positionManagement?.minimum_trade_shares === 'number') {
+    fields.push({ label: 'Minimum shares', value: String(positionManagement.minimum_trade_shares) });
+  }
+
   if (typeof config.benchmark_symbol === 'string' && config.benchmark_symbol.trim()) {
     fields.push({ label: 'Benchmark', value: config.benchmark_symbol });
   }
 
   return fields;
+}
+
+export function getStrategyBehaviorWarnings(config: Record<string, unknown> | null | undefined): string[] {
+  if (!config) return [];
+
+  const allocation = getRecord(config.allocation);
+  const positionManagement = getRecord(config.position_management);
+  const minimumTradePct = getNumber(positionManagement?.minimum_trade_pct_of_equity);
+  if (!allocation || !positionManagement || minimumTradePct === null) return [];
+
+  const entryCandidates = [
+    getNumber(allocation.entry_value),
+    getNumber(positionManagement.scale_in_fraction)
+  ];
+  const hasSelfBlockingRisk = entryCandidates.some((entryValue) => entryValue !== null && entryValue <= minimumTradePct);
+
+  return hasSelfBlockingRisk ? [MINIMUM_TRADE_SELF_BLOCKING_WARNING] : [];
 }

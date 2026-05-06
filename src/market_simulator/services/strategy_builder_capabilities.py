@@ -7,6 +7,7 @@ DEFAULT_GUIDANCE_ACTIONS = [
     "Adjust take profit",
     "Adjust partial take profit",
     "Change allocation",
+    "Change entry size",
     "Adjust max position",
     "Change transaction cost",
     "Change cooldown",
@@ -61,7 +62,7 @@ SUPPORTED_STRATEGY_TYPES_MESSAGE = (
 
 UNSUPPORTED_EDIT_SUGGESTED_ACTION = (
     "Try changing the tradable symbol, benchmark, stop loss, take profit, partial take profit, "
-    "allocation, max position, transaction cost, cooldown, RSI, nested RSI edits, moving averages, "
+    "allocation, entry size, max position, transaction cost, cooldown, RSI, nested RSI edits, moving averages, "
     "nested moving-average window edits, SMA above, MACD, KD/stochastic, seasonality by month, "
     "editing seasonality months, relative strength, nested relative strength edits, realized volatility, "
     "add/remove confirmation filters, combined AND/OR rules, group operator or condition edits, "
@@ -76,7 +77,7 @@ UNSUPPORTED_EDIT_SUGGESTED_ACTION = (
 UNSUPPORTED_EDIT_MESSAGE = (
     "I understood this as a requested strategy edit, but that edit type is not supported yet. "
     "Right now I can help with tradable symbol changes, benchmark, stop loss, take profit, "
-    "partial take profit, allocation, max position, transaction cost, cooldown, RSI thresholds, "
+    "partial take profit, allocation, entry size, max position, transaction cost, cooldown, RSI thresholds, "
     "nested RSI edits, moving-average rules, nested moving-average window edits, SMA above, MACD, "
     "KD/stochastic, seasonality by month, editing seasonality months, relative strength, "
     "nested relative strength edits, realized volatility, add/remove confirmation filters, combined AND/OR rules, "

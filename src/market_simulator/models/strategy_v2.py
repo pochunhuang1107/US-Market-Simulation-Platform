@@ -38,6 +38,9 @@ class PositionManagementSpec(BaseModel):
     max_scale_in_steps: Optional[int] = Field(default=None, gt=0)
     min_bars_between_scale_ins: int = Field(default=0, ge=0)
     scale_in_requires_persistent_signal: bool = False
+    minimum_trade_notional: Optional[float] = Field(default=None, gt=0.0)
+    minimum_trade_pct_of_equity: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
+    minimum_trade_shares: Optional[int] = Field(default=None, gt=0)
 
 
 class AtomicRule(BaseModel):
