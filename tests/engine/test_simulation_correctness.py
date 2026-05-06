@@ -827,13 +827,25 @@ def test_parameter_sweep_rows_match_variant_summaries_and_rank_by_metric(tmp_pat
     }
 
     for row in rows:
+        artifact_dir = Path(row["artifact_dir"])
         variant_summary = json.loads(
-            (Path(row["artifact_dir"]) / "summary.json").read_text(encoding="utf-8")
+            (artifact_dir / "summary.json").read_text(encoding="utf-8")
         )
         assert row["total_return_pct"] == variant_summary["total_return_pct"]
         assert row["benchmark_return_pct"] == variant_summary["benchmark_return_pct"]
         assert row["max_drawdown_pct"] == variant_summary["max_drawdown_pct"]
         assert row["trade_count"] == variant_summary["trade_count"]
+        variant_timeline = pd.read_csv(artifact_dir / "timeline.csv")
+        variant_trades = pd.read_csv(artifact_dir / "trade_log.csv")
+        variant_snapshots = json.loads(
+            (artifact_dir / "trade_signal_snapshots.json").read_text(encoding="utf-8")
+        )
+        assert {"entry_signal", "exit_signal", "action_taken"}.issubset(
+            variant_timeline.columns
+        )
+        assert not variant_trades.empty
+        assert len(variant_snapshots) == row["trade_event_count"]
+        assert variant_snapshots[0]["capital_context"]["trade_notional"] > 0
 
     persisted_summary = json.loads((tmp_path / "sweep_summary.json").read_text(encoding="utf-8"))
     persisted_rows = pd.read_csv(tmp_path / "sweep_results.csv")

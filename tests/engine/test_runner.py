@@ -28,6 +28,7 @@ def _build_strategy(
     position_management: dict | None = None,
     initial_capital: float = 1000,
     max_position_pct: float = 1.0,
+    risk: dict | None = None,
 ) -> StrategyV2:
     config = {
         "schema_version": "2.0",
@@ -60,6 +61,7 @@ def _build_strategy(
         },
         "risk": {
             "cooldown_bars": 0,
+            **(risk or {}),
         },
         "core_overlay": {
             "enabled": False,
@@ -332,6 +334,7 @@ def test_run_simulation_explicit_scale_out_exit_behavior_still_reduces(
     actions = [trade["action"] for trade in result.trade_log]
 
     assert actions == ["BUY", "SELL_REDUCE", "SELL_REDUCE"]
+    assert [trade["shares"] for trade in result.trade_log] == [10, 5, 2]
 
 
 def test_run_simulation_default_position_management_still_allows_repeated_buy_add(
@@ -352,6 +355,29 @@ def test_run_simulation_default_position_management_still_allows_repeated_buy_ad
     assert actions == ["BUY", "BUY_ADD", "BUY_ADD", "BUY_ADD"]
     assert result.trade_signal_snapshots[1]["capital_context"]["trade_notional"] == 250.0
     assert result.trade_signal_snapshots[1]["signals"]
+
+
+def test_run_simulation_scale_in_fraction_add_uses_remaining_capacity_not_full_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 4)
+    strategy = _build_strategy(
+        max_position_pct=0.6,
+        position_management={
+            "scale_in_fraction": 0.5,
+            "scale_out_fraction": 0.5,
+        },
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0, 1, 2, 3})
+
+    result = runner.run_simulation(bundle, strategy)
+
+    assert [(trade["action"], trade["shares"]) for trade in result.trade_log] == [
+        ("BUY", 5),
+        ("BUY_ADD", 1),
+    ]
+    assert result.trade_signal_snapshots[1]["capital_context"]["trade_notional"] == 100.0
+    assert result.timeline[-1]["overlay_position_market_value"] == 600.0
 
 
 def test_run_simulation_max_scale_in_steps_caps_buy_add_count(
@@ -418,6 +444,26 @@ def test_run_simulation_persistent_signal_requires_unbroken_entry_signal(
     buy_dates = [trade["date"] for trade in result.trade_log if trade["action"].startswith("BUY")]
 
     assert buy_dates == ["2021-04-19", "2021-04-24"]
+
+
+def test_run_simulation_persistent_signal_false_allows_scale_in_after_spacing_gap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0] * 6)
+    strategy = _build_strategy(
+        position_management={
+            "scale_in_fraction": 0.25,
+            "scale_out_fraction": 0.5,
+            "min_bars_between_scale_ins": 2,
+            "scale_in_requires_persistent_signal": False,
+        }
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0, 1, 3, 4, 5})
+
+    result = runner.run_simulation(bundle, strategy)
+    buy_dates = [trade["date"] for trade in result.trade_log if trade["action"].startswith("BUY")]
+
+    assert buy_dates == ["2021-04-19", "2021-04-22", "2021-04-24"]
 
 
 def test_run_simulation_full_exit_resets_scale_in_cycle(
@@ -557,3 +603,66 @@ def test_run_simulation_minimum_share_count_skips_small_buy(
 
     assert result.trade_log == []
     assert result.timeline[0]["minimum_trade_skip_reason"] == "minimum_trade_shares"
+
+
+def test_run_simulation_partial_take_profit_below_minimum_notional_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle_with_closes([100.0, 110.0, 110.0])
+    strategy = _build_strategy(
+        risk={
+            "partial_take_profit": {
+                "trigger_profit_pct": 0.05,
+                "sell_fraction_of_position": 0.2,
+                "max_triggers": 2,
+            }
+        },
+        position_management={
+            "scale_in_fraction": 1.0,
+            "scale_out_fraction": 0.5,
+            "minimum_trade_notional": 300,
+        },
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0})
+
+    result = runner.run_simulation(bundle, strategy)
+
+    assert [trade["action"] for trade in result.trade_log] == ["BUY"]
+    assert result.timeline[1]["action_taken"] == "skipped_min_trade"
+    assert result.timeline[1]["minimum_trade_skip_reason"] == "minimum_trade_notional"
+    assert result.timeline[2]["action_taken"] == "skipped_min_trade"
+    assert result.summary["skipped_trade_count"] == 2
+    assert len(result.trade_signal_snapshots) == 1
+
+
+@pytest.mark.parametrize(
+    ("closes", "risk", "minimum_trade_notional", "expected_action"),
+    [
+        ([100.0, 50.0], {"stop_loss_pct": 0.10}, 900, "SELL_ALL_STOP_LOSS"),
+        ([100.0, 150.0], {"take_profit_pct": 0.10}, 900, "SELL_ALL_TAKE_PROFIT"),
+    ],
+)
+def test_run_simulation_protective_full_exit_runs_with_minimum_trade_notional(
+    monkeypatch: pytest.MonkeyPatch,
+    closes: list[float],
+    risk: dict,
+    minimum_trade_notional: int,
+    expected_action: str,
+) -> None:
+    bundle = _build_bundle_with_closes(closes)
+    strategy = _build_strategy(
+        risk=risk,
+        position_management={
+            "scale_in_fraction": 1.0,
+            "exit_behavior": "sell_all",
+            "minimum_trade_notional": minimum_trade_notional,
+        },
+    )
+    _patch_runner_signals(monkeypatch, entry_indices={0})
+
+    result = runner.run_simulation(bundle, strategy)
+
+    assert [trade["action"] for trade in result.trade_log] == ["BUY", expected_action]
+    assert result.trade_log[1]["shares"] == 10
+    assert result.timeline[1]["overlay_position_shares"] == 0
+    assert result.timeline[1]["minimum_trade_skip_reason"] is None
