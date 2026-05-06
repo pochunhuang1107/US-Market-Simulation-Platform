@@ -66,6 +66,11 @@ def build_summary(timeline: pd.DataFrame, trades: pd.DataFrame, strategy):
     exits = trades[trades["action"].isin(FULL_EXIT_ACTIONS)] if not trades.empty else trades
     win = float((exits["net_pnl"] > 0).mean()) if not exits.empty else 0.0
     activity_counts = _trade_activity_counts(trades)
+    skipped_trade_count = (
+        int((timeline.get("action_taken") == "skipped_min_trade").sum())
+        if "action_taken" in timeline
+        else 0
+    )
 
     return {
         "name": strategy.name,
@@ -85,6 +90,7 @@ def build_summary(timeline: pd.DataFrame, trades: pd.DataFrame, strategy):
         "benchmark_max_drawdown_pct": round(bdd * 100, 4),
         "trade_count": int(len(exits)),
         **activity_counts,
+        "skipped_trade_count": skipped_trade_count,
         "win_rate_pct": round(win * 100, 4),
         "final_cash": round(float(timeline["cash"].iloc[-1]), 6),
         "final_core_cash": round(float(timeline["core_cash"].iloc[-1]), 6),

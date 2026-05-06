@@ -2213,6 +2213,84 @@ def test_generate_strategy_builder_draft_parses_scale_in_percentage(client):
     assert "Exit when QQQ RSI(14) is above 65." in body["summary"]
 
 
+@pytest.mark.parametrize(
+    ("phrase", "field", "expected"),
+    [
+        ("minimum trade size $1000", "minimum_trade_notional", 1000.0),
+        ("skip trades under $1000", "minimum_trade_notional", 1000.0),
+        ("do not trade less than $500", "minimum_trade_notional", 500.0),
+        ("minimum 5 shares", "minimum_trade_shares", 5),
+        ("skip trades below 1% of equity", "minimum_trade_pct_of_equity", 0.01),
+        ("avoid tiny trades", "minimum_trade_notional", 1000.0),
+    ],
+)
+def test_generate_strategy_builder_draft_parses_minimum_trade_size_controls(
+    client,
+    phrase,
+    field,
+    expected,
+):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                f"Exit when RSI above 65. {phrase}."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["position_management"][field] == expected
+    assert "scale_in_fraction" not in config["position_management"]
+    assert "Minimum trade" in body["summary"] or "Minimum shares" in body["summary"]
+    if field == "minimum_trade_pct_of_equity":
+        assert config["allocation"]["entry_value"] == 1.0
+
+
+def test_generate_strategy_builder_draft_warns_for_self_blocking_minimum_trade_pct(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                "Exit when RSI above 65. Entry size 1% of equity and skip trades below 1% of equity."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["allocation"]["entry_value"] == 0.01
+    assert config["position_management"]["minimum_trade_pct_of_equity"] == 0.01
+    assert any("Minimum trade size may block entries" in warning for warning in body["warnings"])
+
+
+def test_generate_strategy_builder_draft_does_not_warn_for_normal_minimum_trade_pct(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                "Exit when RSI above 65. Entry size 2% of equity and skip trades below 1% of equity."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["allocation"]["entry_value"] == 0.02
+    assert config["position_management"]["minimum_trade_pct_of_equity"] == 0.01
+    assert not any("Minimum trade size may block entries" in warning for warning in body["warnings"])
+
+
 def test_generate_strategy_builder_draft_parses_explicit_sell_all_exit_behavior(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -2536,6 +2614,163 @@ def test_generate_strategy_builder_follow_up_changes_scale_in_fraction(client):
     assert config["position_management"]["scale_in_fraction"] == 0.30
     assert config["position_management"]["scale_out_fraction"] == 0.5
     assert "Updated scale in fraction from 25.0% to 30.0%." in body["changes"]
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_entry_value"),
+    [
+        ("Set entry size to 25%", 0.25),
+        ("Change entry size to 25%", 0.25),
+        ("Use 25% of equity per entry", 0.25),
+        ("Buy 25% per trade", 0.25),
+        ("Set allocation to 25%", 0.25),
+        ("Use 50% of equity", 0.50),
+    ],
+)
+def test_generate_strategy_builder_follow_up_changes_entry_size_without_touching_position_management(
+    client,
+    prompt,
+    expected_entry_value,
+):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["allocation"]["entry_value"] = 1.0
+    current_config["position_management"]["minimum_trade_pct_of_equity"] = 0.01
+    original_entry_rule = current_config["entry_rule"]
+    original_exit_rule = current_config["exit_rule"]
+    original_risk = current_config["risk"]
+    original_core_overlay = current_config["core_overlay"]
+    original_reference_symbols = current_config["reference_symbols"]
+    original_scale_in_fraction = current_config["position_management"]["scale_in_fraction"]
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["allocation"]["entry_value"] == expected_entry_value
+    assert config["entry_rule"] == original_entry_rule
+    assert config["exit_rule"] == original_exit_rule
+    assert config["risk"] == original_risk
+    assert config["core_overlay"] == original_core_overlay
+    assert config["reference_symbols"] == original_reference_symbols
+    assert config["position_management"]["minimum_trade_pct_of_equity"] == 0.01
+    assert config["position_management"]["scale_in_fraction"] == original_scale_in_fraction
+
+
+def test_generate_strategy_builder_follow_up_minimum_trade_pct_preserves_entry_size(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["allocation"]["entry_value"] = 0.40
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Skip trades below 1% of equity.",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["allocation"]["entry_value"] == 0.40
+    assert config["position_management"]["minimum_trade_pct_of_equity"] == 0.01
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+
+
+def test_generate_strategy_builder_follow_up_sets_minimum_trade_size(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "set minimum trade size to $1000",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": _qqq_rsi_core_overlay_current_config(),
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert config["position_management"]["minimum_trade_notional"] == 1000.0
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert "Updated minimum trade size from none to $1,000." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_sets_minimum_trade_pct_and_shares(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+
+    pct_response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "skip trades below 1% of equity",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+    assert pct_response.status_code == 200
+    pct_config = pct_response.json()["config"]
+    assert pct_config["position_management"]["minimum_trade_pct_of_equity"] == 0.01
+
+    shares_response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "minimum 5 shares",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+    assert shares_response.status_code == 200
+    shares_config = shares_response.json()["config"]
+    assert shares_config["position_management"]["minimum_trade_shares"] == 5
+
+
+def test_generate_strategy_builder_follow_up_removes_minimum_trade_size(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["position_management"]["minimum_trade_notional"] = 1000.0
+    current_config["position_management"]["minimum_trade_pct_of_equity"] = 0.01
+    current_config["position_management"]["minimum_trade_shares"] = 5
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "remove minimum trade size",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert "minimum_trade_notional" not in config["position_management"]
+    assert "minimum_trade_pct_of_equity" not in config["position_management"]
+    assert "minimum_trade_shares" not in config["position_management"]
+    assert "Updated minimum trade size from $1,000 to none." in body["changes"]
 
 
 def test_generate_strategy_builder_follow_up_removes_scale_in_limit(client):
@@ -6909,6 +7144,7 @@ def test_generate_strategy_builder_returns_structured_validation_error_for_unsup
     assert "KD" in body["validation_data"]["suggested_action"]
     assert "seasonality" in body["validation_data"]["suggested_action"]
     assert "relative strength" in body["validation_data"]["suggested_action"]
+    assert "entry size" in body["validation_data"]["suggested_action"]
 
 
 def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(client):
@@ -6965,6 +7201,7 @@ def test_generate_strategy_builder_returns_guidance_data_for_no_change_response(
     assert body["guidance_data"]["guidance_type"] == "NO_CHANGE"
     assert len(body["guidance_data"]["suggested_actions"]) > 0
     assert "Change tradable symbol" in body["guidance_data"]["suggested_actions"]
+    assert "Change entry size" in body["guidance_data"]["suggested_actions"]
     assert "Adjust max position" in body["guidance_data"]["suggested_actions"]
     assert "Change transaction cost" in body["guidance_data"]["suggested_actions"]
     assert "Adjust RSI thresholds" in body["guidance_data"]["suggested_actions"]

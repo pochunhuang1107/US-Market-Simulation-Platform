@@ -47,7 +47,11 @@ def _build_create_flow_default_config(
     profit_reduce_threshold_edit: float | None,
     max_scale_in_steps_edit: int | None,
     min_bars_between_scale_ins_edit: int | None,
+    minimum_trade_notional_edit: float | None,
+    minimum_trade_pct_of_equity_edit: float | None,
+    minimum_trade_shares_edit: int | None,
     remove_max_scale_in_steps: bool,
+    remove_minimum_trade_size: bool,
     assumptions: list[str],
 ) -> dict[str, Any]:
     default_config: dict[str, Any] = {}
@@ -110,7 +114,11 @@ def _build_create_flow_default_config(
             profit_reduce_threshold=profit_reduce_threshold_edit,
             max_scale_in_steps=max_scale_in_steps_edit,
             min_bars_between_scale_ins=min_bars_between_scale_ins_edit,
+            minimum_trade_notional=minimum_trade_notional_edit,
+            minimum_trade_pct_of_equity=minimum_trade_pct_of_equity_edit,
+            minimum_trade_shares=minimum_trade_shares_edit,
             remove_max_scale_in_steps=remove_max_scale_in_steps,
+            remove_minimum_trade_size=remove_minimum_trade_size,
         )
     )
 

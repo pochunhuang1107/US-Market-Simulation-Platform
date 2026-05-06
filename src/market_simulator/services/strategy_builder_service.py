@@ -69,6 +69,7 @@ from market_simulator.services.strategy_builder_config import (
     _build_update_flow_default_config,
     _merge_dict,
 )
+from market_simulator.services.draft_validation import collect_draft_config_warnings
 from market_simulator.services.strategy_builder_parsers import (
     _build_confirmation_rules,
     _build_position_management,
@@ -95,6 +96,9 @@ from market_simulator.services.strategy_builder_parsers import (
     _extract_max_scale_in_steps_edit,
     _extract_max_position_pct_edit,
     _extract_min_bars_between_scale_ins_edit,
+    _extract_minimum_trade_notional_edit,
+    _extract_minimum_trade_pct_of_equity_edit,
+    _extract_minimum_trade_shares_edit,
     _extract_month_values,
     _extract_not_inner_rule_edit,
     _extract_overlay_allocation_pct,
@@ -137,6 +141,7 @@ from market_simulator.services.strategy_builder_parsers import (
     _has_partial_relative_strength_edit,
     _has_partial_sma_window_edit,
     _has_partial_take_profit_removal,
+    _has_minimum_trade_size_removal,
     _has_position_management_removal,
     _has_scale_in_controls_removal,
     _has_scale_in_limit_removal,
@@ -425,7 +430,11 @@ def _extract_risk_and_position_inputs(
     profit_reduce_threshold_edit = _extract_profit_reduce_threshold_edit(prompt)
     max_scale_in_steps_edit = _extract_max_scale_in_steps_edit(prompt)
     min_bars_between_scale_ins_edit = _extract_min_bars_between_scale_ins_edit(prompt)
+    minimum_trade_notional_edit = _extract_minimum_trade_notional_edit(prompt)
+    minimum_trade_pct_of_equity_edit = _extract_minimum_trade_pct_of_equity_edit(prompt)
+    minimum_trade_shares_edit = _extract_minimum_trade_shares_edit(prompt)
     remove_max_scale_in_steps = _has_scale_in_limit_removal(prompt)
+    remove_minimum_trade_size = _has_minimum_trade_size_removal(prompt)
 
     if scale_in_fraction_edit is not None and not (0 < scale_in_fraction_edit <= 1):
         warnings.append(
@@ -472,6 +481,25 @@ def _extract_risk_and_position_inputs(
         flags=re.IGNORECASE,
     ):
         warnings.append("Interpreted 'do not add every day' as waiting 2 bars between adds.")
+    if minimum_trade_notional_edit is not None and minimum_trade_notional_edit <= 0:
+        warnings.append("Minimum trade size must be greater than $0; ignored that value.")
+        minimum_trade_notional_edit = None
+    if (
+        minimum_trade_pct_of_equity_edit is not None
+        and not (0 < minimum_trade_pct_of_equity_edit < 1)
+    ):
+        warnings.append(
+            "Minimum trade percent of equity must be greater than 0% and less than 100%; ignored that value."
+        )
+        minimum_trade_pct_of_equity_edit = None
+    if minimum_trade_shares_edit is not None and minimum_trade_shares_edit <= 0:
+        warnings.append("Minimum trade shares must be a positive whole number; ignored that value.")
+        minimum_trade_shares_edit = None
+    if (
+        minimum_trade_notional_edit == 1000.0
+        and re.search(r"\bavoid\s+tiny\s+trades?\b", prompt, flags=re.IGNORECASE)
+    ):
+        assumptions.append("Interpreted 'avoid tiny trades' as a $1,000 minimum trade size.")
 
     position_management_removed = _has_position_management_removal(prompt) or _has_scale_in_controls_removal(prompt)
     has_position_management_edit = (
@@ -482,7 +510,11 @@ def _extract_risk_and_position_inputs(
         or profit_reduce_threshold_edit is not None
         or max_scale_in_steps_edit is not None
         or min_bars_between_scale_ins_edit is not None
+        or minimum_trade_notional_edit is not None
+        or minimum_trade_pct_of_equity_edit is not None
+        or minimum_trade_shares_edit is not None
         or remove_max_scale_in_steps
+        or remove_minimum_trade_size
     )
 
     core_allocation_pct = _extract_core_allocation_pct(prompt)
@@ -512,7 +544,11 @@ def _extract_risk_and_position_inputs(
         "profit_reduce_threshold_edit": profit_reduce_threshold_edit,
         "max_scale_in_steps_edit": max_scale_in_steps_edit,
         "min_bars_between_scale_ins_edit": min_bars_between_scale_ins_edit,
+        "minimum_trade_notional_edit": minimum_trade_notional_edit,
+        "minimum_trade_pct_of_equity_edit": minimum_trade_pct_of_equity_edit,
+        "minimum_trade_shares_edit": minimum_trade_shares_edit,
         "remove_max_scale_in_steps": remove_max_scale_in_steps,
+        "remove_minimum_trade_size": remove_minimum_trade_size,
         "position_management_removed": position_management_removed,
         "has_position_management_edit": has_position_management_edit,
         "core_allocation_pct": core_allocation_pct,
@@ -1497,7 +1533,11 @@ def _apply_update_flow_edits(
     profit_reduce_threshold_edit: float | None,
     max_scale_in_steps_edit: int | None,
     min_bars_between_scale_ins_edit: int | None,
+    minimum_trade_notional_edit: float | None,
+    minimum_trade_pct_of_equity_edit: float | None,
+    minimum_trade_shares_edit: int | None,
     remove_max_scale_in_steps: bool,
+    remove_minimum_trade_size: bool,
     position_management_removed: bool,
     has_position_management_edit: bool,
     core_overlay_enabled: bool,
@@ -1999,14 +2039,14 @@ def _apply_update_flow_edits(
         allocation_edit_value is not None
         or max_position_pct_edit is not None
         or overlay_allocation_pct is not None
-        or re.search(r"%\s+of\s+equity|allocation|allocate|max\s+position", prompt_lower)
+        or re.search(r"allocation|allocate|max\s+position", prompt_lower)
     ):
         allocation = dict(default_config.get("allocation", {}))
         allocation["entry_mode"] = "percent_of_equity"
         if (
             overlay_allocation_pct is not None
             or allocation_edit_value is not None
-            or re.search(r"%\s+of\s+equity|allocation|allocate", prompt_lower)
+            or re.search(r"allocation|allocate", prompt_lower)
         ):
             allocation["entry_value"] = (
                 overlay_allocation_pct
@@ -2325,7 +2365,11 @@ def _apply_update_flow_edits(
                 profit_reduce_threshold=profit_reduce_threshold_edit,
                 max_scale_in_steps=max_scale_in_steps_edit,
                 min_bars_between_scale_ins=min_bars_between_scale_ins_edit,
+                minimum_trade_notional=minimum_trade_notional_edit,
+                minimum_trade_pct_of_equity=minimum_trade_pct_of_equity_edit,
+                minimum_trade_shares=minimum_trade_shares_edit,
                 remove_max_scale_in_steps=remove_max_scale_in_steps,
+                remove_minimum_trade_size=remove_minimum_trade_size,
             )
 
     if core_overlay_disabled:
@@ -2443,7 +2487,11 @@ def _generate_strategy_draft(
     profit_reduce_threshold_edit = risk_and_position["profit_reduce_threshold_edit"]
     max_scale_in_steps_edit = risk_and_position["max_scale_in_steps_edit"]
     min_bars_between_scale_ins_edit = risk_and_position["min_bars_between_scale_ins_edit"]
+    minimum_trade_notional_edit = risk_and_position["minimum_trade_notional_edit"]
+    minimum_trade_pct_of_equity_edit = risk_and_position["minimum_trade_pct_of_equity_edit"]
+    minimum_trade_shares_edit = risk_and_position["minimum_trade_shares_edit"]
     remove_max_scale_in_steps = risk_and_position["remove_max_scale_in_steps"]
+    remove_minimum_trade_size = risk_and_position["remove_minimum_trade_size"]
     position_management_removed = risk_and_position["position_management_removed"]
     has_position_management_edit = risk_and_position["has_position_management_edit"]
     core_allocation_pct = risk_and_position["core_allocation_pct"]
@@ -2612,7 +2660,11 @@ def _generate_strategy_draft(
             profit_reduce_threshold_edit=profit_reduce_threshold_edit,
             max_scale_in_steps_edit=max_scale_in_steps_edit,
             min_bars_between_scale_ins_edit=min_bars_between_scale_ins_edit,
+            minimum_trade_notional_edit=minimum_trade_notional_edit,
+            minimum_trade_pct_of_equity_edit=minimum_trade_pct_of_equity_edit,
+            minimum_trade_shares_edit=minimum_trade_shares_edit,
             remove_max_scale_in_steps=remove_max_scale_in_steps,
+            remove_minimum_trade_size=remove_minimum_trade_size,
             assumptions=assumptions,
         )
     else:
@@ -2659,7 +2711,11 @@ def _generate_strategy_draft(
             profit_reduce_threshold_edit=profit_reduce_threshold_edit,
             max_scale_in_steps_edit=max_scale_in_steps_edit,
             min_bars_between_scale_ins_edit=min_bars_between_scale_ins_edit,
+            minimum_trade_notional_edit=minimum_trade_notional_edit,
+            minimum_trade_pct_of_equity_edit=minimum_trade_pct_of_equity_edit,
+            minimum_trade_shares_edit=minimum_trade_shares_edit,
             remove_max_scale_in_steps=remove_max_scale_in_steps,
+            remove_minimum_trade_size=remove_minimum_trade_size,
             position_management_removed=position_management_removed,
             has_position_management_edit=has_position_management_edit,
             core_overlay_enabled=core_overlay_enabled,
@@ -2767,6 +2823,34 @@ def _generate_strategy_draft(
 
     validated = StrategyV2.model_validate(config)
     validated_config = validated.model_dump(mode="json", exclude_none=True)
+    input_position_management = config.get("position_management")
+    if isinstance(input_position_management, dict):
+        scale_management_keys = {
+            "scale_in_fraction",
+            "scale_out_fraction",
+            "exit_behavior",
+            "profit_reduce_threshold",
+            "max_scale_in_steps",
+            "min_bars_between_scale_ins",
+            "scale_in_requires_persistent_signal",
+        }
+        minimum_trade_keys = {
+            "minimum_trade_notional",
+            "minimum_trade_pct_of_equity",
+            "minimum_trade_shares",
+        }
+        if not (set(input_position_management) & scale_management_keys):
+            minimum_trade_position_management = {
+                key: input_position_management[key]
+                for key in minimum_trade_keys
+                if input_position_management.get(key) is not None
+            }
+            validated_config["position_management"] = (
+                minimum_trade_position_management or None
+            )
+    for warning in collect_draft_config_warnings(validated_config):
+        if warning not in warnings:
+            warnings.append(warning)
     changes = _summarize_changes(base_config, validated_config)
 
     return (

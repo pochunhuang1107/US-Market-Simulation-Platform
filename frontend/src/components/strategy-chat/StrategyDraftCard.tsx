@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import { getStrategyBehaviorFields } from '../../lib/strategyBehaviorSummary';
+import { getStrategyBehaviorFields, getStrategyBehaviorWarnings } from '../../lib/strategyBehaviorSummary';
 import { explainRule } from '../../lib/ruleSummaries';
 import type { StrategyBuilderGenerateResponse } from '../../types/api';
 
@@ -258,7 +258,11 @@ export function StrategyDraftCard({
   }, [draft]);
 
   const hasChanges = draft.changes.length > 0;
-  const hasWarnings = draft.warnings.length > 0;
+  const warnings = useMemo(() => {
+    const config = (draft.config ?? {}) as Record<string, unknown>;
+    return Array.from(new Set([...draft.warnings, ...getStrategyBehaviorWarnings(config)]));
+  }, [draft]);
+  const hasWarnings = warnings.length > 0;
 
   return (
     <div className="space-y-4">
@@ -377,7 +381,7 @@ export function StrategyDraftCard({
           <div className="app-alert-warning mt-4 rounded-3xl p-5">
             <div className="text-[11px] font-semibold uppercase tracking-[0.22em]">Warnings</div>
             <div className="mt-3">
-              <BulletList items={draft.warnings} emptyText="No warnings." tone="warning" />
+              <BulletList items={warnings} emptyText="No warnings." tone="warning" />
             </div>
           </div>
         ) : null}

@@ -12,6 +12,47 @@ from market_simulator.services.strategy_builder_parsers import (
 from market_simulator.settings import get_settings
 
 
+MINIMUM_TRADE_SELF_BLOCKING_WARNING = (
+    "Minimum trade size may block entries because entry size is at or below the "
+    "minimum trade threshold. Whole-share rounding can make trades smaller than the minimum."
+)
+
+
+def _as_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def collect_draft_config_warnings(config: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    allocation = config.get("allocation") if isinstance(config, dict) else None
+    position_management = (
+        config.get("position_management") if isinstance(config, dict) else None
+    )
+
+    if not isinstance(allocation, dict) or not isinstance(position_management, dict):
+        return warnings
+
+    minimum_trade_pct = _as_number(
+        position_management.get("minimum_trade_pct_of_equity")
+    )
+    if minimum_trade_pct is None:
+        return warnings
+
+    entry_candidates = [
+        _as_number(allocation.get("entry_value")),
+        _as_number(position_management.get("scale_in_fraction")),
+    ]
+    if any(
+        entry_value is not None and entry_value <= minimum_trade_pct
+        for entry_value in entry_candidates
+    ):
+        warnings.append(MINIMUM_TRADE_SELF_BLOCKING_WARNING)
+
+    return warnings
+
+
 def _parse_iso_date(value: Any, field_name: str) -> date:
     label = "start date" if field_name == "start_date" else "end date"
     if not isinstance(value, str):
@@ -62,7 +103,7 @@ def validate_draft_config(
     *,
     config: dict[str, Any],
     max_backtest_years: int,
-) -> None:
+) -> list[str]:
     if not isinstance(config, dict):
         raise ValueError("The generated draft config was invalid. Please try again.")
 
@@ -138,6 +179,8 @@ def validate_draft_config(
             f"That date range exceeds your current plan limit of {max_backtest_years} years. "
             "Please shorten the range and try again."
         )
+
+    return collect_draft_config_warnings(config)
 
 
 def validate_backtest_window(

@@ -414,6 +414,10 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\b(start\s+date|end\s+date)\b",
         r"\btradable\s+symbol\b",
         r"\bbenchmark\b",
+        r"\bentry\s+size\b",
+        r"\bentry\s+sizing\b",
+        r"\bper\s+entry\b",
+        r"\bper\s+trade\b",
         r"\bstop\s+loss\b",
         r"\btake\s+profit\b",
         r"\ballocation\b",
@@ -487,6 +491,12 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bsell\s+\d+(?:\.\d+)?%\s+each\s+exit\b",
         r"\bprofit\s+reduce\s+threshold\b",
         r"\bposition\s+management\b",
+        r"\bminimum\s+trade\b",
+        r"\bmin(?:imum)?\s+shares?\b",
+        r"\bskip\s+trades?\s+(?:under|below)\b",
+        r"\bdo\s+not\s+trade\s+less\s+than\b",
+        r"\bdon't\s+trade\s+less\s+than\b",
+        r"\bavoid\s+tiny\s+trades?\b",
         r"\bcore\s+allocation\b",
         r"\bcore\s+overlay\b",
         r"\bmax\s+position\b",
@@ -1908,15 +1918,30 @@ def _has_partial_sma_window_edit(
 
 def _extract_allocation_value_edit(text: str) -> float | None:
     patterns = [
+        r"(?:set|change|update)\s+entry\s+size\s+to\s+(\d+(?:\.\d+)?)%",
+        r"(?:set|change|update)\s+entry\s+sizing\s+to\s+(\d+(?:\.\d+)?)%",
         r"change\s+allocation\s+to\s+(\d+(?:\.\d+)?)%",
         r"set\s+allocation\s+to\s+(\d+(?:\.\d+)?)%",
+        r"use\s+(\d+(?:\.\d+)?)%\s+of\s+equity(?:\s+per\s+entry)?",
+        r"buy\s+(\d+(?:\.\d+)?)%\s+per\s+trade",
+        r"buy\s+(\d+(?:\.\d+)?)%\s+of\s+equity(?:\s+per\s+trade|\s+per\s+entry)?",
         r"(?<!core\s)allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+        r"entry\s+size\s+(?:at|to)?\s*(\d+(?:\.\d+)?)%\s+of\s+equity",
+        r"entry\s+sizing\s+(?:at|to)?\s*(\d+(?:\.\d+)?)%\s+of\s+equity",
+        r"position\s+sizing\s+(?:at|to)?\s*(\d+(?:\.\d+)?)%\s+of\s+equity",
         r"allocate\s+(\d+(?:\.\d+)?)%",
         r"(\d+(?:\.\d+)?)%\s+of\s+equity",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
+            context = text[max(0, match.start() - 48):match.start()].lower()
+            if re.search(
+                r"minimum\s+trade|skip\s+trades?\s+(?:under|below)|"
+                r"do\s+not\s+trade\s+less\s+than|don't\s+trade\s+less\s+than",
+                context,
+            ):
+                continue
             value = float(match.group(1)) / 100.0
             return min(max(value, 0.01), 1.0)
     return None
@@ -2188,6 +2213,58 @@ def _extract_min_bars_between_scale_ins_edit(text: str) -> int | None:
     return None
 
 
+def _extract_minimum_trade_notional_edit(text: str) -> float | None:
+    patterns = [
+        r"(?:set\s+)?minimum\s+trade\s+(?:size\s+)?(?:to\s+|at\s+)?\$(\d[\d,]*(?:\.\d+)?)",
+        r"skip\s+trades?\s+(?:under|below)\s+\$(\d[\d,]*(?:\.\d+)?)",
+        r"(?:do\s+not|don't)\s+trade\s+less\s+than\s+\$(\d[\d,]*(?:\.\d+)?)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return float(match.group(1).replace(",", ""))
+
+    if re.search(r"\bavoid\s+tiny\s+trades?\b", text, flags=re.IGNORECASE):
+        return 1000.0
+
+    return None
+
+
+def _extract_minimum_trade_pct_of_equity_edit(text: str) -> float | None:
+    return _extract_percent(
+        text,
+        [
+            r"skip\s+trades?\s+(?:under|below)\s+(\d+(?:\.\d+)?)%\s+of\s+equity",
+            r"minimum\s+trade\s+(?:size\s+)?(?:to\s+|at\s+)?(\d+(?:\.\d+)?)%\s+of\s+equity",
+            r"(?:do\s+not|don't)\s+trade\s+less\s+than\s+(\d+(?:\.\d+)?)%\s+of\s+equity",
+        ],
+    )
+
+
+def _extract_minimum_trade_shares_edit(text: str) -> int | None:
+    return _extract_int(
+        text,
+        [
+            r"minimum\s+(\d+)\s+shares?(?:\s+per\s+trade)?",
+            r"minimum\s+trade\s+(?:size\s+)?(?:to\s+|at\s+)?(\d+)\s+shares?",
+            r"skip\s+trades?\s+(?:under|below)\s+(\d+)\s+shares?",
+        ],
+    )
+
+
+def _has_minimum_trade_size_removal(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:remove|clear|delete|disable)\s+minimum\s+trade(?:\s+size)?|"
+            r"(?:remove|clear|delete|disable)\s+min(?:imum)?\s+trade(?:\s+size)?|"
+            r"no\s+minimum\s+trade(?:\s+size)?|"
+            r"without\s+minimum\s+trade(?:\s+size)?",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _has_scale_in_limit_removal(text: str) -> bool:
     return bool(
         re.search(
@@ -2232,21 +2309,45 @@ def _build_position_management(
     exit_behavior: str | None = None,
     max_scale_in_steps: int | None = None,
     min_bars_between_scale_ins: int | None = None,
+    minimum_trade_notional: float | None = None,
+    minimum_trade_pct_of_equity: float | None = None,
+    minimum_trade_shares: int | None = None,
     remove_max_scale_in_steps: bool = False,
+    remove_minimum_trade_size: bool = False,
 ) -> dict[str, Any] | None:
+    has_scale_management_edit = any(
+        value is not None
+        for value in (
+            scale_in_fraction,
+            scale_out_fraction,
+            exit_behavior,
+            profit_reduce_threshold,
+            max_scale_in_steps,
+            min_bars_between_scale_ins,
+        )
+    ) or remove_max_scale_in_steps
+    has_minimum_trade_edit = any(
+        value is not None
+        for value in (
+            minimum_trade_notional,
+            minimum_trade_pct_of_equity,
+            minimum_trade_shares,
+        )
+    )
     if (
-        scale_in_fraction is None
-        and scale_out_fraction is None
-        and exit_behavior is None
-        and profit_reduce_threshold is None
-        and max_scale_in_steps is None
-        and min_bars_between_scale_ins is None
+        not has_scale_management_edit
+        and not has_minimum_trade_edit
+        and not remove_minimum_trade_size
         and existing is None
     ):
+        return None
+    if remove_minimum_trade_size and existing is None and not has_scale_management_edit:
         return None
 
     if existing:
         base = dict(existing)
+    elif not has_scale_management_edit and has_minimum_trade_edit:
+        base = {}
     else:
         default_scale_in_fraction = (
             1.0
@@ -2286,6 +2387,16 @@ def _build_position_management(
         base["max_scale_in_steps"] = None
     if min_bars_between_scale_ins is not None:
         base["min_bars_between_scale_ins"] = min_bars_between_scale_ins
+    if minimum_trade_notional is not None:
+        base["minimum_trade_notional"] = minimum_trade_notional
+    if minimum_trade_pct_of_equity is not None:
+        base["minimum_trade_pct_of_equity"] = minimum_trade_pct_of_equity
+    if minimum_trade_shares is not None:
+        base["minimum_trade_shares"] = minimum_trade_shares
+    if remove_minimum_trade_size:
+        base["minimum_trade_notional"] = None
+        base["minimum_trade_pct_of_equity"] = None
+        base["minimum_trade_shares"] = None
 
     return base
 
@@ -2367,6 +2478,9 @@ __all__ = [
     "_extract_max_position_pct_edit",
     "_extract_max_scale_in_steps_edit",
     "_extract_min_bars_between_scale_ins_edit",
+    "_extract_minimum_trade_notional_edit",
+    "_extract_minimum_trade_pct_of_equity_edit",
+    "_extract_minimum_trade_shares_edit",
     "_extract_month_values",
     "_extract_not_inner_rule_edit",
     "_extract_overlay_allocation_pct",
@@ -2414,6 +2528,7 @@ __all__ = [
     "_has_partial_relative_strength_edit",
     "_has_partial_sma_window_edit",
     "_has_partial_take_profit_removal",
+    "_has_minimum_trade_size_removal",
     "_has_position_management_removal",
     "_has_scale_in_controls_removal",
     "_has_scale_in_limit_removal",

@@ -150,6 +150,37 @@ def _round_capital_value(value: float | int | None) -> float | None:
     return round(float(value), 6)
 
 
+def _minimum_trade_rejection_reason(
+    pm,
+    *,
+    shares: int,
+    price: float,
+    total_equity: float,
+) -> str | None:
+    if pm is None:
+        return None
+
+    notional = shares * price
+
+    minimum_trade_shares = getattr(pm, "minimum_trade_shares", None)
+    if minimum_trade_shares is not None and shares < minimum_trade_shares:
+        return "minimum_trade_shares"
+
+    minimum_trade_notional = getattr(pm, "minimum_trade_notional", None)
+    if minimum_trade_notional is not None and notional < minimum_trade_notional:
+        return "minimum_trade_notional"
+
+    minimum_trade_pct_of_equity = getattr(pm, "minimum_trade_pct_of_equity", None)
+    if (
+        minimum_trade_pct_of_equity is not None
+        and total_equity > 0
+        and (notional / total_equity) < minimum_trade_pct_of_equity
+    ):
+        return "minimum_trade_pct_of_equity"
+
+    return None
+
+
 def _overlay_capital_state(portfolio: PortfolioState, close: float) -> dict:
     position_value = portfolio.overlay_market_value(close)
     equity = portfolio.overlay_equity(close)
@@ -451,20 +482,34 @@ def run_simulation(bundle, strategy):
         exit_signal = evaluate_rule(strategy.exit_rule, bundle, i, strategy.tradable_symbol)
         entry_signal_streak = entry_signal_streak + 1 if entry_signal else 0
         action = ""
+        minimum_trade_skip_reason = None
 
         # === POSITION MANAGEMENT CONFIG (NEW) ===
         pm = getattr(strategy, "position_management", None)
 
-        position_management_enabled = pm is not None
-        scale_in_fraction = pm.scale_in_fraction if pm else 1.0
-        scale_out_fraction = (pm.scale_out_fraction or 0.5) if pm else 1.0
-        exit_behavior = pm.exit_behavior if pm else "sell_all"
-        profit_reduce_threshold = pm.profit_reduce_threshold if pm else None
-        max_scale_in_steps = pm.max_scale_in_steps if pm else None
-        min_bars_between_scale_ins = pm.min_bars_between_scale_ins if pm else 0
-        scale_in_requires_persistent_signal = (
-            pm.scale_in_requires_persistent_signal if pm else False
+        pm_fields_set = getattr(pm, "model_fields_set", set()) if pm else set()
+        scale_management_fields = {
+            "scale_in_fraction",
+            "scale_out_fraction",
+            "exit_behavior",
+            "profit_reduce_threshold",
+            "max_scale_in_steps",
+            "min_bars_between_scale_ins",
+            "scale_in_requires_persistent_signal",
+        }
+        position_management_enabled = pm is not None and (
+            not pm_fields_set or bool(pm_fields_set & scale_management_fields)
         )
+        scale_in_fraction = pm.scale_in_fraction if position_management_enabled else 1.0
+        scale_out_fraction = (pm.scale_out_fraction or 0.5) if position_management_enabled else 1.0
+        exit_behavior = pm.exit_behavior if position_management_enabled else "sell_all"
+        profit_reduce_threshold = pm.profit_reduce_threshold if position_management_enabled else None
+        max_scale_in_steps = pm.max_scale_in_steps if position_management_enabled else None
+        min_bars_between_scale_ins = pm.min_bars_between_scale_ins if position_management_enabled else 0
+        scale_in_requires_persistent_signal = (
+            pm.scale_in_requires_persistent_signal if position_management_enabled else False
+        )
+        total_equity_before_trade = portfolio.total_equity(close)
 
         # risk / exits for overlay sleeve only
         if portfolio.position.in_position and action == "":
@@ -483,7 +528,14 @@ def run_simulation(bundle, strategy):
                 # avoid fully closing here; leave at least 1 share for a later true full exit
                 shares = min(shares, portfolio.position.shares - 1)
 
-                if shares > 0:
+                minimum_trade_skip_reason = _minimum_trade_rejection_reason(
+                    pm,
+                    shares=shares,
+                    price=close,
+                    total_equity=total_equity_before_trade,
+                )
+
+                if shares > 0 and minimum_trade_skip_reason is None:
                     capital_before = _overlay_capital_state(portfolio, close)
                     gross, net, fee = _sell_overlay(
                         portfolio, shares, close, strategy.transaction_cost_bps
@@ -519,6 +571,8 @@ def run_simulation(bundle, strategy):
                     )
 
                     action = "reduce_profit"
+                elif shares > 0:
+                    action = "skipped_min_trade"
 
             if (
                 strategy.risk.stop_loss_pct is not None
@@ -621,44 +675,53 @@ def run_simulation(bundle, strategy):
                         * strategy.risk.partial_take_profit.sell_fraction_of_position
                     ),
                 )
-                capital_before = _overlay_capital_state(portfolio, close)
-                gross, net, fee = _sell_overlay(
-                    portfolio, sold, close, strategy.transaction_cost_bps
+                minimum_trade_skip_reason = _minimum_trade_rejection_reason(
+                    pm,
+                    shares=sold,
+                    price=close,
+                    total_equity=total_equity_before_trade,
                 )
-                capital_context = _sell_capital_context(
-                    capital_before, portfolio, close, sold, fee, gross, net
-                )
-                portfolio.position.partial_take_profit_count += 1
+                if minimum_trade_skip_reason is None:
+                    capital_before = _overlay_capital_state(portfolio, close)
+                    gross, net, fee = _sell_overlay(
+                        portfolio, sold, close, strategy.transaction_cost_bps
+                    )
+                    capital_context = _sell_capital_context(
+                        capital_before, portfolio, close, sold, fee, gross, net
+                    )
+                    portfolio.position.partial_take_profit_count += 1
 
-                record_trade(
-                    {
+                    record_trade(
+                        {
+                            "date": str(date.date()),
+                            "action": "SELL_PARTIAL_TAKE_PROFIT",
+                            "shares": sold,
+                            "price": close,
+                            "gross_pnl": round(gross, 6),
+                            "net_pnl": round(net, 6),
+                            "fee": round(fee, 6),
+                            "sleeve": "overlay",
+                        },
+                        [
+                            _risk_signal(
+                                "Current profit %",
+                                round(profit_pct * 100, 6),
+                                "above",
+                                round(strategy.risk.partial_take_profit.trigger_profit_pct * 100, 6),
+                                "risk",
+                                status="matched",
+                            )
+                        ],
+                        capital_context,
+                    )
+                    events.append({
                         "date": str(date.date()),
-                        "action": "SELL_PARTIAL_TAKE_PROFIT",
-                        "shares": sold,
-                        "price": close,
-                        "gross_pnl": round(gross, 6),
-                        "net_pnl": round(net, 6),
-                        "fee": round(fee, 6),
-                        "sleeve": "overlay",
-                    },
-                    [
-                        _risk_signal(
-                            "Current profit %",
-                            round(profit_pct * 100, 6),
-                            "above",
-                            round(strategy.risk.partial_take_profit.trigger_profit_pct * 100, 6),
-                            "risk",
-                            status="matched",
-                        )
-                    ],
-                    capital_context,
-                )
-                events.append({
-                    "date": str(date.date()),
-                    "event_type": "PARTIAL_TAKE_PROFIT",
-                    "details": f"Overlay sold {sold} shares",
-                })
-                action = "partial_take_profit"
+                        "event_type": "PARTIAL_TAKE_PROFIT",
+                        "details": f"Overlay sold {sold} shares",
+                    })
+                    action = "partial_take_profit"
+                else:
+                    action = "skipped_min_trade"
 
         # === PARTIAL REDUCE / FULL EXIT ===
         if exit_signal and portfolio.position.in_position and action == "":
@@ -704,7 +767,14 @@ def run_simulation(bundle, strategy):
                 if shares >= portfolio.position.shares:
                     shares = portfolio.position.shares
 
-                if shares < portfolio.position.shares:
+                minimum_trade_skip_reason = _minimum_trade_rejection_reason(
+                    pm,
+                    shares=shares,
+                    price=close,
+                    total_equity=total_equity_before_trade,
+                )
+
+                if shares < portfolio.position.shares and minimum_trade_skip_reason is None:
                     capital_before = _overlay_capital_state(portfolio, close)
                     gross, net, fee = _sell_overlay(
                         portfolio, shares, close, strategy.transaction_cost_bps
@@ -739,6 +809,9 @@ def run_simulation(bundle, strategy):
                     action = "reduce"
 
                 else:
+                    if minimum_trade_skip_reason is not None:
+                        shares = portfolio.position.shares
+                        minimum_trade_skip_reason = None
                     capital_before = _overlay_capital_state(portfolio, close)
                     gross, net, fee = _sell_overlay(
                         portfolio, shares, close, strategy.transaction_cost_bps
@@ -849,10 +922,16 @@ def run_simulation(bundle, strategy):
 
             if shares > 0:
                 notional = shares * close
+                minimum_trade_skip_reason = _minimum_trade_rejection_reason(
+                    pm,
+                    shares=shares,
+                    price=close,
+                    total_equity=total_equity_before_trade,
+                )
                 fee = transaction_cost(notional, strategy.transaction_cost_bps)
                 total = notional + fee
 
-                if total <= portfolio.overlay_cash:
+                if total <= portfolio.overlay_cash and minimum_trade_skip_reason is None:
 
                     existing = portfolio.position.shares
                     bars_since_last_scale_in = (
@@ -909,6 +988,8 @@ def run_simulation(bundle, strategy):
                     )
 
                     action = "scale_in"
+                elif minimum_trade_skip_reason is not None:
+                    action = "skipped_min_trade"
 
         core_mv = portfolio.core_market_value(close)
         overlay_mv = portfolio.overlay_market_value(close)
@@ -962,6 +1043,7 @@ def run_simulation(bundle, strategy):
             "exit_signal": bool(exit_signal),
             "cooldown_active": bool(in_cooldown),
             "action_taken": action,
+            "minimum_trade_skip_reason": minimum_trade_skip_reason,
             **_timeline_rule_values(bundle, strategy, i),
         })
 
