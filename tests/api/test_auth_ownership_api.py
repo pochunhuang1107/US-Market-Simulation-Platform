@@ -18,6 +18,7 @@ from market_simulator.db.enums import (
 from market_simulator.db.models.run import Run
 from market_simulator.db.models.user import Plan, UserPlanSubscription
 from market_simulator.repositories.runs import create_run, mark_run_succeeded
+from market_simulator.repositories.strategies import create_strategy_version
 from market_simulator.settings import Settings
 
 
@@ -274,6 +275,39 @@ def test_production_beta_mode_rejects_unauthenticated_and_x_user_id_only(
     )
     assert production_response.status_code == 401
     assert production_response.json()["detail"] == PROVIDER_NOT_CONFIGURED_DETAIL
+
+
+def test_protected_mode_rejects_x_user_id_only_for_high_risk_user_scoped_apis(
+    real_auth_client,
+    create_user,
+    monkeypatch,
+):
+    user_id = str(uuid.uuid4())
+    create_user(user_id=user_id, email="protected-high-risk@example.com")
+    _set_auth_settings(monkeypatch, env="beta", auth_mode="required")
+
+    requests = [
+        ("get", "/runs"),
+        ("get", "/runs/dashboard"),
+        ("get", "/runs/compare?run_ids=00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002"),
+        ("post", "/runs/admin/recover-stale"),
+        ("post", "/strategy-builder/generate"),
+        ("get", "/tracked-strategies"),
+    ]
+
+    for method, path in requests:
+        if method == "post" and "strategy-builder" in path:
+            response = real_auth_client.post(
+                path,
+                headers={"X-User-Id": user_id},
+                json={"prompt": "Create a QQQ strategy"},
+            )
+        elif method == "post":
+            response = real_auth_client.post(path, headers={"X-User-Id": user_id})
+        else:
+            response = real_auth_client.get(path, headers={"X-User-Id": user_id})
+        assert response.status_code == 401
+        assert response.json()["detail"] == PROVIDER_NOT_CONFIGURED_DETAIL
 
 
 def test_current_user_rejects_invalid_x_user_id(real_auth_client, monkeypatch):
@@ -560,6 +594,33 @@ def test_strategy_apis_scope_list_and_deny_non_owner_mutations(
     assert owner_strategy.status == StrategyStatus.ARCHIVED
 
 
+def test_strategy_version_repository_refuses_cross_owner_parent_creation(
+    db_session,
+    create_user,
+    create_strategy_bundle,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="repo-version-owner@example.com")
+    create_user(user_id=other_id, email="repo-version-other@example.com")
+    strategy, _ = create_strategy_bundle(
+        user_id=owner_id,
+        strategy_name="Owner Version Strategy",
+        config_json=_strategy_v2_config(),
+    )
+
+    version = create_strategy_version(
+        db_session,
+        strategy.id,
+        _strategy_v2_config(),
+        "ignored-hash",
+        other_id,
+        change_note="should not be created",
+    )
+
+    assert version is None
+
+
 def test_run_apis_scope_lists_and_deny_non_owner_details_charts_and_actions(
     client,
     db_session,
@@ -613,6 +674,38 @@ def test_run_apis_scope_lists_and_deny_non_owner_details_charts_and_actions(
     assert client.get(f"/runs/{owner_run.id}/chart-data").status_code == 404
     assert client.post(f"/runs/{owner_pending_run.id}/enqueue").status_code == 404
     assert client.post(f"/runs/{owner_pending_run.id}/cancel").status_code == 404
+
+
+def test_create_run_cannot_pair_owned_strategy_with_foreign_version(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    owner_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    create_user(user_id=owner_id, email="run-version-owner@example.com")
+    create_user(user_id=other_id, email="run-version-other@example.com")
+    _, foreign_version = create_strategy_bundle(user_id=owner_id)
+    own_strategy, _ = create_strategy_bundle(user_id=other_id)
+
+    current_user_ctx["id"] = other_id
+    response = client.post(
+        "/runs",
+        json={
+            "strategy_id": str(own_strategy.id),
+            "strategy_version_id": str(foreign_version.id),
+            "run_type": "SIMULATION",
+            "executor_type": "SIMULATION_EXECUTOR",
+            "request_payload": {},
+            "max_attempts": 1,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Strategy version not found"
+    assert db_session.query(Run).filter(Run.user_id == other_id).count() == 0
 
 
 def test_non_owner_cannot_access_user_scoped_run_and_sweep_surfaces(
@@ -849,23 +942,23 @@ def test_compare_and_compare_chart_do_not_load_foreign_artifact_backed_results(
 
     compare_response = client.get(f"/runs/compare?run_ids={own_run.id},{foreign_run.id}")
     assert compare_response.status_code == 404
-    assert compare_response.json()["detail"] == f"Run not found: {foreign_run.id}"
+    assert compare_response.json()["detail"] == "Run not found"
 
     chart_response = client.get(f"/runs/compare/chart?run_ids={own_run.id},{foreign_run.id}")
     assert chart_response.status_code == 404
-    assert chart_response.json()["detail"] == f"Run not found: {foreign_run.id}"
+    assert chart_response.json()["detail"] == "Run not found"
 
     variant_response = client.get(
         f"/runs/compare?results=run:{own_run.id},sweep_variant:{foreign_sweep_run.id}:variant-1"
     )
     assert variant_response.status_code == 404
-    assert variant_response.json()["detail"] == f"Sweep run not found: {foreign_sweep_run.id}"
+    assert variant_response.json()["detail"] == "Sweep run not found"
 
     variant_chart_response = client.get(
         f"/runs/compare/chart?results=run:{own_run.id},sweep_variant:{foreign_sweep_run.id}:variant-1"
     )
     assert variant_chart_response.status_code == 404
-    assert variant_chart_response.json()["detail"] == f"Sweep run not found: {foreign_sweep_run.id}"
+    assert variant_chart_response.json()["detail"] == "Sweep run not found"
     assert calls == []
 
 
@@ -906,7 +999,7 @@ def test_compare_chart_fails_if_any_compared_run_is_not_owned_by_current_user(
     response = client.get(f"/runs/compare/chart?run_ids={own_run.id},{foreign_run.id}")
 
     assert response.status_code == 404
-    assert response.json()["detail"] == f"Run not found: {foreign_run.id}"
+    assert response.json()["detail"] == "Run not found"
 
 
 def test_compare_sweep_variant_fails_for_non_owner(
@@ -928,7 +1021,7 @@ def test_compare_sweep_variant_fails_for_non_owner(
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == f"Sweep run not found: {sweep_run.id}"
+    assert response.json()["detail"] == "Sweep run not found"
 
 
 def test_compare_chart_sweep_variant_fails_for_non_owner(
@@ -950,7 +1043,7 @@ def test_compare_chart_sweep_variant_fails_for_non_owner(
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == f"Sweep run not found: {sweep_run.id}"
+    assert response.json()["detail"] == "Sweep run not found"
 
 
 def test_tracking_create_cannot_track_another_users_strategy(

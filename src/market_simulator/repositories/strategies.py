@@ -39,6 +39,8 @@ def create_strategy_version(
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if strategy is None:
         return None
+    if str(strategy.user_id) != str(user_id):
+        return None
 
     persisted_config_json = dict(config_json)
     if "name" in persisted_config_json and persisted_config_json["name"] != strategy.name:
@@ -99,6 +101,18 @@ def get_strategy_version(db: Session, strategy_version_id):
     return (
         db.query(StrategyVersion)
         .filter(StrategyVersion.id == strategy_version_id)
+        .first()
+    )
+
+
+def get_strategy_version_for_user(db: Session, strategy_version_id, user_id):
+    return (
+        db.query(StrategyVersion)
+        .join(Strategy, Strategy.id == StrategyVersion.strategy_id)
+        .filter(
+            StrategyVersion.id == strategy_version_id,
+            Strategy.user_id == user_id,
+        )
         .first()
     )
 
