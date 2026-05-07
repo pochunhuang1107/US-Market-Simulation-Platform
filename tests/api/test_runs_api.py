@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from market_simulator.db.enums import RunStatus, SubscriptionStatus
+from market_simulator import settings as settings_module
+from market_simulator.db.enums import ArtifactStorageType, RunStatus, SubscriptionStatus
 from market_simulator.db.models import Plan, UserPlanSubscription
 from market_simulator.repositories.plans import count_runs_created_today
 from market_simulator.repositories.runs import (
@@ -14,6 +15,7 @@ from market_simulator.repositories.runs import (
     mark_run_succeeded,
     update_run_progress,
 )
+from market_simulator.settings import Settings
 
 def create_plan(
     db_session,
@@ -2040,6 +2042,140 @@ def test_runs_dashboard_exposes_sweep_variants_as_comparable_children(
     assert "Rank #1" in sweep_item["sweep_variants"][0]["label"]
 
 
+def test_runs_dashboard_defaults_to_s3_artifacts_in_s3_mode(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            artifact_storage_backend="S3",
+            artifact_s3_bucket="unit-test-artifacts",
+        ),
+    )
+    create_user(user_id=current_user_ctx["id"], email="storage-filter@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+
+    local_run = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="old local run",
+    )
+
+    s3_run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "new s3 run"},
+        max_attempts=3,
+    )
+    s3_run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(s3_run)
+    mark_run_succeeded(
+        db_session,
+        s3_run,
+        summary_json={"total_return_pct": 15.0},
+        artifact_dir=f"data/local_artifacts/runs/{s3_run.id}",
+        artifact_manifest_json={
+            "summary": f"s3://unit-test-artifacts/artifacts/runs/{s3_run.id}/summary.json",
+        },
+        artifact_storage_type=ArtifactStorageType.S3,
+        artifact_root_uri=f"s3://unit-test-artifacts/artifacts/runs/{s3_run.id}",
+    )
+
+    dashboard_response = client.get("/runs/dashboard")
+    list_response = client.get("/runs")
+
+    assert dashboard_response.status_code == 200
+    dashboard_body = dashboard_response.json()
+    assert dashboard_body["total"] == 1
+    assert [item["run_id"] for item in dashboard_body["items"]] == [str(s3_run.id)]
+    assert dashboard_body["items"][0]["artifact_storage_type"] == "S3"
+
+    assert list_response.status_code == 200
+    list_body = list_response.json()
+    assert list_body["total"] == 1
+    assert [item["id"] for item in list_body["items"]] == [str(s3_run.id)]
+    assert list_body["items"][0]["artifact_storage_type"] == "S3"
+
+    detail_response = client.get(f"/runs/{local_run.id}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["artifact_storage_type"] == "LOCAL"
+
+
+def test_runs_dashboard_all_storage_filter_includes_old_local_runs_in_s3_mode(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            artifact_storage_backend="S3",
+            artifact_s3_bucket="unit-test-artifacts",
+        ),
+    )
+    create_user(user_id=current_user_ctx["id"], email="storage-filter-all@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    local_run = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="old local run",
+    )
+    s3_run = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="new s3 run",
+    )
+    s3_run.artifact_storage_type = ArtifactStorageType.S3
+    s3_run.artifact_root_uri = f"s3://unit-test-artifacts/artifacts/runs/{s3_run.id}"
+    db_session.commit()
+
+    default_response = client.get("/runs/dashboard")
+    all_response = client.get("/runs/dashboard?artifact_storage_type=ALL")
+    all_list_response = client.get("/runs?artifact_storage_type=ALL")
+    local_response = client.get("/runs/dashboard?artifact_storage_type=LOCAL")
+
+    assert default_response.status_code == 200
+    assert [item["run_id"] for item in default_response.json()["items"]] == [str(s3_run.id)]
+
+    assert all_response.status_code == 200
+    assert {item["run_id"] for item in all_response.json()["items"]} == {
+        str(local_run.id),
+        str(s3_run.id),
+    }
+
+    assert all_list_response.status_code == 200
+    assert {item["id"] for item in all_list_response.json()["items"]} == {
+        str(local_run.id),
+        str(s3_run.id),
+    }
+
+    assert local_response.status_code == 200
+    assert [item["run_id"] for item in local_response.json()["items"]] == [
+        str(local_run.id)
+    ]
+
+
 def test_compare_normal_run_and_sweep_variant_with_typed_results(
     client,
     db_session,
@@ -2882,6 +3018,100 @@ def test_get_run_dashboard_returns_nested_run_strategy_metadata(
     assert body["run"]["strategy_version_id"] == str(version.id)
     assert body["run"]["strategy_name"] == strategy.name
     assert body["run"]["strategy_version_number"] == version.version_number
+
+
+def test_get_run_dashboard_returns_artifact_unavailable_for_missing_local_files(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    tmp_path,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="missing-local-artifact-dashboard@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    missing_dir = tmp_path / "deleted-local-artifacts"
+    run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "missing local dashboard artifacts"},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"total_return_pct": 12.3},
+        artifact_dir=str(missing_dir),
+        artifact_manifest_json={
+            "summary": str(missing_dir / "summary.json"),
+            "timeline": str(missing_dir / "timeline.csv"),
+            "monthly_returns": str(missing_dir / "monthly_returns.csv"),
+            "trade_log": str(missing_dir / "trade_log.csv"),
+        },
+    )
+
+    response = client.get(f"/runs/{run.id}/dashboard")
+
+    assert response.status_code == 424
+    body = response.json()
+    assert body["detail"]["code"] == "ARTIFACT_UNAVAILABLE"
+    assert body["detail"]["artifact_storage_type"] == "LOCAL"
+    assert "local artifacts" in body["detail"]["message"]
+    assert body["detail"]["error_type"] == "FileNotFoundError"
+
+
+def test_get_run_chart_data_returns_artifact_unavailable_for_bad_manifest(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="bad-artifact-manifest-chart@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "bad chart artifact manifest"},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={"total_return_pct": 12.3},
+        artifact_dir="data/local_artifacts/runs/bad-manifest",
+        artifact_manifest_json={"summary": "summary.json"},
+    )
+
+    response = client.get(f"/runs/{run.id}/chart-data")
+
+    assert response.status_code == 424
+    body = response.json()
+    assert body["detail"]["code"] == "ARTIFACT_UNAVAILABLE"
+    assert body["detail"]["artifact_storage_type"] == "LOCAL"
+    assert body["detail"]["error_type"] == "KeyError"
 
 
 def test_get_run_chart_data_preserves_trade_marker_actions(

@@ -1,15 +1,22 @@
 import type { ChangeEvent } from 'react';
 
-import type { RunSortBy, RunSortOrder, StrategyListItem } from '../../types/api';
+import type {
+  RunArtifactStorageFilter,
+  RunSortBy,
+  RunSortOrder,
+  StrategyListItem
+} from '../../types/api';
 
 interface RunFiltersProps {
   status: string;
   strategyId: string;
+  artifactStorageType: RunArtifactStorageFilter;
   sortBy: RunSortBy;
   sortOrder: RunSortOrder;
   strategies: StrategyListItem[];
   onStatusChange: (value: string) => void;
   onStrategyChange: (value: string) => void;
+  onArtifactStorageTypeChange: (value: RunArtifactStorageFilter) => void;
   onSortByChange: (value: RunSortBy) => void;
   onSortOrderChange: (value: RunSortOrder) => void;
 }
@@ -17,11 +24,13 @@ interface RunFiltersProps {
 export function RunFilters({
   status,
   strategyId,
+  artifactStorageType,
   sortBy,
   sortOrder,
   strategies,
   onStatusChange,
   onStrategyChange,
+  onArtifactStorageTypeChange,
   onSortByChange,
   onSortOrderChange
 }: RunFiltersProps) {
@@ -30,7 +39,7 @@ export function RunFilters({
       <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="app-title text-sm font-semibold">Refine results</p>
-          <p className="app-text-muted mt-1 text-sm">Filter results by status or saved strategy.</p>
+          <p className="app-text-muted mt-1 text-sm">Filter results by status, saved strategy, or artifact storage.</p>
         </div>
       </div>
 
@@ -59,7 +68,7 @@ export function RunFilters({
         <p className="app-text-muted mt-2 text-xs">Active includes pending, queued, claimed, and running results.</p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-4">
         <FilterSelect label="Strategy" value={strategyId} onChange={(event) => onStrategyChange(event.target.value)}>
           <option value="">All strategies</option>
           {strategies.map((strategy) => (
@@ -67,6 +76,17 @@ export function RunFilters({
               {strategy.name}
             </option>
           ))}
+        </FilterSelect>
+
+        <FilterSelect
+          label="Storage"
+          value={artifactStorageType}
+          onChange={(event) => onArtifactStorageTypeChange(event.target.value as RunArtifactStorageFilter)}
+        >
+          <option value="">Current storage</option>
+          <option value="ALL">All</option>
+          <option value="S3">S3</option>
+          <option value="LOCAL">Local</option>
         </FilterSelect>
 
         <FilterSelect label="Sort by" value={sortBy} onChange={(event) => onSortByChange(event.target.value as RunSortBy)}>

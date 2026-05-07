@@ -126,6 +126,38 @@ def test_readiness_reports_oidc_config_present(client, monkeypatch, tmp_path):
     assert auth["oidc_audience_configured"] is True
 
 
+def test_readiness_reports_s3_artifacts_not_ready_when_required_vars_missing(
+    client,
+    monkeypatch,
+    tmp_path,
+):
+    _set_readiness_settings(
+        monkeypatch,
+        artifacts_dir=tmp_path / "artifacts",
+        env="beta",
+        auth_mode="required",
+        oidc_jwks_url="https://issuer.example.test/.well-known/jwks.json",
+        oidc_issuer="https://issuer.example.test",
+        oidc_audience="market-simulator-api",
+        artifact_storage_backend="S3",
+        artifact_s3_bucket=None,
+        artifact_s3_prefix="",
+        artifact_s3_region="",
+    )
+
+    response = client.get("/health/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    artifact_storage = body["checks"]["artifact_storage"]
+    assert body["overall_status"] == "not_ready"
+    assert artifact_storage["status"] == "not_ready"
+    assert artifact_storage["backend"] == "S3"
+    assert artifact_storage["bucket_configured"] is False
+    assert artifact_storage["prefix_configured"] is False
+    assert artifact_storage["region_configured"] is False
+
+
 def test_readiness_warns_for_local_artifacts_in_protected_env(
     client,
     monkeypatch,

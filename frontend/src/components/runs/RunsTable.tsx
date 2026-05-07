@@ -37,8 +37,19 @@ export function RunsTable({
 
   return (
     <div className="app-table app-shadow overflow-hidden rounded-3xl border">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y app-divider text-sm">
+      <div className="overflow-x-auto xl:overflow-x-visible">
+        <table className="min-w-[980px] table-fixed divide-y app-divider text-sm xl:min-w-0 xl:w-full">
+          <colgroup>
+            <col className={compact ? 'w-[30%]' : 'w-[27%]'} />
+            <col className="w-[11%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
+            <col className="w-[8%]" />
+            {!compact ? <col className="w-[10%]" /> : null}
+            {!compact ? <col className="w-[6%]" /> : null}
+            <col className={compact ? 'w-[17%]' : 'w-[14%]'} />
+          </colgroup>
           <thead className="app-table-head">
             <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em]">
               <HeaderCell>Result</HeaderCell>
@@ -81,8 +92,8 @@ export function RunsTable({
 
                 return (
                   <tr key={run.run_id} className="app-row-hover align-top transition">
-                    <td className="px-5 py-4">
-                      <div className="max-w-[280px]">
+                    <td className="px-4 py-4">
+                      <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <Link to={`/runs/${run.run_id}`} className="font-semibold app-title transition hover:text-cyan-400">
                             {formatRunLabel(run.strategy_name, run.strategy_version_number)}
@@ -141,17 +152,17 @@ export function RunsTable({
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-4 py-4">
                       <RunStatusBadge status={run.status} />
                     </td>
-                    <td className="px-5 py-4 app-text-muted">{formatDateTime(run.created_at)}</td>
-                    <td className="px-5 py-4 app-text-muted">{formatDateTime(run.finished_at)}</td>
-                    <td className="px-5 py-4 font-medium app-title">{formatPct(run.total_return_pct)}</td>
-                    <td className="px-5 py-4 app-text-muted">{formatPct(run.cagr_pct)}</td>
-                    {!compact ? <td className="px-5 py-4 app-text-muted">{formatPct(run.max_drawdown_pct)}</td> : null}
-                    {!compact ? <td className="px-5 py-4 app-text-muted">{formatNumber(run.trade_count)}</td> : null}
-                    <td className="px-5 py-4 pr-6">
-                      <div className="w-full min-w-[150px] max-w-[220px]">
+                    <td className="px-4 py-4 app-text-muted">{formatDateTime(run.created_at)}</td>
+                    <td className="px-4 py-4 app-text-muted">{formatDateTime(run.finished_at)}</td>
+                    <td className="px-4 py-4 font-medium app-title">{formatPct(run.total_return_pct)}</td>
+                    <td className="px-4 py-4 app-text-muted">{formatPct(run.cagr_pct)}</td>
+                    {!compact ? <td className="px-4 py-4 app-text-muted">{formatPct(run.max_drawdown_pct)}</td> : null}
+                    {!compact ? <td className="px-4 py-4 app-text-muted">{formatNumber(run.trade_count)}</td> : null}
+                    <td className="px-4 py-4 pr-5">
+                      <div className="w-full min-w-[150px] max-w-[220px] xl:min-w-0">
                         <div className={`flex items-center justify-between gap-3 text-xs ${progress.textClass}`}>
                           {progress.badgeClass ? (
                             <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${progress.badgeClass}`}>
@@ -184,7 +195,7 @@ export function RunsTable({
 }
 
 function HeaderCell({ children }: { children: React.ReactNode }) {
-  return <th className="px-5 py-4">{children}</th>;
+  return <th className="px-4 py-4">{children}</th>;
 }
 
 function getProgressDisplay(run: RunDashboardListItem) {

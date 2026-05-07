@@ -109,17 +109,23 @@ def _artifact_storage_check(settings: Settings) -> CheckResult:
     backend = (settings.artifact_storage_backend or "LOCAL").strip().upper()
     if backend == "S3":
         bucket_configured = _is_configured(settings.artifact_s3_bucket)
+        prefix_configured = _is_configured(settings.artifact_s3_prefix)
+        region_configured = _is_configured(settings.artifact_s3_region)
+        ready = bucket_configured and prefix_configured and region_configured
         return {
-            "status": "ready" if bucket_configured else "not_ready",
+            "status": "ready" if ready else "not_ready",
             "message": (
                 "S3 artifact storage is configured."
-                if bucket_configured
-                else "S3 artifact storage requires ARTIFACT_S3_BUCKET."
+                if ready
+                else (
+                    "S3 artifact storage requires ARTIFACT_S3_BUCKET, "
+                    "ARTIFACT_S3_PREFIX, and ARTIFACT_S3_REGION."
+                )
             ),
             "backend": backend,
             "bucket_configured": bucket_configured,
-            "prefix_configured": _is_configured(settings.artifact_s3_prefix),
-            "region_configured": _is_configured(settings.artifact_s3_region),
+            "prefix_configured": prefix_configured,
+            "region_configured": region_configured,
         }
 
     if backend != "LOCAL":
