@@ -89,6 +89,7 @@ class RunDashboardQueryParams(BaseModel):
     executor_type: str | None = None
     run_type: str | None = None
     strategy_id: str | None = None
+    artifact_storage_type: Literal["LOCAL", "S3"] | None = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
     sort_by: Literal["created_at", "finished_at", "status"] = "created_at"
@@ -204,12 +205,15 @@ class RunResponse(BaseModel):
         self.artifacts = self.get_artifacts()
 
         if self.artifacts and artifact_url_resolver is not None:
-            self.artifact_download_urls = {
-                name: artifact_url_resolver(uri)
-                for name, uri in self.artifacts.items()
-            }
+            self.artifact_download_urls = {}
+            for name, uri in self.artifacts.items():
+                if not isinstance(uri, str):
+                    continue
+                download_url = artifact_url_resolver(uri)
+                if download_url:
+                    self.artifact_download_urls[name] = download_url
         else:
-            self.artifact_download_urls = self.artifacts
+            self.artifact_download_urls = None
 
         self.is_terminal = self.status in {
             "SUCCEEDED",

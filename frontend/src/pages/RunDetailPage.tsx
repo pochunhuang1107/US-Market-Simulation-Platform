@@ -11,7 +11,14 @@ import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
 import { TradeEventInspector } from '../components/run-detail/TradeEventInspector';
 import { StateCard } from '../components/shared/StateCard';
-import { fetchRun, fetchRunDashboard, fetchRunProgress, saveDraftRunAsStrategy } from '../lib/api';
+import {
+  artifactUnavailableMessage,
+  fetchRun,
+  fetchRunDashboard,
+  fetchRunProgress,
+  isArtifactUnavailableError,
+  saveDraftRunAsStrategy
+} from '../lib/api';
 import { suggestStrategyNameFromConfig } from '../lib/suggestStrategyName';
 import type { RunDashboardResponse, RunResponse } from '../types/api';
 
@@ -78,6 +85,7 @@ export function RunDetailPage() {
   const [data, setData] = useState<RunDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [artifactUnavailable, setArtifactUnavailable] = useState<string | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isSavingDraftStrategy, setIsSavingDraftStrategy] = useState(false);
   const [isSaveStrategyModalOpen, setIsSaveStrategyModalOpen] = useState(false);
@@ -151,6 +159,7 @@ export function RunDetailPage() {
         if (ignore) return;
         setData(null);
         setIsFinalizing(false);
+        setArtifactUnavailable(null);
         setErrorMessage(error instanceof Error ? error.message : 'Failed to load result progress');
         setLoading(false);
       }
@@ -180,14 +189,25 @@ export function RunDetailPage() {
 
             setData(dashboardResponse);
             setIsFinalizing(false);
+            setArtifactUnavailable(null);
             setErrorMessage(null);
             setLoading(false);
             return;
-          } catch {
+          } catch (error) {
             if (ignore) return;
+
+            if (isArtifactUnavailableError(error)) {
+              setData(null);
+              setIsFinalizing(false);
+              setArtifactUnavailable(artifactUnavailableMessage(error));
+              setErrorMessage(null);
+              setLoading(false);
+              return;
+            }
 
             setData(null);
             setIsFinalizing(true);
+            setArtifactUnavailable(null);
             setErrorMessage(null);
             setLoading(false);
 
@@ -202,6 +222,7 @@ export function RunDetailPage() {
         if (UNSUCCESSFUL_RUN_STATUSES.has(runResponse.status)) {
           setData(null);
           setIsFinalizing(false);
+          setArtifactUnavailable(null);
           setErrorMessage(runResponse.error_message ?? `Run ${runResponse.status.toLowerCase()}.`);
           setLoading(false);
           return;
@@ -210,6 +231,7 @@ export function RunDetailPage() {
         if (ACTIVE_RUN_STATUSES.has(runResponse.status)) {
           setData(null);
           setIsFinalizing(false);
+          setArtifactUnavailable(null);
           setErrorMessage(null);
           setLoading(false);
 
@@ -221,12 +243,14 @@ export function RunDetailPage() {
 
         setData(null);
         setIsFinalizing(false);
+        setArtifactUnavailable(null);
         setErrorMessage(`Unsupported run status: ${runResponse.status}`);
         setLoading(false);
       } catch (error) {
         if (ignore) return;
         setData(null);
         setIsFinalizing(false);
+        setArtifactUnavailable(null);
         setErrorMessage(error instanceof Error ? error.message : 'Failed to load result');
         setLoading(false);
       }
@@ -236,6 +260,7 @@ export function RunDetailPage() {
     setErrorMessage(null);
     setRun(null);
     setData(null);
+    setArtifactUnavailable(null);
     setIsFinalizing(false);
     void load();
 
@@ -322,6 +347,22 @@ export function RunDetailPage() {
           description={run.error_message ?? 'This result did not complete successfully.'}
           tone="error"
         />
+        <RunMetaPanel run={run} />
+      </div>
+    );
+  }
+
+  if (run && artifactUnavailable) {
+    return (
+      <div className="space-y-6">
+        {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
+        <RunHeader run={run} />
+        <StateCard
+          title="Result artifacts are unavailable"
+          description={artifactUnavailable}
+          tone="error"
+        />
+        <RunInsightBreakdown run={run} />
         <RunMetaPanel run={run} />
       </div>
     );

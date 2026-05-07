@@ -110,6 +110,7 @@ Use a private market-data bucket in local `.env` or protected environment config
 
 - Local development: `ARTIFACT_STORAGE_BACKEND=LOCAL` and `ARTIFACTS_DIR=./data/local_artifacts`.
 - Beta/production: `ARTIFACT_STORAGE_BACKEND=S3` with `ARTIFACT_S3_BUCKET`, `ARTIFACT_S3_PREFIX`, `ARTIFACT_S3_REGION`, and `ARTIFACT_PRESIGN_TTL_SECONDS` configured.
+- Changing `ARTIFACT_STORAGE_BACKEND` affects new runs only. Existing runs continue to reference the artifact storage recorded when they executed. In S3 mode, the Results list defaults to S3-backed runs; use the storage filter to include old local runs when needed.
 - Before beta sign-off, run at least one parameter sweep with S3 artifact storage enabled and verify the sweep result page, variant detail chart data, comparison between selected variants, and promote/edit-as-version flow. Sweep summaries and result rows should reference S3 artifact directories for variants, not local worker paths.
 
 `SUPPORTED_DATA_END_DATE` is optional. When omitted, the app defaults it to today's date.

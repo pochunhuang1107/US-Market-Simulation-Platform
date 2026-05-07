@@ -48,6 +48,31 @@ export function isUnauthorizedError(error: unknown): error is ApiRequestError {
   return error instanceof ApiRequestError && error.status === 401;
 }
 
+export function isArtifactUnavailableError(error: unknown): error is ApiRequestError {
+  if (!(error instanceof ApiRequestError) || error.status !== 424) {
+    return false;
+  }
+
+  const detail = (error.body as ErrorBody | null)?.detail;
+  return (
+    Boolean(detail) &&
+    typeof detail === 'object' &&
+    (detail as { code?: unknown }).code === 'ARTIFACT_UNAVAILABLE'
+  );
+}
+
+export function artifactUnavailableMessage(error: ApiRequestError): string {
+  const detail = (error.body as ErrorBody | null)?.detail;
+  if (detail && typeof detail === 'object') {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) {
+      return message;
+    }
+  }
+
+  return 'Result artifacts are unavailable.';
+}
+
 function formatErrorBody(body: ErrorBody): string {
   if (typeof body.detail === 'string') return body.detail;
   if (typeof body.message === 'string') return body.message;

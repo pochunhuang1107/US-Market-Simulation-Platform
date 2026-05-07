@@ -39,6 +39,35 @@ def test_run_detail_polls_active_runs_more_responsively():
     assert "`/api/runs/${runId}/progress`" in api_source
 
 
+def test_run_detail_stops_polling_when_succeeded_artifacts_are_unavailable():
+    source = (ROOT / "frontend/src/pages/RunDetailPage.tsx").read_text()
+    api_source = (ROOT / "frontend/src/lib/api.ts").read_text()
+
+    assert "isArtifactUnavailableError" in source
+    assert "artifactUnavailableMessage" in source
+    assert "setArtifactUnavailable(artifactUnavailableMessage(error));" in source
+    assert "setIsFinalizing(false);" in source
+    assert "Result artifacts are unavailable" in source
+    assert "RunMetaPanel run={run}" in source
+    assert "RunInsightBreakdown run={run}" in source
+    assert "ARTIFACT_UNAVAILABLE" in api_source
+    assert "error.status !== 424" in api_source
+
+
+def test_results_page_exposes_compact_artifact_storage_filter():
+    page_source = (ROOT / "frontend/src/pages/RunsPage.tsx").read_text()
+    filters_source = (ROOT / "frontend/src/components/runs/RunFilters.tsx").read_text()
+    types_source = (ROOT / "frontend/src/types/api.ts").read_text()
+
+    assert "artifactStorageType || undefined" in page_source
+    assert "artifact_storage_type?: RunArtifactStorageFilter;" in types_source
+    assert "Storage" in filters_source
+    assert '<option value="">Current storage</option>' in filters_source
+    assert '<option value="ALL">All</option>' in filters_source
+    assert '<option value="S3">S3</option>' in filters_source
+    assert '<option value="LOCAL">Local</option>' in filters_source
+
+
 def test_navigation_shortens_results_label_while_results_page_uses_research_results_language():
     nav_source = (ROOT / "frontend/src/components/layout/AppShell.tsx").read_text()
     page_source = (ROOT / "frontend/src/pages/RunsPage.tsx").read_text()

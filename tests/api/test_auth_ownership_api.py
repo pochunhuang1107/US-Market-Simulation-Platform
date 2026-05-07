@@ -458,6 +458,39 @@ def test_owner_authorized_run_endpoints_return_artifact_manifest_and_download_ur
     assert generated_urls == [manifest["summary"], manifest["timeline"]] * 2
 
 
+def test_local_artifact_paths_are_not_exposed_as_download_urls(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+):
+    create_user(user_id=current_user_ctx["id"], email="artifact-local-owner@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    manifest = {
+        "summary": "data/local_artifacts/runs/local-owner/summary.json",
+        "timeline": "data/local_artifacts/runs/local-owner/timeline.csv",
+    }
+    run = _succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        version_id=str(version.id),
+        artifact_manifest_json=manifest,
+        artifact_storage_type=ArtifactStorageType.LOCAL,
+        artifact_root_uri="data/local_artifacts/runs/local-owner",
+    )
+
+    response = client.get(f"/runs/{run.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["artifact_manifest_json"] == manifest
+    assert body["artifact_download_urls"] == {}
+    assert body["artifact_summary"]["download_urls"] == {}
+    assert "data/local_artifacts" not in str(body["artifact_download_urls"])
+
+
 def test_non_owner_cannot_get_artifact_manifest_or_generate_download_urls(
     client,
     db_session,

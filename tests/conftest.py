@@ -16,9 +16,11 @@ from market_simulator.api.deps import get_current_user, get_db
 from market_simulator.api.main import app
 from market_simulator.db.base import Base
 import market_simulator.db.models  # noqa: F401
+from market_simulator import settings as settings_module
 from market_simulator.db.enums import StrategyType, SubscriptionStatus, UserStatus
 from market_simulator.db.models.strategy import Strategy, StrategyVersion
 from market_simulator.db.models.user import Plan, User, UserPlanSubscription
+from market_simulator.settings import Settings
 
 
 TEST_DATABASE_URL = os.getenv(
@@ -53,6 +55,16 @@ def clean_database() -> Generator[None, None, None]:
     with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             conn.execute(text(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE'))
+    yield
+
+
+@pytest.fixture(autouse=True)
+def reset_app_settings(monkeypatch) -> Generator[None, None, None]:
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(env="test", auth_mode="dev", artifact_storage_backend="LOCAL"),
+    )
     yield
 
 

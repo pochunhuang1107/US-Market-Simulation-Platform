@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 from market_simulator.db.enums import ArtifactStorageType, RunStatus
 from market_simulator.db.models.run import Run
 from market_simulator.db.models.strategy import Strategy, StrategyVersion
+from market_simulator.settings import get_settings
 
 
 TERMINAL_RUN_STATUSES = {
@@ -40,6 +41,14 @@ def create_run(
     max_attempts: int = 3,
     parent_run_id=None,
 ):
+    artifact_storage_backend = (
+        get_settings().artifact_storage_backend or ArtifactStorageType.LOCAL
+    ).strip().upper()
+    artifact_storage_type = (
+        ArtifactStorageType.S3
+        if artifact_storage_backend == ArtifactStorageType.S3.value
+        else ArtifactStorageType.LOCAL
+    )
     run = Run(
         id=uuid.uuid4(),
         user_id=user_id,
@@ -54,7 +63,7 @@ def create_run(
         max_attempts=max_attempts,
         progress_pct=0,
         progress_message="Run created",
-        artifact_storage_type=ArtifactStorageType.LOCAL,
+        artifact_storage_type=artifact_storage_type,
     )
     db.add(run)
     db.commit()
@@ -164,6 +173,7 @@ def _apply_run_filters(
     executor_type: str | None = None,
     run_type: str | None = None,
     strategy_id: str | None = None,
+    artifact_storage_type: str | None = None,
     include_derived_results: bool = True,
 ):
     query = query.filter(Run.user_id == user_id)
@@ -187,6 +197,9 @@ def _apply_run_filters(
     if strategy_id is not None:
         query = query.filter(Run.strategy_id == strategy_id)
 
+    if artifact_storage_type is not None:
+        query = query.filter(Run.artifact_storage_type == artifact_storage_type)
+
     return query
 
 
@@ -198,6 +211,7 @@ def list_runs(
     executor_type: str | None = None,
     run_type: str | None = None,
     strategy_id: str | None = None,
+    artifact_storage_type: str | None = None,
     include_derived_results: bool = True,
     offset: int = 0,
     limit: int = 20,
@@ -215,6 +229,7 @@ def list_runs(
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        artifact_storage_type=artifact_storage_type,
         include_derived_results=include_derived_results,
     )
 
@@ -240,6 +255,7 @@ def count_runs(
     executor_type: str | None = None,
     run_type: str | None = None,
     strategy_id: str | None = None,
+    artifact_storage_type: str | None = None,
     include_derived_results: bool = True,
 ):
     query = db.query(func.count(Run.id))
@@ -250,6 +266,7 @@ def count_runs(
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        artifact_storage_type=artifact_storage_type,
         include_derived_results=include_derived_results,
     )
     return query.scalar() or 0

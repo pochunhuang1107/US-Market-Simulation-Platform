@@ -22,6 +22,7 @@ class FakeS3Client:
     def __init__(self):
         self.uploads: list[tuple[str, str, str]] = []
         self.objects: dict[tuple[str, str], bytes] = {}
+        self.presign_calls: list[tuple[str, dict, int]] = []
 
     def upload_file(self, filename: str, bucket: str, key: str) -> None:
         self.uploads.append((filename, bucket, key))
@@ -32,6 +33,10 @@ class FakeS3Client:
 
     def get_object(self, Bucket: str, Key: str):
         return {"Body": FakeBody(self.objects[(Bucket, Key)])}
+
+    def generate_presigned_url(self, operation: str, Params: dict, ExpiresIn: int):
+        self.presign_calls.append((operation, Params, ExpiresIn))
+        return f"https://signed.example.test/{Params['Bucket']}/{Params['Key']}"
 
 
 def _write_variant_artifacts(variant_dir: Path) -> None:
@@ -60,6 +65,124 @@ def _write_variant_artifacts(variant_dir: Path) -> None:
         encoding="utf-8",
     )
     (variant_dir / "report_bundle.json").write_text("{}", encoding="utf-8")
+
+
+def _write_normal_artifacts(run_dir: Path) -> None:
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.json").write_text(
+        json.dumps({"total_return_pct": 10.0}),
+        encoding="utf-8",
+    )
+    (run_dir / "sleeve_summary.json").write_text("{}", encoding="utf-8")
+    (run_dir / "yearly_report.csv").write_text(
+        "year,end_equity\n2024,110\n",
+        encoding="utf-8",
+    )
+    (run_dir / "trade_log.csv").write_text("date,action\n2024-01-02,BUY\n", encoding="utf-8")
+    (run_dir / "trade_signal_snapshots.json").write_text(
+        '[{"event_index":0,"signals":[]}]\n',
+        encoding="utf-8",
+    )
+    (run_dir / "timeline.csv").write_text(
+        "date,strategy_equity,benchmark_equity\n2024-01-01,100,100\n2024-01-02,110,105\n",
+        encoding="utf-8",
+    )
+    (run_dir / "events.csv").write_text("date,event\n2024-01-02,buy\n", encoding="utf-8")
+    (run_dir / "monthly_returns.csv").write_text(
+        "month,strategy_return_pct\n2024-01,10\n",
+        encoding="utf-8",
+    )
+    (run_dir / "report_bundle.json").write_text(
+        json.dumps({"summary": "bundle"}),
+        encoding="utf-8",
+    )
+
+
+def test_s3_finalize_simulation_artifacts_uploads_expected_manifest(tmp_path) -> None:
+    run_id = "run-normal-123"
+    bucket = "unit-test-bucket"
+    run_dir = tmp_path / "runs" / run_id
+    _write_normal_artifacts(run_dir)
+
+    s3 = FakeS3Client()
+    store = S3ArtifactStore(
+        bucket=bucket,
+        prefix="artifacts",
+        region="us-west-2",
+        local_base_dir=str(tmp_path),
+        s3_client=s3,
+    )
+
+    result = store.finalize_simulation_artifacts(run_id)
+
+    assert result.storage_type == "S3"
+    assert result.artifact_root_uri == f"s3://{bucket}/artifacts/runs/{run_id}"
+    assert result.manifest_json["summary"] == (
+        f"s3://{bucket}/artifacts/runs/{run_id}/summary.json"
+    )
+    assert result.manifest_json["timeline"] == (
+        f"s3://{bucket}/artifacts/runs/{run_id}/timeline.csv"
+    )
+    assert result.manifest_json["trade_log"] == (
+        f"s3://{bucket}/artifacts/runs/{run_id}/trade_log.csv"
+    )
+    assert result.manifest_json["report_bundle"] == (
+        f"s3://{bucket}/artifacts/runs/{run_id}/report_bundle.json"
+    )
+    assert result.manifest_json["trade_signal_snapshots"] == (
+        f"s3://{bucket}/artifacts/runs/{run_id}/trade_signal_snapshots.json"
+    )
+
+    uploaded_keys = {key for _, _, key in s3.uploads}
+    assert {
+        f"artifacts/runs/{run_id}/summary.json",
+        f"artifacts/runs/{run_id}/timeline.csv",
+        f"artifacts/runs/{run_id}/trade_log.csv",
+        f"artifacts/runs/{run_id}/report_bundle.json",
+        f"artifacts/runs/{run_id}/trade_signal_snapshots.json",
+        f"artifacts/runs/{run_id}/monthly_returns.csv",
+    }.issubset(uploaded_keys)
+    assert s3.body_text(bucket, f"artifacts/runs/{run_id}/summary.json") == (
+        '{"total_return_pct": 10.0}'
+    )
+
+    chart_service = object.__new__(RunChartService)
+    chart_service.s3 = s3
+    chart_data = chart_service.load_chart_data(result.manifest_json)
+    assert chart_data["equity_curve"][-1]["strategy_equity"] == 110.0
+    assert chart_data["monthly_returns"][0]["return_pct"] == 10.0
+    assert chart_data["trade_markers"][0]["side"] == "BUY"
+
+
+def test_s3_download_urls_only_presign_s3_artifact_uris(tmp_path) -> None:
+    s3 = FakeS3Client()
+    store = S3ArtifactStore(
+        bucket="unit-test-bucket",
+        prefix="artifacts",
+        region="us-west-2",
+        local_base_dir=str(tmp_path),
+        s3_client=s3,
+    )
+
+    assert store.generate_download_url("/tmp/local-artifacts/summary.json") is None
+    signed_url = store.generate_download_url(
+        "s3://unit-test-bucket/artifacts/runs/run-123/summary.json"
+    )
+
+    assert signed_url == (
+        "https://signed.example.test/unit-test-bucket/artifacts/runs/run-123/"
+        "summary.json"
+    )
+    assert s3.presign_calls == [
+        (
+            "get_object",
+            {
+                "Bucket": "unit-test-bucket",
+                "Key": "artifacts/runs/run-123/summary.json",
+            },
+            3600,
+        )
+    ]
 
 
 def test_s3_finalize_sweep_artifacts_uploads_root_and_variant_files_and_rewrites_rows(

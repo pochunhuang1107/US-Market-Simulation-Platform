@@ -7,7 +7,13 @@ import { RunsTable } from '../components/runs/RunsTable';
 import { PageHeader } from '../components/shared/PageHeader';
 import { StateCard } from '../components/shared/StateCard';
 import { fetchRunsDashboard, fetchStrategies } from '../lib/api';
-import type { RunDashboardListResponse, RunSortBy, RunSortOrder, StrategyListItem } from '../types/api';
+import type {
+  RunArtifactStorageFilter,
+  RunDashboardListResponse,
+  RunSortBy,
+  RunSortOrder,
+  StrategyListItem
+} from '../types/api';
 
 const DEFAULT_PAGE_SIZE = 20;
 const ACTIVE_RUN_STATUSES = ['PENDING', 'QUEUED', 'LEASED', 'RUNNING'];
@@ -22,6 +28,7 @@ export function RunsPage() {
 
   const [status, setStatus] = useState('');
   const [strategyId, setStrategyId] = useState('');
+  const [artifactStorageType, setArtifactStorageType] = useState<RunArtifactStorageFilter>('');
   const [sortBy, setSortBy] = useState<RunSortBy>('created_at');
   const [sortOrder, setSortOrder] = useState<RunSortOrder>('desc');
   const [page, setPage] = useState(1);
@@ -51,6 +58,7 @@ export function RunsPage() {
         const response = await fetchRunsDashboard({
           status: getStatusQuery(status),
           strategy_id: strategyId || undefined,
+          artifact_storage_type: artifactStorageType || undefined,
           page,
           page_size: DEFAULT_PAGE_SIZE,
           sort_by: sortBy,
@@ -76,7 +84,7 @@ export function RunsPage() {
     return () => {
       ignore = true;
     };
-  }, [status, strategyId, page, sortBy, sortOrder]);
+  }, [status, strategyId, artifactStorageType, page, sortBy, sortOrder]);
 
   return (
     <div className="space-y-6">
@@ -106,6 +114,7 @@ export function RunsPage() {
       <RunFilters
         status={status}
         strategyId={strategyId}
+        artifactStorageType={artifactStorageType}
         sortBy={sortBy}
         sortOrder={sortOrder}
         strategies={strategies}
@@ -115,6 +124,10 @@ export function RunsPage() {
         }}
         onStrategyChange={(value) => {
           setStrategyId(value);
+          setPage(1);
+        }}
+        onArtifactStorageTypeChange={(value) => {
+          setArtifactStorageType(value);
           setPage(1);
         }}
         onSortByChange={(value) => {

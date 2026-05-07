@@ -28,7 +28,7 @@ class ArtifactStore(Protocol):
     def prepare_run_directory(self, run_id: UUID | str) -> Path: ...
     def finalize_simulation_artifacts(self, run_id: UUID | str) -> ArtifactWriteResult: ...
     def finalize_sweep_artifacts(self, run_id: UUID | str) -> ArtifactWriteResult: ...
-    def generate_download_url(self, artifact_uri: str) -> str: ...
+    def generate_download_url(self, artifact_uri: str) -> str | None: ...
 
 
 class LocalArtifactStore:
@@ -74,8 +74,8 @@ class LocalArtifactStore:
             manifest_json=manifest,
         )
 
-    def generate_download_url(self, artifact_uri: str) -> str:
-        return artifact_uri
+    def generate_download_url(self, artifact_uri: str) -> str | None:
+        return None
 
 
 class S3ArtifactStore:
@@ -107,7 +107,17 @@ class S3ArtifactStore:
             )
 
         if not self.bucket:
-            raise ValueError("ARTIFACT_S3_BUCKET is required when using S3 artifact storage")
+            raise ValueError(
+                "ARTIFACT_S3_BUCKET is required when using S3 artifact storage"
+            )
+        if not self.prefix:
+            raise ValueError(
+                "ARTIFACT_S3_PREFIX is required when using S3 artifact storage"
+            )
+        if not self.region:
+            raise ValueError(
+                "ARTIFACT_S3_REGION is required when using S3 artifact storage"
+            )
 
     def prepare_run_directory(self, run_id: UUID | str) -> Path:
         run_dir = self.local_base_dir / "runs" / str(run_id)
@@ -350,13 +360,15 @@ class S3ArtifactStore:
 
         return None
 
-    def generate_download_url(self, artifact_uri: str) -> str:
+    def generate_download_url(self, artifact_uri: str) -> str | None:
         parsed = urlparse(artifact_uri)
         if parsed.scheme != "s3":
-            return artifact_uri
+            return None
 
         bucket = parsed.netloc
         key = parsed.path.lstrip("/")
+        if not bucket or not key:
+            return None
 
         return self.s3.generate_presigned_url(
             "get_object",
@@ -367,7 +379,7 @@ class S3ArtifactStore:
 
 def build_artifact_store() -> ArtifactStore:
     settings = get_settings()
-    backend = (settings.artifact_storage_backend or "LOCAL").upper()
+    backend = (settings.artifact_storage_backend or "LOCAL").strip().upper()
 
     if backend == "S3":
         return S3ArtifactStore()

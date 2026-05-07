@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy.orm import Session
 import hashlib
 import json
@@ -77,6 +78,7 @@ from market_simulator.services.entitlements import (
     enforce_strategy_history_access,
     enforce_strategy_create_access,
 )
+from market_simulator.settings import get_settings
 
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -87,6 +89,40 @@ artifact_store = build_artifact_store()
 chart_service = RunChartService()
 comparison_service = RunComparisonService()
 trade_event_inspector = TradeEventInspectorService()
+
+
+ARTIFACT_UNAVAILABLE_STATUS_CODE = 424
+ARTIFACT_UNAVAILABLE_CODE = "ARTIFACT_UNAVAILABLE"
+ARTIFACT_UNAVAILABLE_EXCEPTIONS = (
+    KeyError,
+    FileNotFoundError,
+    OSError,
+    UnicodeDecodeError,
+    json.JSONDecodeError,
+    BotoCoreError,
+    ClientError,
+)
+
+
+def _artifact_unavailable_exception(run, exc: Exception) -> HTTPException:
+    storage_type = str(getattr(run, "artifact_storage_type", "") or "")
+    if storage_type.upper() == "LOCAL":
+        message = (
+            "Result artifacts are unavailable. This run references local artifacts "
+            "that are no longer present."
+        )
+    else:
+        message = "Result artifacts are unavailable. The recorded artifacts could not be read."
+
+    return HTTPException(
+        status_code=ARTIFACT_UNAVAILABLE_STATUS_CODE,
+        detail={
+            "code": ARTIFACT_UNAVAILABLE_CODE,
+            "message": message,
+            "artifact_storage_type": storage_type,
+            "error_type": exc.__class__.__name__,
+        },
+    )
 
 
 def _build_run_response(run) -> RunResponse:
@@ -407,6 +443,30 @@ def _minimum_compare_error(*, run_ids: str | None, results: str | None) -> str:
     return "At least two results are required"
 
 
+def _resolved_artifact_storage_filter(value: str | None) -> str | None:
+    if value is None or not str(value).strip():
+        configured_backend = (
+            get_settings().artifact_storage_backend or "LOCAL"
+        ).strip().upper()
+        return "S3" if configured_backend == "S3" else None
+
+    normalized = str(value).strip().upper()
+    if normalized == "ALL":
+        return None
+    if normalized == "CURRENT":
+        configured_backend = (
+            get_settings().artifact_storage_backend or "LOCAL"
+        ).strip().upper()
+        return configured_backend if configured_backend in {"LOCAL", "S3"} else None
+    if normalized in {"LOCAL", "S3"}:
+        return normalized
+
+    raise HTTPException(
+        status_code=400,
+        detail="artifact_storage_type must be ALL, CURRENT, LOCAL, or S3.",
+    )
+
+
 def _resolve_comparable_results(db: Session, *, user_id: str, result_refs: list[str]) -> list:
     resolved = []
 
@@ -588,6 +648,7 @@ def list_runs_api(
     executor_type: str | None = Query(default=None),
     run_type: str | None = Query(default=None),
     strategy_id: str | None = Query(default=None),
+    artifact_storage_type: str | None = Query(default=None),
     include_derived_results: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -595,6 +656,9 @@ def list_runs_api(
     user=Depends(get_current_user),
 ):
     offset = (page - 1) * page_size
+    resolved_artifact_storage_type = _resolved_artifact_storage_filter(
+        artifact_storage_type
+    )
 
     total = count_runs(
         db,
@@ -603,6 +667,7 @@ def list_runs_api(
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        artifact_storage_type=resolved_artifact_storage_type,
         include_derived_results=include_derived_results,
     )
 
@@ -613,6 +678,7 @@ def list_runs_api(
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        artifact_storage_type=resolved_artifact_storage_type,
         include_derived_results=include_derived_results,
         offset=offset,
         limit=page_size,
@@ -633,6 +699,7 @@ def list_runs_dashboard_api(
     executor_type: str | None = Query(default=None),
     run_type: str | None = Query(default=None),
     strategy_id: str | None = Query(default=None),
+    artifact_storage_type: str | None = Query(default=None),
     include_derived_results: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -641,12 +708,16 @@ def list_runs_dashboard_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    resolved_artifact_storage_type = _resolved_artifact_storage_filter(
+        artifact_storage_type
+    )
 
     params = RunDashboardQueryParams(
         status=status or [],
         executor_type=executor_type,
         run_type=run_type,
         strategy_id=strategy_id,
+        artifact_storage_type=resolved_artifact_storage_type,
         page=page,
         page_size=page_size,
         sort_by=sort_by,
@@ -660,6 +731,7 @@ def list_runs_dashboard_api(
         executor_type=params.executor_type,
         run_type=params.run_type,
         strategy_id=params.strategy_id,
+        artifact_storage_type=params.artifact_storage_type,
         include_derived_results=include_derived_results,
     )
 
@@ -670,6 +742,7 @@ def list_runs_dashboard_api(
         executor_type=params.executor_type,
         run_type=params.run_type,
         strategy_id=params.strategy_id,
+        artifact_storage_type=params.artifact_storage_type,
         include_derived_results=include_derived_results,
         offset=(params.page - 1) * params.page_size,
         limit=params.page_size,
@@ -1190,8 +1263,8 @@ def get_run_dashboard_api(
             run=run_response,
             chart_data=chart_response,
         )
-    except KeyError as exc:
-        raise HTTPException(status_code=500, detail=f"Missing required artifact: {exc}") from exc
+    except ARTIFACT_UNAVAILABLE_EXCEPTIONS as exc:
+        raise _artifact_unavailable_exception(run, exc) from exc
 
 
 @router.get("/{run_id}/chart-data", response_model=RunChartDataResponse)
@@ -1221,8 +1294,8 @@ def get_run_chart_data_api(
             sleeve_weight_curve=chart_data["sleeve_weight_curve"],
             trade_markers=chart_data["trade_markers"],
         )
-    except KeyError as exc:
-        raise HTTPException(status_code=500, detail=f"Missing required artifact: {exc}") from exc
+    except ARTIFACT_UNAVAILABLE_EXCEPTIONS as exc:
+        raise _artifact_unavailable_exception(run, exc) from exc
 
 
 @router.get("/{run_id}/trade-events", response_model=TradeEventContextResponse)
@@ -1246,8 +1319,8 @@ def get_run_trade_events_api(
             run.artifact_manifest_json,
             config=_run_strategy_config(run),
         )
-    except KeyError as exc:
-        raise HTTPException(status_code=500, detail=f"Missing required artifact: {exc}") from exc
+    except ARTIFACT_UNAVAILABLE_EXCEPTIONS as exc:
+        raise _artifact_unavailable_exception(run, exc) from exc
 
 
 def _run_action_http_exception(exc: ValueError) -> HTTPException:
@@ -1323,5 +1396,5 @@ def get_run_sleeve_chart(
             "run_id": str(run.id),
             "sleeve_equity_curve": chart_data["sleeve_equity_curve"],
         }
-    except KeyError as exc:
-        raise HTTPException(status_code=500, detail=f"Missing required artifact: {exc}") from exc
+    except ARTIFACT_UNAVAILABLE_EXCEPTIONS as exc:
+        raise _artifact_unavailable_exception(run, exc) from exc

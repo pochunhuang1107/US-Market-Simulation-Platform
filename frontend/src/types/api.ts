@@ -75,12 +75,14 @@ export interface RunDashboardListResponse {
 
 export type RunSortBy = 'created_at' | 'finished_at' | 'status';
 export type RunSortOrder = 'asc' | 'desc';
+export type RunArtifactStorageFilter = '' | 'ALL' | 'CURRENT' | 'S3' | 'LOCAL';
 
 export interface RunsDashboardQuery {
   status?: string | string[];
   executor_type?: string;
   run_type?: string;
   strategy_id?: string;
+  artifact_storage_type?: RunArtifactStorageFilter;
   include_derived_results?: boolean;
   page?: number;
   page_size?: number;
