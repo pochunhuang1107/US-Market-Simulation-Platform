@@ -14,6 +14,9 @@ import { RunStatusBadge } from '../runs/RunStatusBadge';
 
 interface RunHeaderProps {
   run: RunResponse;
+  canSaveDraftStrategy?: boolean;
+  isSavingDraftStrategy?: boolean;
+  onSaveDraftStrategy?: () => void;
 }
 
 export function getDraftConfig(run: RunResponse): Record<string, unknown> | null {
@@ -99,8 +102,14 @@ function getCoreOverlayLabel(run: RunResponse): string | null {
   return null;
 }
 
-export function RunHeader({ run }: RunHeaderProps) {
+export function RunHeader({
+  run,
+  canSaveDraftStrategy = false,
+  isSavingDraftStrategy = false,
+  onSaveDraftStrategy
+}: RunHeaderProps) {
   const isSavedSweepVariant = isSavedSweepVariantResult(run);
+  const modifyBuilderState = getModifyBuilderState(run);
   const title = run.strategy_id
     ? formatRunLabel(run.strategy_name, run.strategy_version_number)
     : 'Unsaved draft run';
@@ -155,8 +164,36 @@ export function RunHeader({ run }: RunHeaderProps) {
 
           <div className="flex flex-wrap items-center gap-3">
             <Link to="/runs" className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition">
-              Back to results
+              Back to Results
             </Link>
+
+            <Link
+              to={`/compare?runIds=${run.id}`}
+              className="app-button-secondary rounded-xl px-4 py-2 text-sm font-medium transition"
+            >
+              Compare this result
+            </Link>
+
+            {canSaveDraftStrategy && onSaveDraftStrategy ? (
+              <button
+                type="button"
+                onClick={onSaveDraftStrategy}
+                disabled={isSavingDraftStrategy}
+                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSavingDraftStrategy ? 'Saving...' : 'Save strategy'}
+              </button>
+            ) : null}
+
+            {modifyBuilderState ? (
+              <Link
+                to="/workspace"
+                state={modifyBuilderState}
+                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+              >
+                Modify in Workspace
+              </Link>
+            ) : null}
 
             {!isSavedSweepVariant && run.parent_run_id ? (
               <Link

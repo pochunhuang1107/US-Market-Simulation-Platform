@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 
 import { RunCharts } from '../components/run-detail/RunCharts';
-import { NextResearchStepsPanel } from '../components/run-detail/NextResearchStepsPanel';
 import { ParameterSweepResults } from '../components/run-detail/ParameterSweepResults';
-import { RunHeader } from '../components/run-detail/RunHeader';
+import { getDraftConfig, RunHeader } from '../components/run-detail/RunHeader';
 import { RunInsightBreakdown } from '../components/run-detail/RunInsightBreakdown';
 import { RunInsightHero } from '../components/run-detail/RunInsightHero';
 import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
@@ -274,6 +273,9 @@ export function RunDetailPage() {
 
   const suggestedStrategyName = suggestStrategyNameFromConfig(run?.request_payload?.draft_config);
   const isParameterSweep = data?.run.run_type === 'PARAMETER_SWEEP';
+  const canSaveDraftStrategy = Boolean(
+    data?.run.status === 'SUCCEEDED' && !data.run.strategy_id && getDraftConfig(data.run)
+  );
 
   async function handleSaveDraftStrategy(payload: { name: string; description: string }) {
     if (!runId || !run) return;
@@ -387,7 +389,15 @@ export function RunDetailPage() {
         {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
 
         {run ? (
-          <RunHeader run={run} />
+          <RunHeader
+            run={run}
+            canSaveDraftStrategy={canSaveDraftStrategy}
+            isSavingDraftStrategy={isSavingDraftStrategy}
+            onSaveDraftStrategy={() => {
+              setSaveStrategyError(null);
+              setIsSaveStrategyModalOpen(true);
+            }}
+          />
         ) : null}
 
         {isParameterSweep ? (
@@ -395,16 +405,6 @@ export function RunDetailPage() {
         ) : (
           <>
             <RunInsightHero run={data.run} chartData={data.chart_data} />
-
-            <NextResearchStepsPanel
-              run={data.run}
-              canSaveDraftStrategy={data.run.status === 'SUCCEEDED' && !data.run.strategy_id}
-              isSavingDraftStrategy={isSavingDraftStrategy}
-              onSaveDraftStrategy={() => {
-                setSaveStrategyError(null);
-                setIsSaveStrategyModalOpen(true);
-              }}
-            />
 
             <RunInsightBreakdown run={data.run} />
 

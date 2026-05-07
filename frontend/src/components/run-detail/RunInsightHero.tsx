@@ -11,7 +11,6 @@ import {
 
 import {
   formatCurrency,
-  formatDecimal,
   formatPct,
   formatShortDate
 } from '../../lib/formatters';
@@ -108,66 +107,6 @@ function MetricPill({ metric }: { metric: HeroMetric }) {
   );
 }
 
-function buildVerdict({
-  totalReturnPct,
-  benchmarkReturnPct,
-  alphaPct,
-  maxDrawdownPct,
-  sharpeRatio,
-  tradeCount
-}: {
-  totalReturnPct: number | null;
-  benchmarkReturnPct: number | null;
-  alphaPct: number | null;
-  maxDrawdownPct: number | null;
-  sharpeRatio: number | null;
-  tradeCount: number | null;
-}) {
-  if (alphaPct !== null && alphaPct > 0) {
-    return {
-      label: 'Outperformed benchmark',
-      tone: 'positive' as const,
-      description:
-        maxDrawdownPct !== null && maxDrawdownPct < -30
-          ? 'The strategy beat the benchmark, but drawdown is still meaningful and should be reviewed.'
-          : 'The strategy beat the benchmark over this backtest window.'
-    };
-  }
-
-  if (alphaPct !== null && alphaPct < 0) {
-    return {
-      label: 'Underperformed benchmark',
-      tone: 'negative' as const,
-      description:
-        sharpeRatio !== null && sharpeRatio > 1
-          ? 'The strategy trailed the benchmark, but risk-adjusted behavior may still be worth reviewing.'
-          : 'The strategy trailed the benchmark over this backtest window.'
-    };
-  }
-
-  if (totalReturnPct !== null && benchmarkReturnPct === null) {
-    return {
-      label: totalReturnPct >= 0 ? 'Positive strategy return' : 'Negative strategy return',
-      tone: totalReturnPct >= 0 ? ('positive' as const) : ('negative' as const),
-      description: 'Benchmark return was not available, so focus on absolute return and drawdown.'
-    };
-  }
-
-  if (tradeCount === 0) {
-    return {
-      label: 'No trades detected',
-      tone: 'default' as const,
-      description: 'This strategy did not generate trades during the selected period.'
-    };
-  }
-
-  return {
-    label: 'Result ready',
-    tone: 'default' as const,
-    description: 'Review the equity curve, benchmark comparison, drawdown, and trade behavior below.'
-  };
-}
-
 function VerdictBadge({
   label,
   tone
@@ -208,51 +147,68 @@ export function RunInsightHero({
   const totalReturnPct = getSummaryNumber(summary, 'total_return_pct');
   const benchmarkReturnPct = getSummaryNumber(summary, 'benchmark_return_pct');
   const alphaPct = getSummaryNumber(summary, 'alpha_vs_benchmark_pct');
+  const cagrPct = getSummaryNumber(summary, 'cagr_pct');
   const maxDrawdownPct = getSummaryNumber(summary, 'max_drawdown_pct');
-  const sharpeRatio = getSummaryNumber(summary, 'sharpe_ratio');
-  const tradeCount = getSummaryNumber(summary, 'trade_count');
   const benchmarkLabel = inferBenchmarkLabel(run, chartData);
   const benchmarkDisplayLabel = benchmarkLabel ?? 'Benchmark';
 
-  const verdict = buildVerdict({
-    totalReturnPct,
-    benchmarkReturnPct,
-    alphaPct,
-    maxDrawdownPct,
-    sharpeRatio,
-    tradeCount
-  });
+  const verdictLabel =
+    alphaPct !== null
+      ? alphaPct > 0
+        ? 'Outperformed benchmark'
+        : alphaPct < 0
+          ? 'Underperformed benchmark'
+          : 'Matched benchmark'
+      : totalReturnPct !== null
+        ? totalReturnPct >= 0
+          ? 'Positive return'
+          : 'Negative return'
+        : 'Result ready';
+  const verdictTone = getTone(alphaPct ?? totalReturnPct);
 
   const metrics: HeroMetric[] = [
     {
-      label: 'Strategy Return',
+      label: 'Total Return',
       value: formatPct(totalReturnPct),
       tone: getTone(totalReturnPct)
-    },
-    {
+    }
+  ];
+
+  if (benchmarkReturnPct !== null) {
+    metrics.push({
       label: benchmarkLabel ? `Benchmark (${benchmarkLabel})` : 'Benchmark',
       value: formatPct(benchmarkReturnPct),
       tone: getTone(benchmarkReturnPct)
-    },
-    {
-      label: 'Alpha',
-      value: formatPct(alphaPct),
-      tone: getTone(alphaPct)
-    },
+    });
+  }
+
+  if (cagrPct !== null) {
+    metrics.push({
+      label: 'CAGR',
+      value: formatPct(cagrPct),
+      tone: getTone(cagrPct)
+    });
+  }
+
+  metrics.push(
     {
       label: 'Max Drawdown',
       value: formatPct(maxDrawdownPct),
       tone: 'negative'
     },
     {
-      label: 'Sharpe',
-      value: formatDecimal(sharpeRatio)
-    },
-    {
       label: 'Trades',
       value: formatTradeActivity(summary)
     }
-  ];
+  );
+
+  if (alphaPct !== null) {
+    metrics.push({
+      label: 'Alpha',
+      value: formatPct(alphaPct),
+      tone: getTone(alphaPct)
+    });
+  }
 
   const strategyName = run.strategy_name ?? 'Draft strategy';
 
@@ -262,20 +218,17 @@ export function RunInsightHero({
         <div className="space-y-5">
           <div>
             <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
-              Simulation insight
+              Completed result
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <h2 className="app-title text-2xl font-semibold tracking-tight">
                 {strategyName}
               </h2>
-              <VerdictBadge label={verdict.label} tone={verdict.tone} />
+              <VerdictBadge label={verdictLabel} tone={verdictTone} />
             </div>
-            <p className="app-text-muted mt-3 text-sm leading-6">
-              {verdict.description}
-            </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             {metrics.map((metric) => (
               <MetricPill key={metric.label} metric={metric} />
             ))}
