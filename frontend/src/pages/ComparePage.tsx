@@ -1,7 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
-import { ComparisonInsightSummary } from '../components/compare/ComparisonInsightSummary';
 import { CurveChart, pctFormatter } from '../components/compare/CurveChart';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
@@ -173,6 +172,33 @@ function shortComparableRef(ref: string): string {
   const parsed = parseSweepVariantRef(ref);
   if (parsed) return `${shortRunId(parsed.sweepRunId)}:${shortRunId(parsed.variantId)}`;
   return shortRunId(ref.replace(/^run:/, ''));
+}
+
+function comparableResultTypeLabel(result: ComparableRunListItem): string {
+  const resultType = 'result_type' in result ? result.result_type : null;
+  if (resultType === 'SWEEP_VARIANT' || 'sweep_run_id' in result || parseSweepVariantRef(comparableResultRef(result))) {
+    return 'Sweep variant';
+  }
+  return 'Run';
+}
+
+function comparableResultStatusLabel(result: ComparableRunListItem): string {
+  const status = 'status' in result ? result.status : null;
+  return status ? status.replace(/_/g, ' ').toLowerCase() : 'completed';
+}
+
+function comparableResultStrategyLabel(result: ComparableRunListItem): string {
+  if ('strategy_name' in result && result.strategy_name) return result.strategy_name;
+  const label = formatComparableRunLabel(result).split('·')[0]?.trim();
+  return label || 'Strategy unavailable';
+}
+
+function comparableResultDetailPath(result: ComparableRunListItem): string {
+  const ref = comparableResultRef(result);
+  const parsed = parseSweepVariantRef(ref);
+  if (parsed) return `/runs/${parsed.sweepRunId}/variants/${parsed.variantId}`;
+  if (!('run_id' in result)) return '/runs';
+  return `/runs/${result.run_id}`;
 }
 
 function isParameterSweepGroup(run: RunDashboardListItem): boolean {
@@ -435,65 +461,6 @@ function ComparisonDateWindowPanel({
   );
 }
 
-function NextComparisonSteps({
-  comparison,
-  onCompareAnotherSet
-}: {
-  comparison: RunComparisonResponse;
-  onCompareAnotherSet: () => void;
-}) {
-  const bestReturnRun = pickBestRun(comparison.runs, (run) => run.total_return_pct);
-  const bestSharpeRun = pickBestRun(comparison.runs, (run) => run.sharpe_ratio);
-  const bestReturnUrl = bestReturnRun?.result_type === 'SWEEP_VARIANT' ? null : bestReturnRun ? `/runs/${bestReturnRun.run_id}` : null;
-  const bestSharpeUrl = bestSharpeRun?.result_type === 'SWEEP_VARIANT' ? null : bestSharpeRun ? `/runs/${bestSharpeRun.run_id}` : null;
-
-  return (
-    <section className="app-card app-shadow-soft rounded-3xl border p-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="app-label text-xs font-semibold uppercase tracking-[0.22em]">
-            Next comparison steps
-          </div>
-          <p className="app-text-muted mt-2 text-sm leading-6">
-            Review the strongest candidates, pick another group, or return to the result history.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {bestReturnUrl ? (
-            <Link
-              to={bestReturnUrl}
-              className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition"
-            >
-              Open best return result
-            </Link>
-          ) : null}
-          {bestSharpeUrl ? (
-            <Link
-              to={bestSharpeUrl}
-              className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
-            >
-              Open best Sharpe result
-            </Link>
-          ) : null}
-          <Link
-            to="/runs"
-            className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
-          >
-            Back to result history
-          </Link>
-          <button
-            type="button"
-            onClick={onCompareAnotherSet}
-            className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
-          >
-            Compare another set
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 const ComparisonResults = memo(function ComparisonResults({
   comparison,
   onCompareAnotherSet
@@ -506,35 +473,49 @@ const ComparisonResults = memo(function ComparisonResults({
     comparison.metadata.window_mode === 'COMMON_OVERLAP_METRICS' &&
     comparison.metadata.overlap_start &&
     comparison.metadata.overlap_end;
+  const bestReturnRun = !hasNoCommonOverlap ? pickBestRun(comparison.runs, (run) => run.total_return_pct) : null;
+  const bestAlphaRun = !hasNoCommonOverlap ? pickBestRun(comparison.runs, (run) => run.alpha_vs_benchmark_pct) : null;
 
   return (
     <>
       <ComparisonDateWindowPanel comparison={comparison} onCompareAnotherSet={onCompareAnotherSet} />
-      {!hasNoCommonOverlap ? <ComparisonInsightSummary comparison={comparison} /> : null}
-      {!hasNoCommonOverlap ? (
-        <NextComparisonSteps comparison={comparison} onCompareAnotherSet={onCompareAnotherSet} />
-      ) : null}
 
       <SectionCard
-        title={hasNoCommonOverlap ? 'Full-period Reference Summary' : 'Comparison Summary'}
+        title={hasNoCommonOverlap ? 'Full-period reference metrics' : 'Comparison metrics'}
         subtitle={
           hasNoCommonOverlap
             ? 'Full-period metrics for the selected results. These rows are reference only and should not be read as a fair winner comparison.'
             : usesOverlapMetrics
             ? `Metrics are calculated over the common overlap window: ${formatDateOnly(comparison.metadata.overlap_start)} to ${formatDateOnly(comparison.metadata.overlap_end)}.`
-            : 'Metric summary for the selected results.'
+            : 'Chart and numeric summary for the selected results.'
         }
       >
-        <div className="app-table overflow-auto rounded-2xl border">
+        {!hasNoCommonOverlap ? (
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <div className="app-surface-soft rounded-2xl border p-4">
+              <div className="app-label text-[11px] font-semibold uppercase tracking-[0.2em]">Top return</div>
+              <div className="app-title mt-2 text-2xl font-semibold">{formatPct(bestReturnRun?.total_return_pct ?? null)}</div>
+              <div className="app-text-muted mt-1 truncate text-sm">{bestReturnRun ? formatComparableRunLabel(bestReturnRun) : 'Unavailable'}</div>
+            </div>
+            <div className="app-surface-soft rounded-2xl border p-4">
+              <div className="app-label text-[11px] font-semibold uppercase tracking-[0.2em]">Top relative result</div>
+              <div className="app-title mt-2 text-2xl font-semibold">{formatPct(bestAlphaRun?.alpha_vs_benchmark_pct ?? null)}</div>
+              <div className="app-text-muted mt-1 truncate text-sm">{bestAlphaRun ? formatComparableRunLabel(bestAlphaRun) : 'Unavailable'}</div>
+            </div>
+          </div>
+        ) : null}
+        <div className="app-table overflow-x-auto rounded-2xl border xl:overflow-x-visible">
           <table className="min-w-full divide-y app-divider text-sm">
             <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
               <tr>
                 <th className="px-4 py-3">Result</th>
                 <th className="px-4 py-3">Total Return</th>
-                <th className="px-4 py-3">Alpha</th>
+                <th className="px-4 py-3">Benchmark</th>
                 <th className="px-4 py-3">CAGR</th>
-                <th className="px-4 py-3">Sharpe</th>
                 <th className="px-4 py-3">Max DD</th>
+                <th className="px-4 py-3">Trades</th>
+                <th className="px-4 py-3">Alpha</th>
+                <th className="px-4 py-3">Source</th>
               </tr>
             </thead>
             <tbody className="divide-y app-divider">
@@ -547,14 +528,38 @@ const ComparisonResults = memo(function ComparisonResults({
                     </div>
                   </td>
                   <td className="px-4 py-3 app-text-muted">{formatPct(run.total_return_pct)}</td>
-                  <td className="px-4 py-3 app-text-muted">{formatPct(run.alpha_vs_benchmark_pct)}</td>
+                  <td className="px-4 py-3 app-text-muted">{formatPct(run.benchmark_return_pct)}</td>
                   <td className="px-4 py-3 app-text-muted">{formatPct(run.cagr_pct)}</td>
-                  <td className="px-4 py-3 app-text-muted">{formatNumber(run.sharpe_ratio)}</td>
                   <td className="px-4 py-3 app-text-muted">{formatPct(run.max_drawdown_pct)}</td>
+                  <td className="px-4 py-3 app-text-muted">{formatNumber(run.trade_count)}</td>
+                  <td className="px-4 py-3 app-text-muted">{formatPct(run.alpha_vs_benchmark_pct)}</td>
+                  <td className="px-4 py-3">
+                    <Link
+                      to={comparableResultDetailPath(run)}
+                      className="app-link text-sm font-semibold"
+                    >
+                      Open
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link
+            to="/runs"
+            className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+          >
+            Back to Results
+          </Link>
+          <button
+            type="button"
+            onClick={onCompareAnotherSet}
+            className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+          >
+            Compare another set
+          </button>
         </div>
       </SectionCard>
     </>
@@ -771,7 +776,12 @@ export function ComparePage() {
       ? 'Choose one more result to compare.'
       : selectionLimitReached
         ? 'Comparison limit reached. Remove one selected result before adding another.'
-        : 'Choose at least two succeeded results to compare.';
+        : 'Select 2+ results, then compare when ready.';
+  const compareActionLabel = loadingComparison
+    ? 'Comparing…'
+    : selectedResultRefs.length > 0
+      ? `Compare ${selectedResultRefs.length} selected`
+      : 'Compare selected results';
   const shouldShowComparisonCharts = Boolean(
     comparisonChart && comparison?.metadata.has_common_overlap !== false
   );
@@ -868,19 +878,24 @@ export function ComparePage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Compare"
-        title="Result Comparison Workspace"
-        description="Select multiple succeeded results, then compare normalized strategy curves, benchmark curves, and drawdown series."
+        title="Compare results"
+        description="Select completed runs or sweep variants, then compare them when ready."
         actions={
-          <button
-            type="button"
-            onClick={() => {
-              void handleCompare();
-            }}
-            disabled={loadingComparison || selectedResultRefs.length < 2}
-            className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {loadingComparison ? 'Comparing…' : 'Compare selected results'}
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="app-badge rounded-full px-3 py-1.5 text-xs font-semibold">
+              {selectedResultRefs.length} / {MAX_COMPARE_RUNS} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                void handleCompare();
+              }}
+              disabled={loadingComparison || selectedResultRefs.length < 2}
+              className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {compareActionLabel}
+            </button>
+          </div>
         }
       />
 
@@ -904,25 +919,48 @@ export function ComparePage() {
         {selectedResultRefs.length > 0 && selectedResults.length === 0 ? (
           <p className="text-sm app-text-muted">Loading selected result…</p>
         ) : selectedResults.length === 0 ? (
-          <p className="text-sm app-text-muted">No results selected yet.</p>
+          <div className="grid gap-2 text-sm app-text-muted sm:grid-cols-3">
+            <div className="app-surface-soft rounded-2xl border p-3">Select 2+ results.</div>
+            <div className="app-surface-soft rounded-2xl border p-3">Runs and selected sweep variants are supported.</div>
+            <div className="app-surface-soft rounded-2xl border p-3">Expand sweep parents to choose variants.</div>
+          </div>
         ) : (
-          <div className="flex flex-wrap gap-2">
+          <div className="grid gap-3 md:grid-cols-2">
             {selectedResults.map((run) => {
               const ref = comparableResultRef(run);
               const label = formatComparableRunLabel(run);
               const idLabel = shortComparableRef(ref);
               return (
-                <button
-                  key={ref}
-                  type="button"
-                  onClick={() => toggleResult(ref)}
-                  className="app-badge rounded-full px-3 py-1.5 text-xs font-medium"
-                >
-                  <span>{label}</span>
-                  {label.includes(idLabel) ? null : (
-                    <span className="ml-1 font-mono app-text-soft">{idLabel}</span>
-                  )}
-                </button>
+                <div key={ref} className="app-surface-soft rounded-2xl border p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="app-badge rounded-full px-2 py-0.5 text-[11px] font-semibold">
+                          {comparableResultTypeLabel(run)}
+                        </span>
+                        <span className="app-label text-[11px] font-semibold uppercase tracking-[0.18em]">
+                          Status: {comparableResultStatusLabel(run)}
+                        </span>
+                      </div>
+                      <div className="app-title mt-2 truncate text-sm font-semibold" title={label}>
+                        {label}
+                      </div>
+                      <div className="mt-1 text-xs app-text-soft">
+                        <span>{comparableResultStrategyLabel(run)}</span>
+                        {label.includes(idLabel) ? null : (
+                          <span className="ml-2 font-mono">{idLabel}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleResult(ref)}
+                      className="app-button-secondary shrink-0 rounded-lg px-2 py-1 text-xs font-semibold transition"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
               );
             })}
           </div>

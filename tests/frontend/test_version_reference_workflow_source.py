@@ -193,6 +193,8 @@ def test_compare_page_uses_typed_result_refs_and_sweep_variant_groups():
     assert "toggleResult(variant.comparable_result_ref)" in source
     assert "selectedResultRefs.length" in source
     assert "message.replace(/\\bruns\\b/g, 'results')" in source
+    assert "comparableResultTypeLabel" in source
+    assert "comparableResultDetailPath" in source
 
 
 def test_compare_page_does_not_auto_run_comparison_from_selection_or_url():
@@ -203,6 +205,7 @@ def test_compare_page_does_not_auto_run_comparison_from_selection_or_url():
     assert "if (initialSelectedResultRefs.length < 2)" not in source
     assert "disabled={loadingComparison || selectedResultRefs.length < 2}" in source
     assert "void handleCompare();" in source
+    assert "Compare ${selectedResultRefs.length} selected" in source
 
 
 def test_compare_page_selection_changes_clear_existing_comparison():
@@ -234,6 +237,32 @@ def test_compare_page_sweep_children_are_nested_and_selectable():
     assert "pl-5" in source
     assert "checked={variantChecked}" in source
     assert "onChange={() => toggleResult(variant.comparable_result_ref)}" in source
+
+
+def test_compare_page_empty_and_selected_states_explain_supported_targets():
+    source = (ROOT / "frontend/src/pages/ComparePage.tsx").read_text()
+
+    assert "Select 2+ results, then compare when ready." in source
+    assert "Select 2+ results." in source
+    assert "Runs and selected sweep variants are supported." in source
+    assert "Expand sweep parents to choose variants." in source
+    assert "Status: {comparableResultStatusLabel(run)}" in source
+    assert "Remove" in source
+
+
+def test_compare_page_outputs_metrics_before_charts_with_source_links():
+    source = (ROOT / "frontend/src/pages/ComparePage.tsx").read_text()
+
+    assert "Comparison metrics" in source
+    assert "Top return" in source
+    assert "Top relative result" in source
+    assert "<th className=\"px-4 py-3\">Benchmark</th>" in source
+    assert "<th className=\"px-4 py-3\">Trades</th>" in source
+    assert "formatPct(run.benchmark_return_pct)" in source
+    assert "formatNumber(run.trade_count)" in source
+    assert "to={comparableResultDetailPath(run)}" in source
+    assert "ComparisonInsightSummary" not in source
+    assert "Next comparison steps" not in source
 
 
 def test_compare_page_uses_two_unified_chart_sections():
