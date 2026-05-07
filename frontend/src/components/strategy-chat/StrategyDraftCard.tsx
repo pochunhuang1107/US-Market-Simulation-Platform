@@ -103,6 +103,46 @@ function QuickEditChip({
   );
 }
 
+function StrategyDraftActions({
+  showConfig,
+  onToggleConfig,
+  isLatestDraft,
+  onRun,
+  isRunning
+}: {
+  showConfig: boolean;
+  onToggleConfig: () => void;
+  isLatestDraft: boolean;
+  onRun: () => void;
+  isRunning: boolean;
+}) {
+  return (
+    <div className="flex flex-col items-start gap-3 lg:items-end">
+      <button
+        type="button"
+        onClick={onToggleConfig}
+        className="app-button-secondary w-[6.75rem] whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium transition"
+      >
+        {showConfig ? 'Hide JSON' : 'Show JSON'}
+      </button>
+      {isLatestDraft ? (
+        <button
+          type="button"
+          onClick={onRun}
+          disabled={isRunning}
+          className="app-button-primary min-w-[8.75rem] whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isRunning ? 'Running...' : 'Run Simulation'}
+        </button>
+      ) : (
+        <div className="app-surface-soft rounded-2xl border px-4 py-2 text-sm font-medium app-text-muted">
+          Superseded by a newer draft
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function StrategyDraftCard({
   draft,
   revisionHistory,
@@ -288,20 +328,13 @@ export function StrategyDraftCard({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-start gap-3 lg:justify-end">
-            <button type="button" onClick={() => setShowConfig((value) => !value)} className="app-button-secondary w-[6.75rem] whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium transition">
-              {showConfig ? 'Hide JSON' : 'Show JSON'}
-            </button>
-            {isLatestDraft ? (
-              <button type="button" onClick={onRun} disabled={isRunning} className="app-button-primary min-w-[8.75rem] whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60">
-                {isRunning ? 'Running...' : 'Run Simulation'}
-              </button>
-            ) : (
-              <div className="app-surface-soft rounded-2xl border px-4 py-2 text-sm font-medium app-text-muted">
-                Superseded by a newer draft
-              </div>
-            )}
-          </div>
+          <StrategyDraftActions
+            showConfig={showConfig}
+            onToggleConfig={() => setShowConfig((value) => !value)}
+            isLatestDraft={isLatestDraft}
+            onRun={onRun}
+            isRunning={isRunning}
+          />
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
