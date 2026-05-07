@@ -38,6 +38,24 @@ def test_strategy_draft_and_saved_config_use_shared_rule_summary_helper():
     assert "summarizeStrategyRule(config.exit_rule" in saved_version_source
 
 
+def test_strategy_chat_passes_cumulative_revision_history_to_latest_draft_card():
+    list_source = (
+        ROOT / "frontend/src/components/strategy-chat/ChatMessageList.tsx"
+    ).read_text()
+    draft_source = (
+        ROOT / "frontend/src/components/strategy-chat/StrategyDraftCard.tsx"
+    ).read_text()
+
+    assert "function appendUniqueChanges" in list_source
+    assert "new Set(next)" in list_source
+    assert "let strategyRevisionHistory: string[] = [];" in list_source
+    assert "strategyRevisionHistory = strategyRevisionHistoryForMessage;" in list_source
+    assert "revisionHistory={strategyRevisionHistoryForMessage}" in list_source
+    assert "revisionHistory?: string[]" in draft_source
+    assert "const displayedChanges = revisionHistory ?? draft.changes;" in draft_source
+    assert "<BulletList items={displayedChanges}" in draft_source
+
+
 def test_strategy_behavior_summary_helper_keeps_position_copy_compact():
     helper_source = (ROOT / "frontend/src/lib/strategyBehaviorSummary.ts").read_text()
     draft_source = (

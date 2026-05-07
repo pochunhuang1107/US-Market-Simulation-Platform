@@ -105,6 +105,7 @@ function QuickEditChip({
 
 export function StrategyDraftCard({
   draft,
+  revisionHistory,
   onRun,
   onUsePrompt,
   isLatestDraft = true,
@@ -112,6 +113,7 @@ export function StrategyDraftCard({
   runError = null
 }: {
   draft: StrategyBuilderGenerateResponse;
+  revisionHistory?: string[];
   onRun: () => void;
   onUsePrompt?: (prompt: string) => void;
   isLatestDraft?: boolean;
@@ -257,7 +259,8 @@ export function StrategyDraftCard({
     return Array.from(new Set(prompts)).slice(0, 6);
   }, [draft]);
 
-  const hasChanges = draft.changes.length > 0;
+  const displayedChanges = revisionHistory ?? draft.changes;
+  const hasChanges = displayedChanges.length > 0;
   const warnings = useMemo(() => {
     const config = (draft.config ?? {}) as Record<string, unknown>;
     return Array.from(new Set([...draft.warnings, ...getStrategyBehaviorWarnings(config)]));
@@ -373,7 +376,7 @@ export function StrategyDraftCard({
           </Section>
 
           <Section eyebrow="Revision history" title="What changed in this draft">
-            <BulletList items={draft.changes} emptyText="No explicit config changes were detected." />
+            <BulletList items={displayedChanges} emptyText="No explicit config changes were detected." />
           </Section>
         </div>
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import date
 
 import pandas as pd
@@ -198,6 +199,224 @@ def _qqq_vix_rsi_current_config() -> dict:
         "threshold": 70,
     }
     return config
+
+
+def _assert_strategy_v2_config_preserves(
+    config: dict,
+    original: dict,
+    *,
+    changed_top_level: set[str] | None = None,
+    changed_nested: dict[str, set[str]] | None = None,
+) -> None:
+    changed_top_level = changed_top_level or set()
+    changed_nested = changed_nested or {}
+    raw_original = copy.deepcopy(original)
+    original = StrategyV2.model_validate(original).model_dump(mode="json", exclude_none=True)
+    raw_original_position_management = raw_original.get("position_management")
+    original_position_management = original.get("position_management")
+    if isinstance(raw_original_position_management, dict) and isinstance(
+        original_position_management,
+        dict,
+    ):
+        for default_key in (
+            "scale_in_fraction",
+            "exit_behavior",
+            "min_bars_between_scale_ins",
+            "scale_in_requires_persistent_signal",
+            "scale_out_fraction",
+            "profit_reduce_threshold",
+        ):
+            if default_key not in raw_original_position_management:
+                original_position_management.pop(default_key, None)
+
+    for key in (
+        {
+            "tradable_symbol",
+            "benchmark_symbol",
+            "reference_symbols",
+            "start_date",
+            "end_date",
+            "allocation",
+            "entry_rule",
+            "exit_rule",
+            "risk",
+            "core_overlay",
+            "position_management",
+        }
+        - changed_top_level
+        - set(changed_nested)
+    ):
+        assert config[key] == original[key]
+
+    for key, changed_fields in changed_nested.items():
+        for field, original_value in original[key].items():
+            if field not in changed_fields:
+                assert config[key][field] == original_value
+
+    StrategyV2.model_validate(config)
+
+
+def _post_strategy_builder_prompt(
+    client,
+    prompt: str,
+    *,
+    current_config: dict | None = None,
+) -> dict:
+    payload: dict = {"prompt": prompt}
+    if current_config is not None:
+        payload["context"] = {
+            "mode": "NEW_VERSION",
+            "current_config": current_config,
+        }
+
+    response = client.post("/strategy-builder/generate", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    if body.get("config") is not None:
+        StrategyV2.model_validate(body["config"])
+    return body
+
+
+def _append_unique_changes(history: list[str], changes: list[str] | None) -> list[str]:
+    if not changes:
+        return history
+
+    next_history = list(history)
+    seen = set(next_history)
+    for change in changes:
+        if change in seen:
+            continue
+        seen.add(change)
+        next_history.append(change)
+    return next_history
+
+
+def _assert_no_change_mentions(changes: list[str], *phrases: str) -> None:
+    normalized_changes = [change.lower() for change in changes]
+    for phrase in phrases:
+        assert not any(phrase.lower() in change for change in normalized_changes)
+
+
+def _assert_rsi_entry_threshold_30(config: dict) -> None:
+    assert config["entry_rule"]["threshold"] == 30
+
+
+def _assert_rsi_exit_rule_65(config: dict) -> None:
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_above",
+        "symbol": "QQQ",
+        "lookback": 14,
+        "threshold": 65.0,
+    }
+
+
+def _assert_benchmark_spy(config: dict) -> None:
+    assert config["benchmark_symbol"] == "SPY"
+
+
+def _assert_stop_loss_8_pct(config: dict) -> None:
+    assert config["risk"]["stop_loss_pct"] == 0.08
+
+
+def _assert_no_stop_loss(config: dict) -> None:
+    assert "stop_loss_pct" not in config["risk"]
+
+
+def _assert_cooldown_5(config: dict) -> None:
+    assert config["risk"]["cooldown_bars"] == 5
+
+
+def _assert_max_position_50_pct(config: dict) -> None:
+    assert config["allocation"]["max_position_pct"] == 0.5
+
+
+@pytest.mark.parametrize(
+    ("prompt", "changed_top_level", "changed_nested", "assert_update"),
+    [
+        (
+            "change RSI entry to 30",
+            {"entry_rule"},
+            {},
+            _assert_rsi_entry_threshold_30,
+        ),
+        (
+            "change exit to RSI above 65",
+            {"exit_rule"},
+            {},
+            _assert_rsi_exit_rule_65,
+        ),
+        (
+            "change benchmark to SPY",
+            {"benchmark_symbol"},
+            {},
+            _assert_benchmark_spy,
+        ),
+        (
+            "set stop loss to 8%",
+            set(),
+            {"risk": {"stop_loss_pct"}},
+            _assert_stop_loss_8_pct,
+        ),
+        (
+            "remove stop loss",
+            set(),
+            {"risk": {"stop_loss_pct"}},
+            _assert_no_stop_loss,
+        ),
+        (
+            "set cooldown to 5 bars",
+            set(),
+            {"risk": {"cooldown_bars"}},
+            _assert_cooldown_5,
+        ),
+        (
+            "set max position to 50%",
+            set(),
+            {"allocation": {"max_position_pct"}},
+            _assert_max_position_50_pct,
+        ),
+    ],
+)
+def test_generate_strategy_builder_follow_up_common_edits_preserve_unrelated_config(
+    client,
+    prompt,
+    changed_top_level,
+    changed_nested,
+    assert_update,
+):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["benchmark_symbol"] = "DIA"
+    current_config["reference_symbols"] = ["SPY"]
+    current_config["risk"]["take_profit_pct"] = 0.20
+    current_config["position_management"]["max_scale_in_steps"] = 4
+    current_config["position_management"]["min_bars_between_scale_ins"] = 3
+    original = copy.deepcopy(current_config)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert_update(config)
+    _assert_strategy_v2_config_preserves(
+        config,
+        original,
+        changed_top_level=changed_top_level,
+        changed_nested=changed_nested,
+    )
 
 
 def test_generate_strategy_builder_follow_up_rsi_sweep_uses_current_config(client):
@@ -1484,6 +1703,91 @@ def test_generate_strategy_builder_parses_composite_rsi_and_vix_filter(client):
     assert result.timeline[1]["action_taken"] == ""
 
 
+@pytest.mark.parametrize(
+    ("prompt", "expected_entry_rule", "expected_exit_rule"),
+    [
+        (
+            "only trade QQQ when VIX is below 25 and RSI is below 35",
+            {
+                "kind": "group",
+                "operator": "AND",
+                "rules": [
+                    {
+                        "kind": "atomic",
+                        "type": "series_below",
+                        "symbol": "VIX",
+                        "threshold": 25.0,
+                    },
+                    {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 35.0,
+                    },
+                ],
+            },
+            None,
+        ),
+        (
+            "exit when VIX is above 35",
+            None,
+            {
+                "kind": "atomic",
+                "type": "series_above",
+                "symbol": "VIX",
+                "threshold": 35.0,
+            },
+        ),
+        (
+            "buy QQQ when RSI below 35 and VIX below 20",
+            {
+                "kind": "group",
+                "operator": "AND",
+                "rules": [
+                    {
+                        "kind": "atomic",
+                        "type": "rsi_below",
+                        "symbol": "QQQ",
+                        "lookback": 14,
+                        "threshold": 35.0,
+                    },
+                    {
+                        "kind": "atomic",
+                        "type": "series_below",
+                        "symbol": "VIX",
+                        "threshold": 20.0,
+                    },
+                ],
+            },
+            None,
+        ),
+    ],
+)
+def test_generate_strategy_builder_common_vix_reference_prompts_validate_cleanly(
+    client,
+    prompt,
+    expected_entry_rule,
+    expected_exit_rule,
+):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": prompt},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["reference_symbols"] == ["VIX"]
+    if expected_entry_rule is not None:
+        assert config["entry_rule"] == expected_entry_rule
+    if expected_exit_rule is not None:
+        assert config["exit_rule"] == expected_exit_rule
+    StrategyV2.model_validate(config)
+
+
 def test_generate_strategy_builder_parses_vix_exit_filter(client):
     response = client.post(
         "/strategy-builder/generate",
@@ -2004,6 +2308,55 @@ def test_generate_strategy_builder_follow_up_sweep_missing_target_returns_guidan
     )
 
 
+@pytest.mark.parametrize(
+    ("prompt", "current_config", "expected_grid"),
+    [
+        (
+            "sweep RSI entry from 25 to 40",
+            _qqq_rsi_core_overlay_current_config(),
+            {"entry_rule.threshold": [25, 30, 35, 40]},
+        ),
+        (
+            "try RSI exits 60, 65, and 70",
+            _qqq_rsi_core_overlay_current_config(),
+            {"exit_rule.threshold": [60, 65, 70]},
+        ),
+        (
+            "sweep VIX threshold from 15 to 30",
+            _qqq_vix_rsi_current_config(),
+            {"entry_rule.rules[1].threshold": [15, 20, 25, 30]},
+        ),
+    ],
+)
+def test_generate_strategy_builder_follow_up_common_sweep_prompts_validate_and_preserve_base(
+    client,
+    prompt,
+    current_config,
+    expected_grid,
+):
+    original = copy.deepcopy(current_config)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sweep = body["sweep_draft"]
+
+    assert body["response_type"] == "PARAMETER_SWEEP_DRAFT"
+    assert sweep["base_config"] == original
+    assert sweep["grid"] == expected_grid
+    assert sweep["ranking_metric"] == "sharpe_ratio"
+    assert sweep["max_variants"] == 25
+    build_sweep_request(sweep)
+    StrategyV2.model_validate(sweep["base_config"])
+
+
 def test_generate_strategy_builder_follow_up_changes_exit_group_operator(client):
     current_config = _qqq_rsi_core_overlay_current_config()
     current_config["exit_rule"] = {
@@ -2206,11 +2559,35 @@ def test_generate_strategy_builder_draft_parses_scale_in_percentage(client):
 
     assert body["response_type"] == "CREATE_DRAFT"
     assert config["position_management"]["scale_in_fraction"] == 0.25
-    assert config["position_management"]["scale_out_fraction"] == 0.5
-    assert config["position_management"].get("profit_reduce_threshold") is None
+    assert "scale_out_fraction" not in config["position_management"]
+    assert "exit_behavior" not in config["position_management"]
+    assert "profit_reduce_threshold" not in config["position_management"]
     assert "Scale in 25.0% per entry" not in body["summary"]
     assert "Enter when QQQ RSI(14) is below 35." in body["summary"]
     assert "Exit when QQQ RSI(14) is above 65." in body["summary"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_draft_scale_in_only_does_not_add_scale_out_policy(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create an RSI strategy for QQQ. Enter when RSI below 35. "
+                "Exit when RSI above 65. Scale in 25% at a time."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert "scale_out_fraction" not in config["position_management"]
+    assert "exit_behavior" not in config["position_management"]
+    StrategyV2.model_validate(config)
 
 
 @pytest.mark.parametrize(
@@ -2311,9 +2688,45 @@ def test_generate_strategy_builder_draft_parses_explicit_sell_all_exit_behavior(
     assert config["exit_rule"]["threshold"] == 65
     assert config["position_management"]["exit_behavior"] == "sell_all"
     assert "scale_out_fraction" not in config["position_management"]
-    assert config["position_management"]["scale_in_fraction"] == 1.0
+    assert "scale_in_fraction" not in config["position_management"]
     assert "Exit behavior: sell all" not in body["summary"]
     assert "Exit when QQQ RSI(14) is above 65." in body["summary"]
+
+
+def test_generate_strategy_builder_draft_sell_all_exit_behavior_has_no_visible_scale_out_fraction(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "sell all when RSI above 70"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["exit_rule"]["type"] == "rsi_above"
+    assert config["exit_rule"]["threshold"] == 70.0
+    assert config["position_management"]["exit_behavior"] == "sell_all"
+    assert "scale_out_fraction" not in config["position_management"]
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_draft_scale_out_exit_behavior_keeps_fraction(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "scale out 50% when RSI above 70"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["exit_rule"]["type"] == "rsi_above"
+    assert config["exit_rule"]["threshold"] == 70.0
+    assert config["position_management"]["exit_behavior"] == "scale_out"
+    assert config["position_management"]["scale_out_fraction"] == 0.5
+    StrategyV2.model_validate(config)
 
 
 def test_generate_strategy_builder_draft_omits_scale_out_fraction_for_sell_all_with_scale_in(client):
@@ -2366,7 +2779,7 @@ def test_generate_strategy_builder_draft_parses_explicit_scale_out_exit_behavior
     assert body["response_type"] == "CREATE_DRAFT"
     assert config["position_management"]["exit_behavior"] == "scale_out"
     assert config["position_management"]["scale_out_fraction"] == 0.5
-    assert config["position_management"]["scale_in_fraction"] == 1.0
+    assert "scale_in_fraction" not in config["position_management"]
     assert "Exit behavior: scale out 50.0% at a time" not in body["summary"]
     assert "Exit when QQQ RSI(14) is above 65." in body["summary"]
 
@@ -2417,7 +2830,170 @@ def test_generate_strategy_builder_follow_up_scale_out_adds_scale_out_fraction(c
 
     assert config["position_management"]["exit_behavior"] == "scale_out"
     assert config["position_management"]["scale_out_fraction"] == 0.5
+    assert config["position_management"]["scale_in_fraction"] == 0.25
     assert "Updated exit behavior from sell all to scale out." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_explicit_scale_out_records_behavior_and_fraction_changes(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["exit_rule"]["threshold"] = 65
+    current_config["position_management"] = None
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "scale out 50% when RSI is above 70",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["exit_rule"]["threshold"] == 70.0
+    assert config["position_management"]["exit_behavior"] == "scale_out"
+    assert config["position_management"]["scale_out_fraction"] == 0.5
+    assert "scale_in_fraction" not in config["position_management"]
+    assert "Updated RSI exit threshold from 65 to 70." in body["changes"]
+    assert "Updated scale out fraction from none to 50.0%." in body["changes"]
+    assert "Updated exit behavior from none to scale out." in body["changes"]
+    assert not any("scale in" in change.lower() for change in body["changes"])
+    StrategyV2.model_validate(config)
+
+
+def test_generate_strategy_builder_manual_qa_flow_scale_out_keeps_cumulative_changes(client):
+    initial = _post_strategy_builder_prompt(
+        client,
+        "Create a QQQ mean reversion strategy with RSI below 35 and exit when RSI is above 65.",
+    )
+    history = _append_unique_changes([], initial["changes"])
+
+    first_update = _post_strategy_builder_prompt(
+        client,
+        (
+            "change RSI entry to 30\n"
+            "set stop loss to 8%\n"
+            "remove stop loss\n"
+            "set cooldown to 5 bars\n"
+            "set max position to 50%"
+        ),
+        current_config=initial["config"],
+    )
+    history = _append_unique_changes(history, first_update["changes"])
+
+    second_update = _post_strategy_builder_prompt(
+        client,
+        "scale out 50% when RSI is above 70",
+        current_config=first_update["config"],
+    )
+    history = _append_unique_changes(history, second_update["changes"])
+    config = second_update["config"]
+
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["benchmark_symbol"] == "QQQ"
+    assert config["entry_rule"]["threshold"] == 30.0
+    assert config["exit_rule"]["threshold"] == 70.0
+    assert config["risk"]["cooldown_bars"] == 5
+    assert "stop_loss_pct" not in config["risk"]
+    assert config["allocation"]["max_position_pct"] == 0.5
+    assert config["position_management"]["exit_behavior"] == "scale_out"
+    assert config["position_management"]["scale_out_fraction"] == 0.5
+    assert "scale_in_fraction" not in config["position_management"]
+
+    assert "Updated RSI entry threshold from 35 to 30." in history
+    assert "Updated cooldown bars from 0 to 5." in history
+    assert "Updated max position from 100.0% to 50.0%." in history
+    assert "Updated RSI exit threshold from 65 to 70." in history
+    assert "Updated exit behavior from none to scale out." in history
+    assert "Updated scale out fraction from none to 50.0%." in history
+    _assert_no_change_mentions(second_update["changes"], "scale in fraction")
+
+
+def test_generate_strategy_builder_manual_qa_flow_allocation_min_trade_scale_in_distinction(client):
+    initial = _post_strategy_builder_prompt(
+        client,
+        "Create a QQQ mean reversion strategy with RSI below 35 and exit when RSI is above 65.",
+    )
+    history = _append_unique_changes([], initial["changes"])
+
+    update = _post_strategy_builder_prompt(
+        client,
+        (
+            "set entry size to 25%\n"
+            "set minimum trade size to 1%\n"
+            "set minimum trade notional to $500\n"
+            "scale in 25% at a time"
+        ),
+        current_config=initial["config"],
+    )
+    history = _append_unique_changes(history, update["changes"])
+    config = update["config"]
+
+    assert config["allocation"]["entry_value"] == 0.25
+    assert config["position_management"]["minimum_trade_pct_of_equity"] == 0.01
+    assert config["position_management"]["minimum_trade_notional"] == 500.0
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert "scale_out_fraction" not in config["position_management"]
+    assert "exit_behavior" not in config["position_management"]
+    assert config["entry_rule"]["threshold"] == 35.0
+    assert config["exit_rule"]["threshold"] == 65.0
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["benchmark_symbol"] == "QQQ"
+
+    assert "Updated allocation from 100.0% to 25.0%." in history
+    assert "Updated minimum trade percent of equity from none to 1.0%." in history
+    assert "Updated minimum trade size from none to $500." in history
+    assert "Updated scale in fraction from none to 25.0%." in history
+    _assert_no_change_mentions(update["changes"], "scale out", "exit behavior")
+
+
+def test_generate_strategy_builder_manual_qa_flow_preserves_existing_scale_in_when_scale_out(client):
+    initial = _post_strategy_builder_prompt(
+        client,
+        "Create a QQQ mean reversion strategy with RSI below 35 and exit when RSI is above 65.",
+    )
+    scale_in = _post_strategy_builder_prompt(
+        client,
+        "scale in 25% at a time",
+        current_config=initial["config"],
+    )
+    scale_out = _post_strategy_builder_prompt(
+        client,
+        "scale out 50% when RSI is above 70",
+        current_config=scale_in["config"],
+    )
+    config = scale_out["config"]
+
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["exit_behavior"] == "scale_out"
+    assert config["position_management"]["scale_out_fraction"] == 0.5
+    assert config["exit_rule"]["threshold"] == 70.0
+    _assert_no_change_mentions(scale_out["changes"], "scale in fraction")
+
+
+def test_generate_strategy_builder_manual_qa_flow_sell_all_no_scale_out_or_scale_in(client):
+    initial = _post_strategy_builder_prompt(
+        client,
+        "Create a QQQ mean reversion strategy with RSI below 35 and exit when RSI is above 65.",
+    )
+    update = _post_strategy_builder_prompt(
+        client,
+        "sell all when RSI is above 70",
+        current_config=initial["config"],
+    )
+    config = update["config"]
+
+    assert config["exit_rule"]["threshold"] == 70.0
+    assert config["position_management"]["exit_behavior"] == "sell_all"
+    assert "scale_out_fraction" not in config["position_management"]
+    assert "scale_in_fraction" not in config["position_management"]
+    assert "Updated exit behavior from none to sell all." in update["changes"]
+    _assert_no_change_mentions(update["changes"], "scale out fraction", "scale in fraction")
 
 
 def test_generate_strategy_builder_draft_parses_max_scale_ins(client):
@@ -2613,7 +3189,40 @@ def test_generate_strategy_builder_follow_up_changes_scale_in_fraction(client):
 
     assert config["position_management"]["scale_in_fraction"] == 0.30
     assert config["position_management"]["scale_out_fraction"] == 0.5
+    assert "exit_behavior" not in config["position_management"]
     assert "Updated scale in fraction from 25.0% to 30.0%." in body["changes"]
+
+
+def test_generate_strategy_builder_follow_up_scale_in_only_preserves_existing_exit_behavior(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["position_management"]["exit_behavior"] = "sell_all"
+    current_config["position_management"].pop("scale_out_fraction", None)
+    original = copy.deepcopy(current_config)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "scale in 25% at a time",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert config["position_management"]["exit_behavior"] == "sell_all"
+    assert "scale_out_fraction" not in config["position_management"]
+    _assert_strategy_v2_config_preserves(
+        config,
+        original,
+        changed_nested={"position_management": {"scale_in_fraction"}},
+    )
 
 
 @pytest.mark.parametrize(
@@ -2691,6 +3300,171 @@ def test_generate_strategy_builder_follow_up_minimum_trade_pct_preserves_entry_s
     assert config["allocation"]["entry_value"] == 0.40
     assert config["position_management"]["minimum_trade_pct_of_equity"] == 0.01
     assert config["position_management"]["scale_in_fraction"] == 0.25
+
+
+@pytest.mark.parametrize(
+    ("prompt", "field", "expected"),
+    [
+        ("minimum trade size 1%", "minimum_trade_pct_of_equity", 0.01),
+        ("minimum trade notional $500", "minimum_trade_notional", 500.0),
+        ("minimum shares 2", "minimum_trade_shares", 2),
+    ],
+)
+def test_generate_strategy_builder_follow_up_minimum_trade_prompts_do_not_change_allocation(
+    client,
+    prompt,
+    field,
+    expected,
+):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["allocation"]["entry_value"] = 0.40
+    original = copy.deepcopy(current_config)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["position_management"][field] == expected
+    _assert_strategy_v2_config_preserves(
+        config,
+        original,
+        changed_nested={"position_management": {field}},
+    )
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_entry_value"),
+    [
+        ("entry size 25%", 0.25),
+        ("allocate 30% per entry", 0.30),
+    ],
+)
+def test_generate_strategy_builder_follow_up_entry_sizing_prompts_change_allocation_only(
+    client,
+    prompt,
+    expected_entry_value,
+):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["allocation"]["entry_value"] = 0.40
+    original = copy.deepcopy(current_config)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["allocation"]["entry_value"] == expected_entry_value
+    _assert_strategy_v2_config_preserves(
+        config,
+        original,
+        changed_nested={"allocation": {"entry_value"}},
+    )
+
+
+def test_generate_strategy_builder_follow_up_scale_in_prompt_does_not_change_allocation(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["allocation"]["entry_value"] = 0.40
+    current_config["position_management"]["scale_in_fraction"] = 0.30
+    current_config["position_management"].pop("exit_behavior", None)
+    original = copy.deepcopy(current_config)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "scale in 25% at a time",
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["position_management"]["scale_in_fraction"] == 0.25
+    assert "exit_behavior" not in config["position_management"]
+    assert not any("scale out" in change.lower() for change in body["changes"])
+    assert not any("exit behavior" in change.lower() for change in body["changes"])
+    _assert_strategy_v2_config_preserves(
+        config,
+        original,
+        changed_nested={"position_management": {"scale_in_fraction"}},
+    )
+
+
+def test_generate_strategy_builder_follow_up_combined_sizing_minimum_trade_and_scale_in_only(
+    client,
+):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["allocation"]["entry_value"] = 0.40
+    current_config["position_management"] = None
+    original = copy.deepcopy(current_config)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "set entry size to 25%; set minimum trade size to 1%; "
+                "set minimum trade notional to $500; scale in 25% at a time"
+            ),
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["allocation"]["entry_value"] == 0.25
+    assert config["allocation"]["max_position_pct"] == original["allocation"]["max_position_pct"]
+    assert config["position_management"] == {
+        "scale_in_fraction": 0.25,
+        "minimum_trade_notional": 500.0,
+        "minimum_trade_pct_of_equity": 0.01,
+    }
+    assert config["tradable_symbol"] == original["tradable_symbol"]
+    assert config["benchmark_symbol"] == original["benchmark_symbol"]
+    assert config["reference_symbols"] == original["reference_symbols"]
+    assert config["start_date"] == original["start_date"]
+    assert config["end_date"] == original["end_date"]
+    assert config["entry_rule"] == original["entry_rule"]
+    assert config["exit_rule"] == original["exit_rule"]
+    assert config["risk"] == StrategyV2.model_validate(original).model_dump(
+        mode="json",
+        exclude_none=True,
+    )["risk"]
+    assert config["core_overlay"] == original["core_overlay"]
+    StrategyV2.model_validate(config)
 
 
 def test_generate_strategy_builder_follow_up_sets_minimum_trade_size(client):

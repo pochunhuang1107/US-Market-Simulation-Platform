@@ -858,9 +858,9 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     )
     _record_change(
         changes,
-        base_position_management.get("exit_behavior", "scale_out")
+        base_position_management.get("exit_behavior")
         if base_position_management else None,
-        final_position_management.get("exit_behavior", "scale_out")
+        final_position_management.get("exit_behavior")
         if final_position_management else None,
         "exit behavior",
         _format_exit_behavior,

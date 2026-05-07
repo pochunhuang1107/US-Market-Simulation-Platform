@@ -47,6 +47,8 @@ DEFAULT_GUIDANCE_ACTIONS = [
     "Change scale-in fraction",
     "Change max scale-in entries",
     "Change bars between adds",
+    "Change minimum trade size",
+    "Change exit behavior",
     "Remove scale-in policy",
     "Enable / disable core allocation",
     "Change capital",
@@ -71,7 +73,9 @@ UNSUPPORTED_EDIT_SUGGESTED_ACTION = (
     "X then Y sequence rules, window/sequence bars and modes, sequence step edits, "
     "composite sequence-step replacements, removing sequence steps, "
     "position management, scale-in fraction, max scale-in entries, bars between adds, "
-    "removing scale-in policy, core allocation, capital, or dates."
+    "minimum trade size, sell-all or scale-out exit behavior, removing scale-in policy, "
+    "core allocation, capital, or dates. Examples: 'change RSI entry to 30', "
+    "'set stop loss to 8%', 'minimum trade size 1%', or 'sell all when RSI above 70'."
 )
 
 UNSUPPORTED_EDIT_MESSAGE = (
@@ -104,5 +108,8 @@ NO_CHANGE_MESSAGE = (
     "using X then Y sequence rules, changing window/sequence bars or window mode, "
     "changing sequence steps, using composite sequence steps, "
     "changing or removing sequence steps, position management, scale-in fraction, "
-    "max scale-in entries, bars between adds, removing scale-in policy, core allocation, capital, or dates."
+    "max scale-in entries, bars between adds, minimum trade size, sell-all or scale-out exit behavior, "
+    "removing scale-in policy, core allocation, capital, or dates. Try prompts like "
+    "'change RSI entry to 30', 'set stop loss to 8%', 'minimum trade size 1%', "
+    "or 'sell all when RSI above 70'."
 )

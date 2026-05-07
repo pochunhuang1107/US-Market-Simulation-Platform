@@ -251,13 +251,20 @@ export function StrategyBuilderPage() {
   }, [configText]);
 
   const isVersionAwareMode = Boolean(builderContext?.currentConfig);
+  const guidanceItems = [
+    ...(draftResponse?.validation_data?.suggested_action
+      ? [draftResponse.validation_data.suggested_action]
+      : []),
+    ...(draftResponse?.guidance_data?.suggested_actions ?? [])
+  ];
+  const hasGeneratedConfig = Boolean(draftResponse?.config);
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-10">
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="app-eyebrow text-xs font-semibold uppercase tracking-[0.28em]">
-            LLM-Assisted Strategy Builder
+            Deterministic Strategy Builder
           </div>
           <h1 className="app-title mt-2 text-3xl font-semibold tracking-tight">
             Strategy Builder
@@ -380,7 +387,7 @@ export function StrategyBuilderPage() {
                 Summary
               </div>
               <div className="app-title mt-2 whitespace-pre-wrap text-sm">
-                {draftResponse?.summary ?? 'No draft generated yet.'}
+                {draftResponse?.summary ?? draftResponse?.message ?? 'No draft generated yet.'}
               </div>
             </div>
 
@@ -391,6 +398,9 @@ export function StrategyBuilderPage() {
                 items={draftResponse?.warnings ?? []}
                 tone="warning"
               />
+              {guidanceItems.length > 0 && (
+                <ListBlock title="Guidance" items={guidanceItems} tone="warning" />
+              )}
             </div>
           </section>
         </div>
@@ -422,7 +432,7 @@ export function StrategyBuilderPage() {
             <button
               type="button"
               onClick={handleSaveAsNewStrategy}
-              disabled={!draftResponse}
+              disabled={!hasGeneratedConfig}
               className="app-button-primary rounded-2xl px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save as New Strategy
@@ -431,7 +441,7 @@ export function StrategyBuilderPage() {
             <button
               type="button"
               onClick={handleSaveAsNewVersion}
-              disabled={!draftResponse}
+              disabled={!hasGeneratedConfig}
               className="app-button-secondary rounded-2xl px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save as New Version
@@ -445,7 +455,7 @@ export function StrategyBuilderPage() {
                   setJsonError(null);
                 }
               }}
-              disabled={!draftResponse}
+              disabled={!hasGeneratedConfig}
               className="app-button-secondary rounded-2xl px-4 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               Reset to Generated Draft

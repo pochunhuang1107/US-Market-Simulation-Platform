@@ -3,6 +3,10 @@ import { ParameterSweepDraftCard } from './ParameterSweepDraftCard';
 import { StrategyDraftCard } from './StrategyDraftCard';
 import type { ChatMessage } from './types';
 
+type AssistantDraftMessage = Extract<ChatMessage, { role: 'assistant' }> & {
+  draft: NonNullable<Extract<ChatMessage, { role: 'assistant' }>['draft']>;
+};
+
 type PromptTemplate = {
   id: string;
   label: string;
@@ -53,7 +57,7 @@ const CAPABILITY_PROMPT_TEMPLATES: PromptTemplate[] = [
   }
 ];
 
-function isRunnableDraftMessage(message: ChatMessage): boolean {
+function isRunnableDraftMessage(message: ChatMessage): message is AssistantDraftMessage {
   return (
     message.role === 'assistant' &&
     Boolean(message.draft) &&
@@ -61,6 +65,29 @@ function isRunnableDraftMessage(message: ChatMessage): boolean {
     message.draft?.response_type !== 'VALIDATION_ERROR' &&
     (Boolean(message.draft?.config) || Boolean(message.draft?.sweep_draft))
   );
+}
+
+function isStrategyDraftMessage(message: ChatMessage): message is AssistantDraftMessage {
+  return (
+    isRunnableDraftMessage(message) &&
+    Boolean(message.draft?.config) &&
+    message.draft?.response_type !== 'PARAMETER_SWEEP_DRAFT'
+  );
+}
+
+function appendUniqueChanges(history: string[], changes: string[] | undefined): string[] {
+  if (!changes?.length) return history;
+
+  const next = [...history];
+  const seen = new Set(next);
+
+  for (const change of changes) {
+    if (seen.has(change)) continue;
+    seen.add(change);
+    next.push(change);
+  }
+
+  return next;
 }
 
 function AssistantMessageCard({
@@ -656,6 +683,7 @@ export function ChatMessageList({
   const latestDraftMessageId = [...messages]
     .reverse()
     .find(isRunnableDraftMessage)?.id;
+  let strategyRevisionHistory: string[] = [];
 
   return (
     <div className="space-y-6">
@@ -671,6 +699,9 @@ export function ChatMessageList({
         }
 
         const hasDraftConfig = isRunnableDraftMessage(message);
+        const strategyRevisionHistoryForMessage = isStrategyDraftMessage(message)
+          ? appendUniqueChanges(strategyRevisionHistory, message.draft?.changes)
+          : strategyRevisionHistory;
 
         if (message.draft?.response_type === 'PARAMETER_SWEEP_DRAFT' && message.draft.sweep_draft) {
           return (
@@ -689,11 +720,14 @@ export function ChatMessageList({
         }
 
         if (hasDraftConfig && message.draft) {
+          strategyRevisionHistory = strategyRevisionHistoryForMessage;
+
           return (
             <div key={message.id} className="flex justify-start">
               <div className="w-full max-w-5xl">
                 <StrategyDraftCard
                   draft={message.draft}
+                  revisionHistory={strategyRevisionHistoryForMessage}
                   onRun={() => onRunDraft(message.id)}
                   onUsePrompt={onUsePrompt}
                   isLatestDraft={message.id === latestDraftMessageId}

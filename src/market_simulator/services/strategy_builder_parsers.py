@@ -1927,8 +1927,11 @@ def _extract_allocation_value_edit(text: str) -> float | None:
         r"buy\s+(\d+(?:\.\d+)?)%\s+of\s+equity(?:\s+per\s+trade|\s+per\s+entry)?",
         r"(?<!core\s)allocation\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
         r"entry\s+size\s+(?:at|to)?\s*(\d+(?:\.\d+)?)%\s+of\s+equity",
+        r"entry\s+size\s+(?:at|to)?\s*(\d+(?:\.\d+)?)%",
         r"entry\s+sizing\s+(?:at|to)?\s*(\d+(?:\.\d+)?)%\s+of\s+equity",
+        r"entry\s+sizing\s+(?:at|to)?\s*(\d+(?:\.\d+)?)%",
         r"position\s+sizing\s+(?:at|to)?\s*(\d+(?:\.\d+)?)%\s+of\s+equity",
+        r"allocate\s+(\d+(?:\.\d+)?)%\s+per\s+entry",
         r"allocate\s+(\d+(?:\.\d+)?)%",
         r"(\d+(?:\.\d+)?)%\s+of\s+equity",
     ]
@@ -2215,7 +2218,7 @@ def _extract_min_bars_between_scale_ins_edit(text: str) -> int | None:
 
 def _extract_minimum_trade_notional_edit(text: str) -> float | None:
     patterns = [
-        r"(?:set\s+)?minimum\s+trade\s+(?:size\s+)?(?:to\s+|at\s+)?\$(\d[\d,]*(?:\.\d+)?)",
+        r"(?:set\s+)?minimum\s+trade\s+(?:size\s+|notional\s+)?(?:to\s+|at\s+)?\$(\d[\d,]*(?:\.\d+)?)",
         r"skip\s+trades?\s+(?:under|below)\s+\$(\d[\d,]*(?:\.\d+)?)",
         r"(?:do\s+not|don't)\s+trade\s+less\s+than\s+\$(\d[\d,]*(?:\.\d+)?)",
     ]
@@ -2236,6 +2239,7 @@ def _extract_minimum_trade_pct_of_equity_edit(text: str) -> float | None:
         [
             r"skip\s+trades?\s+(?:under|below)\s+(\d+(?:\.\d+)?)%\s+of\s+equity",
             r"minimum\s+trade\s+(?:size\s+)?(?:to\s+|at\s+)?(\d+(?:\.\d+)?)%\s+of\s+equity",
+            r"minimum\s+trade\s+(?:size\s+)?(?:to\s+|at\s+)?(\d+(?:\.\d+)?)%",
             r"(?:do\s+not|don't)\s+trade\s+less\s+than\s+(\d+(?:\.\d+)?)%\s+of\s+equity",
         ],
     )
@@ -2246,6 +2250,7 @@ def _extract_minimum_trade_shares_edit(text: str) -> int | None:
         text,
         [
             r"minimum\s+(\d+)\s+shares?(?:\s+per\s+trade)?",
+            r"minimum\s+shares?\s+(\d+)",
             r"minimum\s+trade\s+(?:size\s+)?(?:to\s+|at\s+)?(\d+)\s+shares?",
             r"skip\s+trades?\s+(?:under|below)\s+(\d+)\s+shares?",
         ],
@@ -2349,22 +2354,16 @@ def _build_position_management(
     elif not has_scale_management_edit and has_minimum_trade_edit:
         base = {}
     else:
-        default_scale_in_fraction = (
-            1.0
-            if (
-                scale_in_fraction is None
-                and max_scale_in_steps is None
-                and min_bars_between_scale_ins is None
-                and (exit_behavior is not None or scale_out_fraction is not None)
-            )
-            else 0.25
+        base = {}
+        has_scale_in_policy_edit = (
+            scale_in_fraction is not None
+            or max_scale_in_steps is not None
+            or min_bars_between_scale_ins is not None
         )
-        base = {
-            "scale_in_fraction": default_scale_in_fraction,
-            "profit_reduce_threshold": None,
-        }
-        if exit_behavior != "sell_all":
-            base["scale_out_fraction"] = 0.5
+        if has_scale_in_policy_edit:
+            base["scale_in_fraction"] = (
+                scale_in_fraction if scale_in_fraction is not None else 0.25
+            )
 
     if scale_in_fraction is not None:
         base["scale_in_fraction"] = scale_in_fraction
