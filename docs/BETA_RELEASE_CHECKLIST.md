@@ -1,26 +1,38 @@
 # Beta Release Checklist
 
-Use this before handing a beta build to testers. It assumes the infrastructure already exists and focuses on release readiness.
+Use this before handing a beta build to testers. It assumes the infrastructure already exists and focuses on local/code release readiness, not hosted infrastructure deployment.
+
+## 0. Local Release Gate
+
+- [ ] Run the safe local release gate from the repo root:
+
+```bash
+bash scripts/beta_release_gate.sh
+```
+
+This command runs backend tests, the frontend production build, beta env template preflight, `docker-compose.beta-local.yml` config validation, tracked env-file safety checks, and the landing/workspace route split check. It does not require AWS/Auth0 secrets, print env values, create cloud resources, or start the compose stack.
 
 ## 1. Environment Shape
 
 - [ ] Backend env is based on `.env.beta.example`, with real values supplied only in the deployment environment or private secret store.
 - [ ] Frontend build env is based on `frontend/.env.beta.example`.
 - [ ] Local dev still uses `.env.example` and `frontend/.env.example`; compose smoke still uses `docker-compose.beta-local.yml`.
-- [ ] No real `.env` or `frontend/.env.local` files are tracked:
+- [ ] No real `.env` or `frontend/.env.local` files are tracked. The release gate checks this automatically:
 
 ```bash
-git ls-files | grep -E '(^|/)\.env($|\.local|\.production|\.development)' || true
+git ls-files | grep -E '(^|/)\.env($|\.)' | grep -Ev '(^|/)\.env(\.beta)?\.example$' || true
 ```
 
-- [ ] Safe preflight passes without printing secrets:
+- [ ] Safe preflight passes without printing secrets. For committed templates, the release gate runs this automatically:
 
 ```bash
 python scripts/beta_preflight.py \
-  --backend-env .env.beta \
-  --frontend-env frontend/.env.beta \
+  --backend-env .env.beta.example \
+  --frontend-env frontend/.env.beta.example \
   --target-env beta
 ```
+
+For a private beta deployment environment, run the same preflight against private env files or the current process environment outside git.
 
 ## 2. Required Backend Vars
 
