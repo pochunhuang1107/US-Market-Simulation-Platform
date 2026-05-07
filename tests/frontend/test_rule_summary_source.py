@@ -56,6 +56,24 @@ def test_strategy_chat_passes_cumulative_revision_history_to_latest_draft_card()
     assert "<BulletList items={displayedChanges}" in draft_source
 
 
+def test_strategy_draft_actions_are_shared_and_stacked():
+    draft_source = (
+        ROOT / "frontend/src/components/strategy-chat/StrategyDraftCard.tsx"
+    ).read_text()
+    chat_source = (ROOT / "frontend/src/pages/StrategyChatPage.tsx").read_text()
+    gallery_source = (ROOT / "frontend/src/pages/StrategyGalleryPage.tsx").read_text()
+    run_header_source = (ROOT / "frontend/src/components/run-detail/RunHeader.tsx").read_text()
+
+    assert "function StrategyDraftActions" in draft_source
+    assert 'className="flex flex-col items-start gap-3 lg:items-end"' in draft_source
+    assert "flex flex-wrap items-center justify-start gap-3 lg:justify-end" not in draft_source
+    assert "<StrategyDraftActions" in draft_source
+    assert "sourceDraftConfig" in chat_source
+    assert "buildSeededDraftMessage" in chat_source
+    assert "navigate('/workspace', {" in gallery_source
+    assert "state={modifyBuilderState}" in run_header_source
+
+
 def test_strategy_behavior_summary_helper_keeps_position_copy_compact():
     helper_source = (ROOT / "frontend/src/lib/strategyBehaviorSummary.ts").read_text()
     draft_source = (
