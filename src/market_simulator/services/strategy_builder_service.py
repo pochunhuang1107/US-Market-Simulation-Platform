@@ -2784,6 +2784,23 @@ def _generate_strategy_draft(
         )
 
     config = _sync_reference_symbols(_merge_dict(base_config, default_config))
+    if (
+        has_current_config
+        and isinstance(base_config.get("reference_symbols"), list)
+        and not _looks_like_reference_series_filter_intent(prompt)
+        and "relative strength" not in prompt_lower
+        and "relative return" not in prompt_lower
+        and "outperform" not in prompt_lower
+    ):
+        reference_symbols = list(config.get("reference_symbols") or [])
+        for symbol in base_config["reference_symbols"]:
+            if (
+                isinstance(symbol, str)
+                and symbol != config.get("tradable_symbol")
+                and symbol not in reference_symbols
+            ):
+                reference_symbols.append(symbol)
+        config["reference_symbols"] = reference_symbols
 
     if add_reduce_reference_series_setup is not None:
         config["name"] = _build_add_reduce_strategy_name(
@@ -2825,6 +2842,21 @@ def _generate_strategy_draft(
     validated_config = validated.model_dump(mode="json", exclude_none=True)
     input_position_management = config.get("position_management")
     if isinstance(input_position_management, dict):
+        serialized_position_management = validated_config.get("position_management")
+        if isinstance(serialized_position_management, dict):
+            for default_key in (
+                "scale_in_fraction",
+                "exit_behavior",
+                "min_bars_between_scale_ins",
+                "scale_in_requires_persistent_signal",
+                "scale_out_fraction",
+                "profit_reduce_threshold",
+            ):
+                if default_key not in input_position_management:
+                    serialized_position_management.pop(default_key, None)
+            if not serialized_position_management:
+                validated_config["position_management"] = None
+
         scale_management_keys = {
             "scale_in_fraction",
             "scale_out_fraction",
@@ -2924,6 +2956,7 @@ _SWEEP_PATH_SPECS = [
         [
             r"(?:exit\s+rsi|rsi\s+exit)\s+thresholds?",
             r"rsi\s+sell\s+thresholds?",
+            r"rsi\s+exits?",
             r"(?:sell|exit)\s+(?:rsi\s+)?thresholds?",
             r"exit\s+thresholds?",
             r"exit\s+rsi",
@@ -3089,7 +3122,7 @@ def _extract_sweep_values(
 
         list_pattern = (
             rf"{label}(?:\s+(?:of|at|to|=|:))?\s+"
-            rf"(?P<values>{_NUMBER_TOKEN}(?:\s*(?:,|/|\band\b)\s*{_NUMBER_TOKEN})+)"
+            rf"(?P<values>{_NUMBER_TOKEN}(?:\s*(?:,\s*(?:and\s+)?|/|\band\b\s*){_NUMBER_TOKEN})+)"
         )
         list_match = re.search(list_pattern, text, flags=re.IGNORECASE)
         if list_match:
@@ -3416,7 +3449,7 @@ def _has_sweep_side_word(prompt: str, side: str) -> bool:
         )
     return bool(
         re.search(
-            r"\b(exit|sell|selling|reduce|reducing|trim|trimming)\b",
+            r"\b(exit|exits|sell|sells|selling|reduce|reducing|trim|trimming)\b",
             prompt,
             flags=re.IGNORECASE,
         )
