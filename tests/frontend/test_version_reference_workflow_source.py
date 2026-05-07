@@ -8,11 +8,32 @@ def test_run_detail_header_does_not_expose_new_version_action():
     source = (ROOT / "frontend/src/components/run-detail/RunHeader.tsx").read_text()
 
     assert "New version" not in source
-    assert "Back to results" in source
+    assert "Back to Results" in source
+    assert "Compare this result" in source
+    assert "Save strategy" in source
+    assert "Modify in Workspace" in source
     assert "Result ID:" in source
     assert "Simulation Result" in source
     assert "Parameter Sweep Result" in source
     assert "Open strategy" in source
+
+
+def test_completed_run_detail_keeps_chart_first_compact_result_hierarchy():
+    page_source = (ROOT / "frontend/src/pages/RunDetailPage.tsx").read_text()
+    hero_source = (ROOT / "frontend/src/components/run-detail/RunInsightHero.tsx").read_text()
+
+    assert "NextResearchStepsPanel" not in page_source
+    assert "canSaveDraftStrategy = Boolean" in page_source
+    assert "getDraftConfig(data.run)" in page_source
+    assert "Completed result" in hero_source
+    assert "const cagrPct = getSummaryNumber(summary, 'cagr_pct');" in hero_source
+    assert "label: 'Total Return'" in hero_source
+    assert "label: 'CAGR'" in hero_source
+    assert "label: 'Max Drawdown'" in hero_source
+    assert "label: 'Trades'" in hero_source
+    assert "label: 'Alpha'" in hero_source
+    assert "label: 'Sharpe'" not in hero_source
+    assert "verdict.description" not in hero_source
 
 
 def test_run_detail_polls_active_runs_more_responsively():
