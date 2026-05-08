@@ -1,0 +1,144 @@
+# Render Blueprint for the hosted beta stack.
+# This file is intentionally secret-free. Values marked sync: false must be
+# provided in the Render Dashboard or a private environment group.
+previews:
+  generation: off
+
+databases:
+  - name: us-market-simulation-postgres-beta
+    plan: basic-256mb
+    databaseName: market_simulator
+    user: market_simulator
+
+services:
+  - type: web
+    name: us-market-simulation-api-beta
+    runtime: docker
+    plan: starter
+    region: oregon
+    autoDeployTrigger: off
+    dockerfilePath: ./Dockerfile.backend
+    dockerContext: .
+    dockerCommand: uvicorn market_simulator.api.main:app --host 0.0.0.0 --port 8000
+    preDeployCommand: alembic upgrade head
+    healthCheckPath: /health
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: DATABASE_URL
+        sync: false
+      - key: ENV
+        value: beta
+      - key: AUTH_MODE
+        value: oidc
+      - key: OIDC_PROVIDER_NAME
+        value: auth0
+      - key: OIDC_JWKS_URL
+        sync: false
+      - key: OIDC_ISSUER
+        sync: false
+      - key: OIDC_AUDIENCE
+        sync: false
+      - key: OIDC_EMAIL_CLAIM
+        value: email
+      - key: OIDC_SUBJECT_CLAIM
+        value: sub
+      - key: OIDC_DISPLAY_NAME_CLAIM
+        value: name
+      - key: OIDC_ALLOW_EMAIL_LINKING
+        value: "true"
+      - key: ARTIFACT_STORAGE_BACKEND
+        value: S3
+      - key: ARTIFACT_S3_BUCKET
+        sync: false
+      - key: ARTIFACT_S3_PREFIX
+        sync: false
+      - key: ARTIFACT_S3_REGION
+        sync: false
+      - key: ARTIFACT_PRESIGN_TTL_SECONDS
+        value: "3600"
+      - key: MARKET_DATA_PATH
+        sync: false
+      - key: ETF_METADATA_S3_URI
+        sync: false
+      - key: REFERENCE_SERIES_DATA_PATH
+        sync: false
+      - key: REFERENCE_SERIES_METADATA_S3_URI
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: ENABLE_DEV_ADMIN_OVERRIDE
+        value: "false"
+      - key: QUEUE_OLDEST_WARNING_SECONDS
+        value: "600"
+      - key: RUNNING_STALE_SECONDS
+        value: "300"
+
+  - type: worker
+    name: us-market-simulation-worker-beta
+    runtime: docker
+    plan: starter
+    region: oregon
+    autoDeployTrigger: off
+    dockerfilePath: ./Dockerfile.backend
+    dockerContext: .
+    dockerCommand: python -m market_simulator.platform.worker --recover-stale
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ENV
+        value: beta
+      - key: AUTH_MODE
+        value: oidc
+      - key: OIDC_PROVIDER_NAME
+        value: auth0
+      - key: OIDC_JWKS_URL
+        sync: false
+      - key: OIDC_ISSUER
+        sync: false
+      - key: OIDC_AUDIENCE
+        sync: false
+      - key: OIDC_EMAIL_CLAIM
+        value: email
+      - key: OIDC_SUBJECT_CLAIM
+        value: sub
+      - key: OIDC_DISPLAY_NAME_CLAIM
+        value: name
+      - key: OIDC_ALLOW_EMAIL_LINKING
+        value: "true"
+      - key: ARTIFACT_STORAGE_BACKEND
+        value: S3
+      - key: ARTIFACT_S3_BUCKET
+        sync: false
+      - key: ARTIFACT_S3_PREFIX
+        sync: false
+      - key: ARTIFACT_S3_REGION
+        sync: false
+      - key: ARTIFACT_PRESIGN_TTL_SECONDS
+        value: "3600"
+      - key: MARKET_DATA_PATH
+        sync: false
+      - key: ETF_METADATA_S3_URI
+        sync: false
+      - key: REFERENCE_SERIES_DATA_PATH
+        sync: false
+      - key: REFERENCE_SERIES_METADATA_S3_URI
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: ENABLE_DEV_ADMIN_OVERRIDE
+        value: "false"
+      - key: QUEUE_OLDEST_WARNING_SECONDS
+        value: "600"
+      - key: RUNNING_STALE_SECONDS
+        value: "300"

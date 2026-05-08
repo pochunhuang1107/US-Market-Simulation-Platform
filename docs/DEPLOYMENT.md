@@ -1,6 +1,6 @@
 # Deployment Packaging
 
-This branch adds packaging for beta-like smoke testing only. It does not choose a real deployment target, deploy to AWS, create infrastructure, or commit secrets.
+This branch adds packaging for beta-like smoke testing and hosted beta configuration. It does not create cloud resources, deploy to AWS, or commit secrets.
 
 ## Process Model
 
@@ -16,6 +16,20 @@ The backend image is intentionally reusable for the API and worker. Runtime envi
 CI validates that the backend image, frontend image, and beta-local compose configuration still build or parse successfully. That validation does not push images to a registry, deploy infrastructure, or require secrets or AWS credentials.
 
 For the concise release gate, use [Beta Release Checklist](BETA_RELEASE_CHECKLIST.md).
+For the hosted Vercel + Render + managed Postgres + S3 + Auth0 beta path, use [Hosted Beta Deployment](HOSTED_BETA_DEPLOYMENT.md).
+
+## Hosted Beta Targets
+
+The hosted beta stack is configured as:
+
+- Frontend: Vercel, using `vercel.json` from the repository root, with install/build commands pointed at `frontend` and output `frontend/dist`.
+- API: Render Docker web service from `Dockerfile.backend`, running `uvicorn market_simulator.api.main:app --host 0.0.0.0 --port 8000`.
+- Worker: Render Docker background worker from the same backend image, running `python -m market_simulator.platform.worker --recover-stale`.
+- Database: managed Postgres supplied through `DATABASE_URL`.
+- Artifacts and curated data: S3.
+- Auth: Auth0 OIDC.
+
+`render.yaml` and `vercel.json` are safe committed configuration files. They contain placeholders or environment-variable names only. Review Render service plans, regions, and hostnames before applying the blueprint; applying it in Render can create billable hosted resources.
 
 ## Local Beta-Like Compose
 
