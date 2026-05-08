@@ -15,6 +15,7 @@ This app has separate expectations for local development and protected beta or p
 ## Beta And Production
 
 - Use `ENV=beta` or `ENV=production`.
+- For the hosted Vercel + Render + managed Postgres + S3 + Auth0 beta path, see [Hosted Beta Deployment](HOSTED_BETA_DEPLOYMENT.md).
 - Do not use dev auth in protected environments. The app resolves beta and production auth as required even if `AUTH_MODE=dev` is configured.
 - Do not use `DEV_ADMIN` override in beta or protected environments. Invited founder and QA accounts should use the DB-backed `BETA_TESTER` plan instead.
 - Use `AUTH_MODE=oidc` to validate `Authorization: Bearer <JWT>` against an OIDC-compatible provider. `AUTH_MODE=required` also enables OIDC when `OIDC_JWKS_URL` is configured.
