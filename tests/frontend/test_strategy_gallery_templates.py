@@ -12,6 +12,7 @@ from market_simulator.data.repository import MarketDataBundle
 from market_simulator.engine.runner import run_simulation
 from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.services.draft_validation import validate_draft_config
+from market_simulator.settings import get_settings
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,13 +50,13 @@ import('jiti').then(({ createJiti }) => {
         module.getStrategyGalleryDisplayChips(template),
       ])
     ),
-    strictRiskIds: module.filterStrategyGalleryTemplates(
+    holdoutRiskIds: module.filterStrategyGalleryTemplates(
       module.STRATEGY_GALLERY_TEMPLATES,
-      { ...baseFilters, query: 'stricter' }
+      { ...baseFilters, query: 'holdout' }
     ).map((template) => template.id),
-    defensiveSymbolIds: module.filterStrategyGalleryTemplates(
+    iwmSymbolIds: module.filterStrategyGalleryTemplates(
       module.STRATEGY_GALLERY_TEMPLATES,
-      { ...baseFilters, symbol: 'IEF' }
+      { ...baseFilters, symbol: 'IWM' }
     ).map((template) => template.id),
     vixOverlayIds: module.filterStrategyGalleryTemplates(
       module.STRATEGY_GALLERY_TEMPLATES,
@@ -63,7 +64,7 @@ import('jiti').then(({ createJiti }) => {
     ).map((template) => template.id),
     sectorCategoryIds: module.filterStrategyGalleryTemplates(
       module.STRATEGY_GALLERY_TEMPLATES,
-      { ...baseFilters, tagOrCategory: 'Sector rotation' }
+      { ...baseFilters, tagOrCategory: 'Sector overlay' }
     ).map((template) => template.id),
     activeFilters: module.hasActiveStrategyGalleryFilters({ ...baseFilters, riskLevel: 'Lower' }),
     emptyFilters: module.hasActiveStrategyGalleryFilters(baseFilters),
@@ -119,6 +120,27 @@ def _synthetic_reference_series(symbol: str, start_date: str, end_date: str) -> 
     )
 
 
+def _collect_rule_symbols(rule: dict[str, Any] | None) -> set[str]:
+    if not isinstance(rule, dict):
+        return set()
+
+    symbols = set()
+    for key in ("symbol", "reference_symbol"):
+        symbol = rule.get(key)
+        if isinstance(symbol, str):
+            symbols.add(symbol.upper())
+
+    if isinstance(rule.get("rule"), dict):
+        symbols.update(_collect_rule_symbols(rule["rule"]))
+
+    rules = rule.get("rules")
+    if isinstance(rules, list):
+        for child in rules:
+            symbols.update(_collect_rule_symbols(child))
+
+    return symbols
+
+
 def test_strategy_gallery_templates_validate_and_build_run_payloads():
     templates = _load_gallery_templates()
     assert len(templates) >= 10
@@ -149,14 +171,11 @@ def test_strategy_gallery_reference_templates_remain_runnable_with_synthetic_dat
     ]
 
     assert {template["id"] for template in reference_templates} >= {
-        "qqq-vix-risk-on-risk-off",
-        "qqq-core-vix-overlay",
-        "xlk-sector-relative-strength",
-        "qqq-tlt-defensive-relative-strength",
-        "spy-vix-rsi-regime-pullback",
-        "spy-core-defensive-vix-overlay",
-        "xlu-defensive-sector-relative-strength",
-        "qqq-ief-trend-filtered-pullback",
+        "qqq-core-vix-trend-overlay",
+        "spy-core-vix-trend-overlay",
+        "xlp-core-relative-strength-overlay",
+        "xli-core-relative-strength-watchlist",
+        "xlre-core-relative-strength-defensive",
     }
 
     for template in reference_templates:
@@ -207,6 +226,9 @@ def test_strategy_gallery_templates_include_discovery_metadata():
         assert isinstance(template["tags"], list)
         assert template["tags"]
         assert all(isinstance(tag, str) and tag.strip() for tag in template["tags"])
+        assert len(template["tags"]) == len(
+            {tag.strip().lower() for tag in template["tags"]}
+        )
         assert isinstance(template["strategyFamily"], str)
         assert template["strategyFamily"].strip()
         assert template["referenceSeriesUsage"] in {
@@ -226,29 +248,62 @@ def test_strategy_gallery_templates_include_discovery_metadata():
             assert symbol not in serialized_config
 
 
+def test_strategy_gallery_templates_use_supported_symbols():
+    settings = get_settings()
+    supported_symbols = set(settings.supported_etf_symbols)
+    supported_references = set(settings.supported_reference_series_symbols)
+
+    for template in _load_gallery_templates():
+        config = template["config"]
+        symbols = {
+            config["tradable_symbol"],
+            config["benchmark_symbol"],
+            *config["reference_symbols"],
+            *_collect_rule_symbols(config["entry_rule"]),
+            *_collect_rule_symbols(config["exit_rule"]),
+        }
+        unsupported = sorted(
+            symbol
+            for symbol in symbols
+            if symbol not in supported_symbols and symbol not in supported_references
+        )
+        assert unsupported == []
+
+
 def test_strategy_gallery_filter_helpers_cover_search_and_filter_facets():
     probe = _run_gallery_helper_probe()
 
     assert "Mean reversion" in probe["options"]["styles"]
     assert "Lower" in probe["options"]["riskLevels"]
-    assert "IEF" in probe["options"]["symbols"]
-    assert "ETF trend filter" in probe["options"]["referenceSeriesUsages"]
-    assert "Sector rotation" in probe["options"]["tagsAndCategories"]
-    assert "qqq-ief-trend-filtered-pullback" in probe["defensiveSymbolIds"]
-    assert "spy-rsi-strict-pullback" in probe["strictRiskIds"]
+    assert "IWM" in probe["options"]["symbols"]
+    assert "VIX regime" in probe["options"]["referenceSeriesUsages"]
+    assert "Sector overlay" in probe["options"]["tagsAndCategories"]
+    assert "iwm-rsi-defensive-pullback" in probe["iwmSymbolIds"]
+    assert set(probe["holdoutRiskIds"]) >= {
+        "xle-rsi-defensive-pullback",
+        "qqq-core-vix-trend-overlay",
+        "spy-core-rsi-starter",
+    }
     assert set(probe["vixOverlayIds"]) >= {
-        "qqq-core-vix-overlay",
-        "spy-core-defensive-vix-overlay",
+        "qqq-core-vix-trend-overlay",
+        "spy-core-vix-trend-overlay",
     }
     assert set(probe["sectorCategoryIds"]) >= {
-        "xlk-sector-relative-strength",
-        "xlu-defensive-sector-relative-strength",
+        "xlp-core-relative-strength-overlay",
+        "xli-core-relative-strength-watchlist",
+        "xlre-core-relative-strength-defensive",
     }
     assert probe["activeFilters"] is True
     assert probe["emptyFilters"] is False
 
-    qqq_vix_chips = probe["displayChipsById"]["qqq-vix-risk-on-risk-off"]
-    assert qqq_vix_chips == ["QQQ", "VIX", "Volatility regime", "RSI", "risk filter"]
+    qqq_vix_chips = probe["displayChipsById"]["qqq-core-vix-trend-overlay"]
+    assert qqq_vix_chips == [
+        "QQQ",
+        "VIX",
+        "Major ETF starter",
+        "trend filter",
+        "core sleeve",
+    ]
 
     for chips in probe["displayChipsById"].values():
         normalized = [chip.lower() for chip in chips]
@@ -258,56 +313,153 @@ def test_strategy_gallery_filter_helpers_cover_search_and_filter_facets():
 def test_upgraded_gallery_templates_use_intentional_position_management():
     templates = _load_gallery_templates()
 
-    rsi = _template_by_id(templates, "qqq-rsi-mean-reversion")["config"]
-    assert rsi["entry_rule"]["threshold"] == 35
-    assert rsi["exit_rule"]["threshold"] == 65
-    assert rsi["position_management"] == {
+    xle = _template_by_id(templates, "xle-rsi-defensive-pullback")["config"]
+    assert xle["allocation"]["max_position_pct"] == 0.75
+    assert xle["risk"]["stop_loss_pct"] == 0.12
+    assert xle["risk"]["cooldown_bars"] == 5
+    assert xle["entry_rule"]["threshold"] == 45
+    assert xle["exit_rule"]["threshold"] == 60
+    assert xle["position_management"] == {
         "scale_in_fraction": 0.25,
         "exit_behavior": "sell_all",
         "profit_reduce_threshold": None,
-        "max_scale_in_steps": 4,
+        "max_scale_in_steps": 3,
         "min_bars_between_scale_ins": 3,
         "scale_in_requires_persistent_signal": True,
         "minimum_trade_notional": 500,
     }
 
-    vix = _template_by_id(templates, "qqq-vix-risk-on-risk-off")["config"]
-    assert vix["reference_symbols"] == ["VIX"]
-    assert vix["entry_rule"]["operator"] == "AND"
-    assert vix["entry_rule"]["rules"][0]["type"] == "series_below"
-    assert vix["entry_rule"]["rules"][1]["type"] == "rsi_below"
-    assert vix["position_management"]["scale_in_fraction"] == 0.25
-    assert vix["position_management"]["max_scale_in_steps"] == 3
-    assert vix["position_management"]["exit_behavior"] == "sell_all"
-    assert vix["position_management"]["minimum_trade_notional"] == 500
+    iwm = _template_by_id(templates, "iwm-rsi-defensive-pullback")["config"]
+    assert iwm["tradable_symbol"] == "IWM"
+    assert iwm["risk"]["stop_loss_pct"] == 0.08
+    assert iwm["risk"]["cooldown_bars"] == 3
+    assert iwm["entry_rule"]["threshold"] == 45
+    assert iwm["exit_rule"]["threshold"] == 70
+    assert iwm["position_management"]["exit_behavior"] == "sell_all"
 
-    overlay = _template_by_id(templates, "qqq-core-vix-overlay")["config"]
-    assert overlay["core_overlay"] == {
+    qqq_vix = _template_by_id(templates, "qqq-core-vix-trend-overlay")["config"]
+    assert qqq_vix["reference_symbols"] == ["VIX"]
+    assert qqq_vix["core_overlay"] == {
         "enabled": True,
-        "core_allocation_pct": 0.6,
+        "core_allocation_pct": 0.8,
     }
-    assert overlay["position_management"]["scale_in_fraction"] == 1.0
-    assert overlay["position_management"]["max_scale_in_steps"] == 1
-    assert overlay["position_management"]["exit_behavior"] == "sell_all"
+    assert qqq_vix["entry_rule"]["operator"] == "AND"
+    assert qqq_vix["entry_rule"]["rules"][0]["type"] == "series_below"
+    assert qqq_vix["entry_rule"]["rules"][0]["threshold"] == 30
+    assert qqq_vix["entry_rule"]["rules"][1]["type"] == "sma_above"
+    assert qqq_vix["entry_rule"]["rules"][1]["slow_window"] == 100
+    assert qqq_vix["exit_rule"]["type"] == "sma_cross_below"
+    assert qqq_vix["position_management"]["scale_in_fraction"] == 1.0
+    assert qqq_vix["position_management"]["exit_behavior"] == "sell_all"
 
-    trend = _template_by_id(templates, "spy-moving-average-trend-filter")["config"]
-    assert trend["position_management"]["scale_in_fraction"] == 1.0
-    assert trend["position_management"]["max_scale_in_steps"] == 1
-    assert trend["position_management"]["exit_behavior"] == "sell_all"
+    qqq_core = _template_by_id(templates, "qqq-core-rsi-starter")["config"]
+    assert qqq_core["core_overlay"] == {
+        "enabled": True,
+        "core_allocation_pct": 0.8,
+    }
+    assert qqq_core["entry_rule"]["threshold"] == 40
+    assert qqq_core["exit_rule"]["threshold"] == 70
+    assert qqq_core["position_management"] == {
+        "scale_in_fraction": 0.5,
+        "exit_behavior": "sell_all",
+        "profit_reduce_threshold": None,
+        "max_scale_in_steps": 2,
+        "min_bars_between_scale_ins": 3,
+        "scale_in_requires_persistent_signal": True,
+        "minimum_trade_notional": 500,
+    }
 
-    strict = _template_by_id(templates, "spy-rsi-strict-pullback")["config"]
-    assert strict["risk"]["stop_loss_pct"] == 0.06
-    assert strict["risk"]["cooldown_bars"] == 2
-    assert strict["position_management"]["scale_in_fraction"] == 0.2
-    assert strict["position_management"]["max_scale_in_steps"] == 3
-    assert strict["position_management"]["exit_behavior"] == "sell_all"
+    xlp = _template_by_id(templates, "xlp-core-relative-strength-overlay")["config"]
+    assert xlp["tradable_symbol"] == "XLP"
+    assert xlp["benchmark_symbol"] == "SPY"
+    assert xlp["reference_symbols"] == ["SPY"]
+    assert xlp["core_overlay"]["core_allocation_pct"] == 0.5
+    assert xlp["entry_rule"]["type"] == "relative_return_above"
+    assert xlp["entry_rule"]["lookback"] == 30
 
-    defensive = _template_by_id(templates, "qqq-ief-trend-filtered-pullback")["config"]
-    assert defensive["reference_symbols"] == ["IEF"]
-    assert defensive["entry_rule"]["rules"][1]["type"] == "sma_above"
-    assert defensive["entry_rule"]["rules"][1]["symbol"] == "IEF"
-    assert defensive["exit_rule"]["rules"][1]["type"] == "sma_cross_below"
-    assert defensive["position_management"]["exit_behavior"] == "sell_all"
+
+def test_refreshed_gallery_templates_include_major_etfs_and_defensive_candidates():
+    templates = _load_gallery_templates()
+    ids = {template["id"] for template in templates}
+    symbols = {symbol for template in templates for symbol in template["symbols"]}
+
+    assert {"QQQ", "SPY", "XLE", "IWM", "XLV"} <= symbols
+    assert {
+        "xle-rsi-defensive-pullback",
+        "iwm-rsi-defensive-pullback",
+        "xlv-rsi-healthcare-risk-control",
+    } <= ids
+
+
+def test_gallery_templates_avoid_performance_promising_wording():
+    banned_phrases = [
+        "will outperform",
+        "beats the market",
+        "proven alpha",
+        "guaranteed",
+        "best strategy",
+        "profitable signal",
+        "will beat",
+    ]
+
+    for template in _load_gallery_templates():
+        text = " ".join(
+            [
+                template["title"],
+                template["shortExplanation"],
+                template["expectedBehavior"],
+                template["entryRuleText"],
+                template["exitRuleText"],
+                " ".join(template["tags"]),
+            ]
+        ).lower()
+        assert "zero-trade" not in text
+        assert "diagnostic" not in text
+        for phrase in banned_phrases:
+            assert phrase not in text
+
+
+def test_builder_sample_prompt_sources_include_refreshed_examples():
+    prompt_sources = "\n".join(
+        [
+            (ROOT / "frontend/src/components/strategy-chat/ExamplePromptChips.tsx").read_text(),
+            (ROOT / "frontend/src/components/strategy-chat/ChatMessageList.tsx").read_text(),
+        ]
+    )
+
+    expected_examples = [
+        "Create an XLE RSI pullback strategy with RSI below 45",
+        "Create an IWM RSI strategy that enters below 45",
+        "Create a QQQ strategy with entry when VIX below 30",
+        "Create a SPY strategy with entry when VIX below 30",
+        "Create an XLV RSI risk-control strategy",
+    ]
+    for example in expected_examples:
+        assert example in prompt_sources
+
+
+def test_featured_strategy_ideas_use_refreshed_gallery_templates():
+    source = (ROOT / "frontend/src/pages/StrategyChatPage.tsx").read_text()
+
+    for template_id in [
+        "xle-rsi-defensive-pullback",
+        "iwm-rsi-defensive-pullback",
+        "qqq-core-vix-trend-overlay",
+    ]:
+        assert template_id in source
+
+
+def test_gallery_templates_do_not_include_duplicate_visible_tags_or_chips():
+    probe = _run_gallery_helper_probe()
+    templates = _load_gallery_templates()
+
+    for template in templates:
+        normalized_tags = [tag.lower() for tag in template["tags"]]
+        assert len(normalized_tags) == len(set(normalized_tags))
+
+    for chips in probe["displayChipsById"].values():
+        normalized = [chip.lower() for chip in chips]
+        assert len(normalized) == len(set(normalized))
 
 
 def test_gallery_templates_do_not_mix_sell_all_with_visible_scale_out_fraction():

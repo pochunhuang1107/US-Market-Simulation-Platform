@@ -1,23 +1,23 @@
 const EXAMPLES = [
   {
     label: 'Beginner RSI',
-    prompt: 'Create a simple RSI strategy for QQQ.'
+    prompt: 'Create an XLE RSI pullback strategy with RSI below 45, exit above 60, 12% stop loss, 5-bar cooldown, and max position 75%.'
   },
   {
-    label: 'Risk-managed',
-    prompt: 'Create a QQQ RSI strategy with a 10% stop loss and 15% take profit.'
+    label: 'Small-cap RSI',
+    prompt: 'Create an IWM RSI strategy that enters below 45, exits above 70, uses an 8% stop loss, and waits 3 bars after exits.'
   },
   {
-    label: 'Core-overlay',
-    prompt: 'Create a QQQ core-overlay strategy with 60% core and 40% RSI overlay.'
+    label: 'QQQ VIX filter',
+    prompt: 'Create a QQQ strategy with entry when VIX below 30 and RSI below 40, exit when VIX above 40 or RSI above 70.'
   },
   {
-    label: 'VIX filter',
-    prompt: 'Only trade QQQ when VIX is below 25 and RSI is below 35.'
+    label: 'SPY defensive trend',
+    prompt: 'Create a SPY strategy with entry when VIX below 30 and SPY is above its 100-day SMA, exit when SPY crosses below its 100-day SMA.'
   },
   {
-    label: 'Relative strength',
-    prompt: 'Create a QQQ strategy that enters when QQQ outperforms SPY over 20 days.'
+    label: 'Healthcare risk-control',
+    prompt: 'Create an XLV RSI risk-control strategy that enters below 35, exits above 70, and uses an 8% stop loss.'
   }
 ];
 
