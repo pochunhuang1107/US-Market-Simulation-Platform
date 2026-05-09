@@ -27,6 +27,7 @@ frontend/.env.*
 # Test / local outputs
 .pytest_cache/
 data/local_artifacts/
+data/discovery_reports/
 run_logs/
 
 # IDE
