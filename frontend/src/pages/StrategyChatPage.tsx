@@ -14,7 +14,7 @@ import {
   generateStrategyDraft
 } from '../lib/api';
 import {
-  STRATEGY_GALLERY_TEMPLATES,
+  findStrategyGalleryTemplate,
   type StrategyGalleryTemplate
 } from '../lib/strategyGalleryTemplates';
 import type {
@@ -363,7 +363,11 @@ function FeaturedStrategyIdeas({
 }: {
   onUseTemplate: (template: StrategyGalleryTemplate) => void;
 }) {
-  const featuredTemplates = STRATEGY_GALLERY_TEMPLATES.slice(0, 3);
+  const featuredTemplates = [
+    findStrategyGalleryTemplate('xle-rsi-defensive-pullback'),
+    findStrategyGalleryTemplate('iwm-rsi-defensive-pullback'),
+    findStrategyGalleryTemplate('qqq-core-vix-trend-overlay')
+  ].filter((template): template is StrategyGalleryTemplate => Boolean(template));
 
   return (
     <section className="w-full">

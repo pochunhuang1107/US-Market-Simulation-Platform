@@ -15,22 +15,24 @@ type PromptTemplate = {
 
 const DEFAULT_PROMPT_TEMPLATE: PromptTemplate = {
   id: 'rsi',
-  label: 'Create a QQQ RSI mean reversion strategy',
-  buildPrompt: (symbol) => `Create a ${symbol} RSI mean reversion strategy`
+  label: 'Create an XLE RSI pullback strategy with RSI below 45',
+  buildPrompt: (symbol) =>
+    `Create a ${symbol} RSI pullback strategy with RSI below 45, exit above 60, 12% stop loss, 5-bar cooldown, and max position 75%`
 };
 
 const SYMBOL_PROMPT_TEMPLATES: PromptTemplate[] = [
   DEFAULT_PROMPT_TEMPLATE,
   {
-    id: 'moving-average',
-    label: 'Create an SPY moving average crossover strategy using 10 day and 30 day SMA',
+    id: 'spy-defensive-trend',
+    label: 'Create a SPY strategy with VIX below 30 and a 100-day SMA filter',
     buildPrompt: (symbol) =>
-      `Create a ${symbol} moving average crossover strategy using 10 day and 30 day SMA`
+      `Create a ${symbol} strategy with entry when VIX below 30 and ${symbol} is above its 100-day SMA, exit when ${symbol} crosses below its 100-day SMA`
   },
   {
-    id: 'seasonality',
-    label: 'Create a GLD seasonality strategy',
-    buildPrompt: (symbol) => `Create a ${symbol} seasonality strategy`
+    id: 'iwm-risk-control',
+    label: 'Create an IWM RSI strategy with an 8% stop loss',
+    buildPrompt: (symbol) =>
+      `Create a ${symbol} RSI strategy that enters below 45, exits above 70, uses an 8% stop loss, and waits 3 bars after exits`
   }
 ];
 
@@ -38,22 +40,22 @@ const CAPABILITY_PROMPT_TEMPLATES: PromptTemplate[] = [
   DEFAULT_PROMPT_TEMPLATE,
   SYMBOL_PROMPT_TEMPLATES[1],
   {
-    id: 'regime-aware',
-    label: 'Only trade QQQ when VIX is below 25 and RSI is below 35',
+    id: 'qqq-vix-risk-filter',
+    label: 'Create a QQQ strategy with VIX below 30 and RSI below 40',
     buildPrompt: (symbol) =>
-      `Only trade ${symbol} when VIX is below 25 and RSI is below 35`
+      `Create a ${symbol} strategy with entry when VIX below 30 and RSI below 40, exit when VIX above 40 or RSI above 70`
   },
   {
-    id: 'core-overlay',
-    label: 'Create a QQQ core-overlay strategy with 60% core and 40% RSI overlay',
+    id: 'spy-core-overlay',
+    label: 'Create a SPY core-overlay strategy with an 80% core and RSI overlay',
     buildPrompt: (symbol) =>
-      `Create a ${symbol} core-overlay strategy with 60% core and 40% RSI overlay`
+      `Create a ${symbol} core-overlay strategy with an 80% core and RSI overlay`
   },
   {
-    id: 'relative-strength',
-    label: 'Create a QQQ strategy that enters when QQQ outperforms SPY over 20 days',
+    id: 'xlv-risk-control',
+    label: 'Create an XLV RSI risk-control strategy',
     buildPrompt: (symbol) =>
-      `Create a ${symbol} strategy that enters when ${symbol} outperforms SPY over 20 days`
+      `Create a ${symbol} RSI risk-control strategy that enters below 35, exits above 70, and uses an 8% stop loss`
   }
 ];
 

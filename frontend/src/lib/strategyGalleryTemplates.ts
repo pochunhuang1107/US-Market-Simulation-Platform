@@ -306,109 +306,48 @@ export function filterStrategyGalleryTemplates(
 
 export const STRATEGY_GALLERY_TEMPLATES = [
   {
-    id: 'qqq-rsi-mean-reversion',
-    title: 'QQQ RSI Mean Reversion',
-    shortExplanation: 'Tests a simple QQQ pullback idea using RSI oversold entries and RSI recovery exits.',
-    symbols: ['QQQ'],
-    categoryLabel: 'Pullback',
-    tags: ['QQQ', 'RSI', 'scale-in', 'sell-all'],
+    id: 'xle-rsi-defensive-pullback',
+    title: 'XLE RSI Defensive Pullback',
+    shortExplanation: 'Historically screened XLE RSI pullback research with a capped position size and cooldown.',
+    symbols: ['XLE'],
+    categoryLabel: 'Sector pullback',
+    tags: ['XLE', 'RSI', 'defensive', 'cooldown'],
     style: 'Mean reversion',
     riskLevel: 'Moderate',
-    strategyFamily: 'RSI pullback',
+    strategyFamily: 'RSI mean reversion',
     referenceSeriesUsage: 'None',
-    expectedBehavior: 'Enters 25% at a time while RSI stays oversold, waits between adds, skips very small trades, and sells the full position when RSI recovers.',
-    entryRuleText: 'Enter QQQ when RSI(14) falls below 35.',
-    exitRuleText: 'Exit the full QQQ position when RSI(14) rises above 65.',
-    riskControls: ['10% stop loss', '25% entries', 'Up to 4 entries', '3-bar wait between adds', 'Skips trades below $500', '5 bps transaction cost'],
+    expectedBehavior: 'Uses 25% scale-ins up to a 75% cap, exits fully on RSI recovery, and is framed as defensive research; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Enter XLE when RSI(14) falls below 45.',
+    exitRuleText: 'Exit the full XLE position when RSI(14) rises above 60.',
+    riskControls: ['12% stop loss', '25% entries', '75% max position', '3-bar wait between adds', '5-bar cooldown', 'Skips trades below $500'],
     config: {
       ...BASE_CONFIG,
-      name: 'QQQ RSI Mean Reversion',
-      tradable_symbol: 'QQQ',
-      benchmark_symbol: 'QQQ',
+      name: 'XLE RSI Defensive Pullback',
+      tradable_symbol: 'XLE',
+      benchmark_symbol: 'XLE',
       reference_symbols: [],
+      allocation: {
+        ...BASE_CONFIG.allocation,
+        max_position_pct: 0.75
+      },
+      risk: {
+        ...BASE_CONFIG.risk,
+        stop_loss_pct: 0.12,
+        cooldown_bars: 5
+      },
       entry_rule: {
         kind: 'atomic',
         type: 'rsi_below',
-        symbol: 'QQQ',
+        symbol: 'XLE',
         lookback: 14,
-        threshold: 35
+        threshold: 45
       },
       exit_rule: {
         kind: 'atomic',
         type: 'rsi_above',
-        symbol: 'QQQ',
+        symbol: 'XLE',
         lookback: 14,
-        threshold: 65
-      },
-      position_management: {
-        scale_in_fraction: 0.25,
-        exit_behavior: 'sell_all',
-        profit_reduce_threshold: null,
-        max_scale_in_steps: 4,
-        min_bars_between_scale_ins: 3,
-        scale_in_requires_persistent_signal: true,
-        minimum_trade_notional: 500
-      }
-    }
-  },
-  {
-    id: 'qqq-vix-risk-on-risk-off',
-    title: 'QQQ VIX Risk-On/Risk-Off',
-    shortExplanation: 'Tests a volatility-filtered QQQ pullback: buy only when VIX is calmer and QQQ is oversold.',
-    symbols: ['QQQ', 'VIX'],
-    categoryLabel: 'Volatility regime',
-    tags: ['QQQ', 'VIX', 'RSI', 'risk filter'],
-    style: 'Risk filter',
-    riskLevel: 'Moderate',
-    strategyFamily: 'Volatility-filtered pullback',
-    referenceSeriesUsage: 'VIX regime',
-    expectedBehavior: 'Uses VIX as a risk filter, scales into qualifying RSI pullbacks, skips very small trades, and sells all when volatility spikes or RSI rebounds.',
-    entryRuleText: 'Enter when VIX is below 25 and QQQ RSI(14) is below 40.',
-    exitRuleText: 'Exit the full QQQ position when VIX rises above 35 or QQQ RSI(14) rises above 70.',
-    riskControls: ['10% stop loss', 'VIX regime filter', '25% entries', 'Up to 3 entries', '3-bar wait between adds', 'Skips trades below $500', '5 bps transaction cost'],
-    config: {
-      ...BASE_CONFIG,
-      name: 'QQQ VIX Risk-On Risk-Off',
-      tradable_symbol: 'QQQ',
-      benchmark_symbol: 'QQQ',
-      reference_symbols: ['VIX'],
-      entry_rule: {
-        kind: 'group',
-        operator: 'AND',
-        rules: [
-          {
-            kind: 'atomic',
-            type: 'series_below',
-            symbol: 'VIX',
-            threshold: 25
-          },
-          {
-            kind: 'atomic',
-            type: 'rsi_below',
-            symbol: 'QQQ',
-            lookback: 14,
-            threshold: 40
-          }
-        ]
-      },
-      exit_rule: {
-        kind: 'group',
-        operator: 'OR',
-        rules: [
-          {
-            kind: 'atomic',
-            type: 'series_above',
-            symbol: 'VIX',
-            threshold: 35
-          },
-          {
-            kind: 'atomic',
-            type: 'rsi_above',
-            symbol: 'QQQ',
-            lookback: 14,
-            threshold: 70
-          }
-        ]
+        threshold: 60
       },
       position_management: {
         scale_in_fraction: 0.25,
@@ -422,23 +361,74 @@ export const STRATEGY_GALLERY_TEMPLATES = [
     }
   },
   {
-    id: 'qqq-core-vix-overlay',
-    title: 'QQQ Core + VIX Tactical Overlay',
-    shortExplanation: 'Tests a 60% QQQ core with a tactical overlay that turns on only in calmer VIX regimes.',
-    symbols: ['QQQ', 'VIX'],
-    categoryLabel: 'Core overlay',
-    tags: ['QQQ', 'VIX', 'core sleeve', 'overlay'],
-    style: 'Overlay',
+    id: 'iwm-rsi-defensive-pullback',
+    title: 'IWM RSI Defensive Pullback',
+    shortExplanation: 'Historically screened small-cap RSI pullback candidate with explicit stop and cooldown settings.',
+    symbols: ['IWM'],
+    categoryLabel: 'Small-cap pullback',
+    tags: ['IWM', 'RSI', 'defensive', 'small cap'],
+    style: 'Mean reversion',
     riskLevel: 'Moderate',
-    strategyFamily: 'Core plus tactical overlay',
-    referenceSeriesUsage: 'VIX regime',
-    expectedBehavior: 'Keeps the core sleeve invested while the overlay adds exposure below the VIX threshold and sells the overlay when volatility rises.',
-    entryRuleText: 'Keep a 60% QQQ core. Add overlay exposure when VIX is below 15.',
-    exitRuleText: 'Sell the tactical overlay when VIX rises above 35; the QQQ core stays invested.',
-    riskControls: ['60% core allocation', '40% tactical sleeve', 'Full overlay exit above VIX 35', 'Skips overlay trades below $500', '5 bps transaction cost'],
+    strategyFamily: 'RSI mean reversion',
+    referenceSeriesUsage: 'None',
+    expectedBehavior: 'Uses 25% scale-ins, an 8% stop, and full exits on RSI recovery; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Enter IWM when RSI(14) falls below 45.',
+    exitRuleText: 'Exit the full IWM position when RSI(14) rises above 70.',
+    riskControls: ['8% stop loss', '25% entries', 'Up to 3 entries', '3-bar wait between adds', '3-bar cooldown', 'Skips trades below $500'],
     config: {
       ...BASE_CONFIG,
-      name: 'QQQ Core VIX Tactical Overlay',
+      name: 'IWM RSI Defensive Pullback',
+      tradable_symbol: 'IWM',
+      benchmark_symbol: 'IWM',
+      reference_symbols: [],
+      risk: {
+        ...BASE_CONFIG.risk,
+        stop_loss_pct: 0.08,
+        cooldown_bars: 3
+      },
+      entry_rule: {
+        kind: 'atomic',
+        type: 'rsi_below',
+        symbol: 'IWM',
+        lookback: 14,
+        threshold: 45
+      },
+      exit_rule: {
+        kind: 'atomic',
+        type: 'rsi_above',
+        symbol: 'IWM',
+        lookback: 14,
+        threshold: 70
+      },
+      position_management: {
+        scale_in_fraction: 0.25,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 3,
+        min_bars_between_scale_ins: 3,
+        scale_in_requires_persistent_signal: true,
+        minimum_trade_notional: 500
+      }
+    }
+  },
+  {
+    id: 'qqq-core-vix-trend-overlay',
+    title: 'QQQ Core VIX Trend Overlay',
+    shortExplanation: 'Major ETF starter example using a QQQ core plus a VIX and trend-gated tactical sleeve.',
+    symbols: ['QQQ', 'VIX'],
+    categoryLabel: 'Major ETF starter',
+    tags: ['QQQ', 'VIX', 'trend filter', 'core sleeve'],
+    style: 'Overlay',
+    riskLevel: 'Moderate',
+    strategyFamily: 'Core VIX trend overlay',
+    referenceSeriesUsage: 'VIX regime',
+    expectedBehavior: 'Keeps an 80% QQQ core while the overlay requires VIX below 30 and price above its 100-day SMA; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Keep an 80% QQQ core. Add overlay exposure when VIX is below 30 and QQQ is above its 100-day SMA.',
+    exitRuleText: 'Sell the tactical overlay when QQQ crosses below its 100-day SMA.',
+    riskControls: ['80% core allocation', 'VIX below 30 entry filter', '100-day SMA trend filter', 'Single full overlay entry', 'Skips trades below $500'],
+    config: {
+      ...BASE_CONFIG,
+      name: 'QQQ Core VIX Trend Overlay',
       tradable_symbol: 'QQQ',
       benchmark_symbol: 'QQQ',
       reference_symbols: ['VIX'],
@@ -448,294 +438,7 @@ export const STRATEGY_GALLERY_TEMPLATES = [
       },
       core_overlay: {
         enabled: true,
-        core_allocation_pct: 0.6
-      },
-      entry_rule: {
-        kind: 'atomic',
-        type: 'series_below',
-        symbol: 'VIX',
-        threshold: 15
-      },
-      exit_rule: {
-        kind: 'atomic',
-        type: 'series_above',
-        symbol: 'VIX',
-        threshold: 35
-      },
-      position_management: {
-        scale_in_fraction: 1.0,
-        exit_behavior: 'sell_all',
-        profit_reduce_threshold: null,
-        max_scale_in_steps: 1,
-        minimum_trade_notional: 500
-      }
-    }
-  },
-  {
-    id: 'spy-moving-average-trend-filter',
-    title: 'SPY Moving Average Trend Filter',
-    shortExplanation: 'Tests whether SPY exposure should only be active while price remains above its 200-day average.',
-    symbols: ['SPY'],
-    categoryLabel: 'Trend following',
-    tags: ['SPY', 'SMA', 'trend state', 'sell-all'],
-    style: 'Trend',
-    riskLevel: 'Lower',
-    strategyFamily: 'Moving average trend',
-    referenceSeriesUsage: 'None',
-    expectedBehavior: 'Uses one full-sized trend entry, skips very small trades, and sells all when SPY breaks below its long-term average.',
-    entryRuleText: 'Enter SPY when price is above its 200-day SMA.',
-    exitRuleText: 'Exit the full SPY position when price crosses below its 200-day SMA.',
-    riskControls: ['Trend-state filter', 'Single full entry', 'Full exit on trend break', '10% stop loss', 'Skips trades below $500', '5 bps transaction cost'],
-    config: {
-      ...BASE_CONFIG,
-      name: 'SPY Moving Average Trend Filter',
-      tradable_symbol: 'SPY',
-      benchmark_symbol: 'SPY',
-      reference_symbols: [],
-      entry_rule: {
-        kind: 'atomic',
-        type: 'sma_above',
-        symbol: 'SPY',
-        fast_window: 1,
-        slow_window: 200
-      },
-      exit_rule: {
-        kind: 'atomic',
-        type: 'sma_cross_below',
-        symbol: 'SPY',
-        fast_window: 1,
-        slow_window: 200
-      },
-      position_management: {
-        scale_in_fraction: 1.0,
-        exit_behavior: 'sell_all',
-        profit_reduce_threshold: null,
-        max_scale_in_steps: 1,
-        minimum_trade_notional: 500
-      }
-    }
-  },
-  {
-    id: 'xlk-sector-relative-strength',
-    title: 'XLK Sector Relative Strength',
-    shortExplanation: 'Tests a supported sector-style idea by trading XLK only when it leads SPY over a 60-day window.',
-    symbols: ['XLK', 'SPY'],
-    categoryLabel: 'Sector rotation',
-    tags: ['XLK', 'SPY', 'relative strength', 'sector'],
-    style: 'Relative strength',
-    riskLevel: 'Higher',
-    strategyFamily: 'Sector relative strength',
-    referenceSeriesUsage: 'ETF relative strength',
-    expectedBehavior: 'Uses one full-sized XLK entry when it leads SPY, skips very small trades, and sells all when that leadership fades.',
-    entryRuleText: 'Enter XLK when XLK outperforms SPY by more than 3% over 60 trading days.',
-    exitRuleText: 'Exit the full XLK position when XLK no longer outperforms SPY by more than 3% over 60 trading days.',
-    riskControls: ['Relative strength confirmation', 'Single full entry', 'Full exit when leadership fades', '10% stop loss', 'Skips trades below $500', '5 bps transaction cost'],
-    config: {
-      ...BASE_CONFIG,
-      name: 'XLK Sector Relative Strength',
-      tradable_symbol: 'XLK',
-      benchmark_symbol: 'SPY',
-      reference_symbols: ['SPY'],
-      entry_rule: {
-        kind: 'atomic',
-        type: 'relative_return_above',
-        symbol: 'XLK',
-        reference_symbol: 'SPY',
-        lookback: 60,
-        threshold: 0.03
-      },
-      exit_rule: {
-        kind: 'not',
-        rule: {
-          kind: 'atomic',
-          type: 'relative_return_above',
-          symbol: 'XLK',
-          reference_symbol: 'SPY',
-          lookback: 60,
-          threshold: 0.03
-        }
-      },
-      position_management: {
-        scale_in_fraction: 1.0,
-        exit_behavior: 'sell_all',
-        profit_reduce_threshold: null,
-        max_scale_in_steps: 1,
-        minimum_trade_notional: 500
-      }
-    }
-  },
-  {
-    id: 'qqq-tlt-defensive-relative-strength',
-    title: 'QQQ / TLT Defensive Relative Strength',
-    shortExplanation: 'Tests staying in QQQ only when it leads long-duration Treasuries over a medium-term window.',
-    symbols: ['QQQ', 'TLT'],
-    categoryLabel: 'Defensive filter',
-    tags: ['QQQ', 'TLT', 'defensive', 'relative strength'],
-    style: 'Risk filter',
-    riskLevel: 'Higher',
-    strategyFamily: 'Defensive relative strength',
-    referenceSeriesUsage: 'ETF relative strength',
-    expectedBehavior: 'Uses one full-sized QQQ entry while it leads TLT, skips very small trades, and sells all when defensive strength takes over.',
-    entryRuleText: 'Enter QQQ when QQQ outperforms TLT over 60 trading days.',
-    exitRuleText: 'Exit the full QQQ position when QQQ no longer outperforms TLT over 60 trading days.',
-    riskControls: ['Defensive relative strength filter', 'Single full entry', 'Full exit when QQQ leadership fades', '10% stop loss', 'Skips trades below $500', '5 bps transaction cost'],
-    config: {
-      ...BASE_CONFIG,
-      name: 'QQQ TLT Defensive Relative Strength',
-      tradable_symbol: 'QQQ',
-      benchmark_symbol: 'QQQ',
-      reference_symbols: ['TLT'],
-      entry_rule: {
-        kind: 'atomic',
-        type: 'relative_return_above',
-        symbol: 'QQQ',
-        reference_symbol: 'TLT',
-        lookback: 60,
-        threshold: 0
-      },
-      exit_rule: {
-        kind: 'not',
-        rule: {
-          kind: 'atomic',
-          type: 'relative_return_above',
-          symbol: 'QQQ',
-          reference_symbol: 'TLT',
-          lookback: 60,
-          threshold: 0
-        }
-      },
-      position_management: {
-        scale_in_fraction: 1.0,
-        exit_behavior: 'sell_all',
-        profit_reduce_threshold: null,
-        max_scale_in_steps: 1,
-        minimum_trade_notional: 500
-      }
-    }
-  },
-  {
-    id: 'spy-rsi-strict-pullback',
-    title: 'SPY RSI Pullback with Tighter Risk',
-    shortExplanation: 'Tests a stricter SPY pullback idea with smaller entries, a tighter stop, and a cooldown after exits.',
-    symbols: ['SPY'],
-    categoryLabel: 'Pullback',
-    tags: ['SPY', 'RSI', 'cooldown', 'tighter stop'],
-    style: 'Mean reversion',
-    riskLevel: 'Lower',
-    strategyFamily: 'RSI pullback',
-    referenceSeriesUsage: 'None',
-    expectedBehavior: 'Adds in smaller 20% steps during deeper RSI pullbacks, waits between adds, and sells all on a moderate RSI recovery.',
-    entryRuleText: 'Enter SPY when RSI(14) falls below 30.',
-    exitRuleText: 'Exit the full SPY position when RSI(14) rises above 55.',
-    riskControls: ['6% stop loss', '20% entries', 'Up to 3 entries', '5-bar wait between adds', '2-bar cooldown', 'Skips trades below $500', '5 bps transaction cost'],
-    config: {
-      ...BASE_CONFIG,
-      name: 'SPY RSI Pullback with Tighter Risk',
-      tradable_symbol: 'SPY',
-      benchmark_symbol: 'SPY',
-      reference_symbols: [],
-      risk: {
-        ...BASE_CONFIG.risk,
-        stop_loss_pct: 0.06,
-        cooldown_bars: 2
-      },
-      entry_rule: {
-        kind: 'atomic',
-        type: 'rsi_below',
-        symbol: 'SPY',
-        lookback: 14,
-        threshold: 30
-      },
-      exit_rule: {
-        kind: 'atomic',
-        type: 'rsi_above',
-        symbol: 'SPY',
-        lookback: 14,
-        threshold: 55
-      },
-      position_management: {
-        scale_in_fraction: 0.2,
-        exit_behavior: 'sell_all',
-        profit_reduce_threshold: null,
-        max_scale_in_steps: 3,
-        min_bars_between_scale_ins: 5,
-        scale_in_requires_persistent_signal: true,
-        minimum_trade_notional: 500
-      }
-    }
-  },
-  {
-    id: 'qqq-50-200-trend-following',
-    title: 'QQQ 50/200 Trend Following',
-    shortExplanation: 'Tests QQQ exposure only when the shorter moving average is above the longer trend average.',
-    symbols: ['QQQ'],
-    categoryLabel: 'Trend following',
-    tags: ['QQQ', 'SMA', '50-day', '200-day'],
-    style: 'Trend',
-    riskLevel: 'Moderate',
-    strategyFamily: 'Moving average trend',
-    referenceSeriesUsage: 'None',
-    expectedBehavior: 'Uses a single full entry when QQQ is in an uptrend and exits fully when the trend relationship breaks.',
-    entryRuleText: 'Enter QQQ when its 50-day SMA is above its 200-day SMA.',
-    exitRuleText: 'Exit the full QQQ position when its 50-day SMA crosses below its 200-day SMA.',
-    riskControls: ['50/200 trend filter', 'Single full entry', 'Full exit on trend break', '8% stop loss', 'Skips trades below $500', '5 bps transaction cost'],
-    config: {
-      ...BASE_CONFIG,
-      name: 'QQQ 50 200 Trend Following',
-      tradable_symbol: 'QQQ',
-      benchmark_symbol: 'QQQ',
-      reference_symbols: [],
-      risk: {
-        ...BASE_CONFIG.risk,
-        stop_loss_pct: 0.08
-      },
-      entry_rule: {
-        kind: 'atomic',
-        type: 'sma_above',
-        symbol: 'QQQ',
-        fast_window: 50,
-        slow_window: 200
-      },
-      exit_rule: {
-        kind: 'atomic',
-        type: 'sma_cross_below',
-        symbol: 'QQQ',
-        fast_window: 50,
-        slow_window: 200
-      },
-      position_management: {
-        scale_in_fraction: 1.0,
-        exit_behavior: 'sell_all',
-        profit_reduce_threshold: null,
-        max_scale_in_steps: 1,
-        minimum_trade_notional: 500
-      }
-    }
-  },
-  {
-    id: 'spy-vix-rsi-regime-pullback',
-    title: 'SPY VIX Regime + RSI Pullback',
-    shortExplanation: 'Tests SPY pullbacks only when VIX is below a defined stress threshold.',
-    symbols: ['SPY', 'VIX'],
-    categoryLabel: 'Volatility regime',
-    tags: ['SPY', 'VIX', 'RSI', 'regime'],
-    style: 'Risk filter',
-    riskLevel: 'Moderate',
-    strategyFamily: 'Volatility-filtered pullback',
-    referenceSeriesUsage: 'VIX regime',
-    expectedBehavior: 'Scales into SPY pullbacks while VIX remains contained and exits fully on either a volatility spike or RSI recovery.',
-    entryRuleText: 'Enter when VIX is below 22 and SPY RSI(14) is below 38.',
-    exitRuleText: 'Exit the full SPY position when VIX rises above 30 or SPY RSI(14) rises above 62.',
-    riskControls: ['8% stop loss', 'VIX regime filter', '25% entries', 'Up to 3 entries', '3-bar wait between adds', 'Skips trades below $500', '5 bps transaction cost'],
-    config: {
-      ...BASE_CONFIG,
-      name: 'SPY VIX Regime RSI Pullback',
-      tradable_symbol: 'SPY',
-      benchmark_symbol: 'SPY',
-      reference_symbols: ['VIX'],
-      risk: {
-        ...BASE_CONFIG.risk,
-        stop_loss_pct: 0.08
+        core_allocation_pct: 0.8
       },
       entry_rule: {
         kind: 'group',
@@ -745,35 +448,140 @@ export const STRATEGY_GALLERY_TEMPLATES = [
             kind: 'atomic',
             type: 'series_below',
             symbol: 'VIX',
-            threshold: 22
+            threshold: 30
           },
           {
             kind: 'atomic',
-            type: 'rsi_below',
-            symbol: 'SPY',
-            lookback: 14,
-            threshold: 38
+            type: 'sma_above',
+            symbol: 'QQQ',
+            fast_window: 1,
+            slow_window: 100
           }
         ]
       },
       exit_rule: {
+        kind: 'atomic',
+        type: 'sma_cross_below',
+        symbol: 'QQQ',
+        fast_window: 1,
+        slow_window: 100
+      },
+      position_management: {
+        scale_in_fraction: 1.0,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 1,
+        min_bars_between_scale_ins: 0,
+        scale_in_requires_persistent_signal: false,
+        minimum_trade_notional: 500
+      }
+    }
+  },
+  {
+    id: 'spy-core-vix-trend-overlay',
+    title: 'SPY Core VIX Trend Overlay',
+    shortExplanation: 'Major ETF risk-control example using a SPY core plus a VIX and trend-gated tactical sleeve.',
+    symbols: ['SPY', 'VIX'],
+    categoryLabel: 'Major ETF starter',
+    tags: ['SPY', 'VIX', 'trend filter', 'core sleeve'],
+    style: 'Overlay',
+    riskLevel: 'Lower',
+    strategyFamily: 'Core VIX trend overlay',
+    referenceSeriesUsage: 'VIX regime',
+    expectedBehavior: 'Keeps an 80% SPY core while the overlay requires VIX below 30 and price above its 100-day SMA; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Keep an 80% SPY core. Add overlay exposure when VIX is below 30 and SPY is above its 100-day SMA.',
+    exitRuleText: 'Sell the tactical overlay when SPY crosses below its 100-day SMA.',
+    riskControls: ['80% core allocation', 'VIX below 30 entry filter', '100-day SMA trend filter', 'Single full overlay entry', 'Skips trades below $500'],
+    config: {
+      ...BASE_CONFIG,
+      name: 'SPY Core VIX Trend Overlay',
+      tradable_symbol: 'SPY',
+      benchmark_symbol: 'SPY',
+      reference_symbols: ['VIX'],
+      risk: {
+        ...BASE_CONFIG.risk,
+        stop_loss_pct: null
+      },
+      core_overlay: {
+        enabled: true,
+        core_allocation_pct: 0.8
+      },
+      entry_rule: {
         kind: 'group',
-        operator: 'OR',
+        operator: 'AND',
         rules: [
           {
             kind: 'atomic',
-            type: 'series_above',
+            type: 'series_below',
             symbol: 'VIX',
             threshold: 30
           },
           {
             kind: 'atomic',
-            type: 'rsi_above',
+            type: 'sma_above',
             symbol: 'SPY',
-            lookback: 14,
-            threshold: 62
+            fast_window: 1,
+            slow_window: 100
           }
         ]
+      },
+      exit_rule: {
+        kind: 'atomic',
+        type: 'sma_cross_below',
+        symbol: 'SPY',
+        fast_window: 1,
+        slow_window: 100
+      },
+      position_management: {
+        scale_in_fraction: 1.0,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 1,
+        min_bars_between_scale_ins: 0,
+        scale_in_requires_persistent_signal: false,
+        minimum_trade_notional: 500
+      }
+    }
+  },
+  {
+    id: 'xlv-rsi-healthcare-risk-control',
+    title: 'XLV RSI Healthcare Risk-Control',
+    shortExplanation: 'Healthcare sector pullback research candidate selected for drawdown-aware behavior, not outperformance.',
+    symbols: ['XLV'],
+    categoryLabel: 'Sector pullback',
+    tags: ['XLV', 'RSI', 'healthcare', 'risk control'],
+    style: 'Mean reversion',
+    riskLevel: 'Lower',
+    strategyFamily: 'RSI mean reversion',
+    referenceSeriesUsage: 'None',
+    expectedBehavior: 'Uses 25% scale-ins with an 8% stop and full exits on RSI recovery; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Enter XLV when RSI(14) falls below 35.',
+    exitRuleText: 'Exit the full XLV position when RSI(14) rises above 70.',
+    riskControls: ['8% stop loss', '25% entries', 'Up to 3 entries', '3-bar wait between adds', '3-bar cooldown', 'Skips trades below $500'],
+    config: {
+      ...BASE_CONFIG,
+      name: 'XLV RSI Healthcare Risk Control',
+      tradable_symbol: 'XLV',
+      benchmark_symbol: 'XLV',
+      reference_symbols: [],
+      risk: {
+        ...BASE_CONFIG.risk,
+        stop_loss_pct: 0.08,
+        cooldown_bars: 3
+      },
+      entry_rule: {
+        kind: 'atomic',
+        type: 'rsi_below',
+        symbol: 'XLV',
+        lookback: 14,
+        threshold: 35
+      },
+      exit_rule: {
+        kind: 'atomic',
+        type: 'rsi_above',
+        symbol: 'XLV',
+        lookback: 14,
+        threshold: 70
       },
       position_management: {
         scale_in_fraction: 0.25,
@@ -787,26 +595,26 @@ export const STRATEGY_GALLERY_TEMPLATES = [
     }
   },
   {
-    id: 'spy-core-defensive-vix-overlay',
-    title: 'SPY Core Defensive VIX Overlay',
-    shortExplanation: 'Tests a SPY core with tactical exposure added only when trend and VIX conditions agree.',
-    symbols: ['SPY', 'VIX'],
-    categoryLabel: 'Core overlay',
-    tags: ['SPY', 'VIX', 'SMA', 'core sleeve'],
-    style: 'Overlay',
+    id: 'xlp-core-relative-strength-overlay',
+    title: 'XLP Core Relative Strength Overlay',
+    shortExplanation: 'Defensive sector overlay research using a staples core and a relative-strength tactical sleeve.',
+    symbols: ['XLP', 'SPY'],
+    categoryLabel: 'Sector overlay',
+    tags: ['XLP', 'SPY', 'relative strength', 'defensive'],
+    style: 'Relative strength',
     riskLevel: 'Lower',
-    strategyFamily: 'Core plus tactical overlay',
-    referenceSeriesUsage: 'VIX regime',
-    expectedBehavior: 'Keeps a 50% SPY core while the tactical sleeve requires both a positive trend state and contained volatility.',
-    entryRuleText: 'Keep a 50% SPY core. Add overlay exposure when SPY is above its 200-day SMA and VIX is below 22.',
-    exitRuleText: 'Sell the tactical overlay when SPY crosses below its 200-day SMA or VIX rises above 32.',
-    riskControls: ['50% core allocation', '50% tactical sleeve', 'Trend and VIX filters', 'Full overlay exit on risk-off signal', 'Skips overlay trades below $500', '5 bps transaction cost'],
+    strategyFamily: 'Sector core relative strength',
+    referenceSeriesUsage: 'ETF relative strength',
+    expectedBehavior: 'Keeps a 50% XLP core and adds the overlay only while XLP has stronger 30-day return than SPY; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Keep a 50% XLP core. Add overlay exposure when XLP has stronger 30-day return than SPY.',
+    exitRuleText: 'Sell the tactical overlay when XLP no longer has stronger 30-day return than SPY.',
+    riskControls: ['50% core allocation', '30-day relative-strength filter', 'Single full overlay entry', 'Full overlay exit when leadership fades', 'Skips trades below $500'],
     config: {
       ...BASE_CONFIG,
-      name: 'SPY Core Defensive VIX Overlay',
-      tradable_symbol: 'SPY',
+      name: 'XLP Core Relative Strength Overlay',
+      tradable_symbol: 'XLP',
       benchmark_symbol: 'SPY',
-      reference_symbols: ['VIX'],
+      reference_symbols: ['SPY'],
       risk: {
         ...BASE_CONFIG.risk,
         stop_loss_pct: null
@@ -816,94 +624,22 @@ export const STRATEGY_GALLERY_TEMPLATES = [
         core_allocation_pct: 0.5
       },
       entry_rule: {
-        kind: 'group',
-        operator: 'AND',
-        rules: [
-          {
-            kind: 'atomic',
-            type: 'sma_above',
-            symbol: 'SPY',
-            fast_window: 1,
-            slow_window: 200
-          },
-          {
-            kind: 'atomic',
-            type: 'series_below',
-            symbol: 'VIX',
-            threshold: 22
-          }
-        ]
-      },
-      exit_rule: {
-        kind: 'group',
-        operator: 'OR',
-        rules: [
-          {
-            kind: 'atomic',
-            type: 'sma_cross_below',
-            symbol: 'SPY',
-            fast_window: 1,
-            slow_window: 200
-          },
-          {
-            kind: 'atomic',
-            type: 'series_above',
-            symbol: 'VIX',
-            threshold: 32
-          }
-        ]
-      },
-      position_management: {
-        scale_in_fraction: 1.0,
-        exit_behavior: 'sell_all',
-        profit_reduce_threshold: null,
-        max_scale_in_steps: 1,
-        minimum_trade_notional: 500
-      }
-    }
-  },
-  {
-    id: 'xlu-defensive-sector-relative-strength',
-    title: 'XLU Defensive Sector Relative Strength',
-    shortExplanation: 'Tests a defensive sector sleeve by trading XLU only when it leads SPY over a 60-day window.',
-    symbols: ['XLU', 'SPY'],
-    categoryLabel: 'Sector rotation',
-    tags: ['XLU', 'SPY', 'defensive', 'relative strength'],
-    style: 'Relative strength',
-    riskLevel: 'Moderate',
-    strategyFamily: 'Sector relative strength',
-    referenceSeriesUsage: 'ETF relative strength',
-    expectedBehavior: 'Uses one full-sized XLU entry when it leads SPY and exits fully when that relative strength condition fades.',
-    entryRuleText: 'Enter XLU when XLU outperforms SPY by more than 1% over 60 trading days.',
-    exitRuleText: 'Exit the full XLU position when XLU no longer outperforms SPY by more than 1% over 60 trading days.',
-    riskControls: ['Relative strength confirmation', 'Single full entry', 'Full exit when leadership fades', '8% stop loss', 'Skips trades below $500', '5 bps transaction cost'],
-    config: {
-      ...BASE_CONFIG,
-      name: 'XLU Defensive Sector Relative Strength',
-      tradable_symbol: 'XLU',
-      benchmark_symbol: 'SPY',
-      reference_symbols: ['SPY'],
-      risk: {
-        ...BASE_CONFIG.risk,
-        stop_loss_pct: 0.08
-      },
-      entry_rule: {
         kind: 'atomic',
         type: 'relative_return_above',
-        symbol: 'XLU',
+        symbol: 'XLP',
         reference_symbol: 'SPY',
-        lookback: 60,
-        threshold: 0.01
+        lookback: 30,
+        threshold: 0
       },
       exit_rule: {
         kind: 'not',
         rule: {
           kind: 'atomic',
           type: 'relative_return_above',
-          symbol: 'XLU',
+          symbol: 'XLP',
           reference_symbol: 'SPY',
-          lookback: 60,
-          threshold: 0.01
+          lookback: 30,
+          threshold: 0
         }
       },
       position_management: {
@@ -911,82 +647,234 @@ export const STRATEGY_GALLERY_TEMPLATES = [
         exit_behavior: 'sell_all',
         profit_reduce_threshold: null,
         max_scale_in_steps: 1,
+        min_bars_between_scale_ins: 0,
+        scale_in_requires_persistent_signal: false,
         minimum_trade_notional: 500
       }
     }
   },
   {
-    id: 'qqq-ief-trend-filtered-pullback',
-    title: 'QQQ Pullback with IEF Trend Filter',
-    shortExplanation: 'Tests QQQ pullbacks only while intermediate Treasuries remain in a positive trend state.',
-    symbols: ['QQQ', 'IEF'],
-    categoryLabel: 'Defensive filter',
-    tags: ['QQQ', 'IEF', 'RSI', 'Treasury filter'],
-    style: 'Risk filter',
-    riskLevel: 'Moderate',
-    strategyFamily: 'Defensive trend filter',
-    referenceSeriesUsage: 'ETF trend filter',
-    expectedBehavior: 'Scales into QQQ pullbacks while IEF stays above its trend filter and exits fully on RSI recovery or a defensive trend break.',
-    entryRuleText: 'Enter when QQQ RSI(14) is below 40 and IEF is above its 100-day SMA.',
-    exitRuleText: 'Exit the full QQQ position when QQQ RSI(14) rises above 62 or IEF crosses below its 100-day SMA.',
-    riskControls: ['8% stop loss', 'IEF trend filter', '25% entries', 'Up to 3 entries', '3-bar wait between adds', 'Skips trades below $500', '5 bps transaction cost'],
+    id: 'xli-core-relative-strength-watchlist',
+    title: 'XLI Core Relative Strength Watchlist',
+    shortExplanation: 'Industrials watchlist example from the discovery report, kept as relative-strength research.',
+    symbols: ['XLI', 'SPY'],
+    categoryLabel: 'Sector overlay',
+    tags: ['XLI', 'SPY', 'relative strength', 'watchlist'],
+    style: 'Relative strength',
+    riskLevel: 'Lower',
+    strategyFamily: 'Sector core relative strength',
+    referenceSeriesUsage: 'ETF relative strength',
+    expectedBehavior: 'Keeps an 80% XLI core and adds the overlay only while XLI has stronger 60-day return than SPY; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Keep an 80% XLI core. Add overlay exposure when XLI has stronger 60-day return than SPY.',
+    exitRuleText: 'Sell the tactical overlay when XLI no longer has stronger 60-day return than SPY.',
+    riskControls: ['80% core allocation', '60-day relative-strength filter', 'Single full overlay entry', 'Full overlay exit when leadership fades', 'Skips trades below $500'],
     config: {
       ...BASE_CONFIG,
-      name: 'QQQ Pullback with IEF Trend Filter',
-      tradable_symbol: 'QQQ',
-      benchmark_symbol: 'QQQ',
-      reference_symbols: ['IEF'],
+      name: 'XLI Core Relative Strength Watchlist',
+      tradable_symbol: 'XLI',
+      benchmark_symbol: 'SPY',
+      reference_symbols: ['SPY'],
       risk: {
         ...BASE_CONFIG.risk,
-        stop_loss_pct: 0.08
+        stop_loss_pct: null
+      },
+      core_overlay: {
+        enabled: true,
+        core_allocation_pct: 0.8
       },
       entry_rule: {
-        kind: 'group',
-        operator: 'AND',
-        rules: [
-          {
-            kind: 'atomic',
-            type: 'rsi_below',
-            symbol: 'QQQ',
-            lookback: 14,
-            threshold: 40
-          },
-          {
-            kind: 'atomic',
-            type: 'sma_above',
-            symbol: 'IEF',
-            fast_window: 1,
-            slow_window: 100
-          }
-        ]
+        kind: 'atomic',
+        type: 'relative_return_above',
+        symbol: 'XLI',
+        reference_symbol: 'SPY',
+        lookback: 60,
+        threshold: 0
       },
       exit_rule: {
-        kind: 'group',
-        operator: 'OR',
-        rules: [
-          {
-            kind: 'atomic',
-            type: 'rsi_above',
-            symbol: 'QQQ',
-            lookback: 14,
-            threshold: 62
-          },
-          {
-            kind: 'atomic',
-            type: 'sma_cross_below',
-            symbol: 'IEF',
-            fast_window: 1,
-            slow_window: 100
-          }
-        ]
+        kind: 'not',
+        rule: {
+          kind: 'atomic',
+          type: 'relative_return_above',
+          symbol: 'XLI',
+          reference_symbol: 'SPY',
+          lookback: 60,
+          threshold: 0
+        }
       },
       position_management: {
-        scale_in_fraction: 0.25,
+        scale_in_fraction: 1.0,
         exit_behavior: 'sell_all',
         profit_reduce_threshold: null,
-        max_scale_in_steps: 3,
+        max_scale_in_steps: 1,
+        min_bars_between_scale_ins: 0,
+        scale_in_requires_persistent_signal: false,
+        minimum_trade_notional: 500
+      }
+    }
+  },
+  {
+    id: 'qqq-core-rsi-starter',
+    title: 'QQQ Core RSI Starter',
+    shortExplanation: 'Major ETF starter example that keeps a QQQ core and uses RSI for the tactical sleeve.',
+    symbols: ['QQQ'],
+    categoryLabel: 'Major ETF starter',
+    tags: ['QQQ', 'RSI', 'core sleeve', 'starter'],
+    style: 'Overlay',
+    riskLevel: 'Moderate',
+    strategyFamily: 'Core RSI overlay',
+    referenceSeriesUsage: 'None',
+    expectedBehavior: 'Keeps an 80% QQQ core, adds two 50% overlay steps on RSI pullbacks, and exits the overlay on RSI recovery; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Keep an 80% QQQ core. Add overlay exposure when QQQ RSI(14) falls below 40.',
+    exitRuleText: 'Exit the QQQ tactical overlay when RSI(14) rises above 70.',
+    riskControls: ['80% core allocation', '50% overlay entries', 'Up to 2 entries', '3-bar wait between adds', 'Skips trades below $500'],
+    config: {
+      ...BASE_CONFIG,
+      name: 'QQQ Core RSI Starter',
+      tradable_symbol: 'QQQ',
+      benchmark_symbol: 'QQQ',
+      reference_symbols: [],
+      risk: {
+        ...BASE_CONFIG.risk,
+        stop_loss_pct: null
+      },
+      core_overlay: {
+        enabled: true,
+        core_allocation_pct: 0.8
+      },
+      entry_rule: {
+        kind: 'atomic',
+        type: 'rsi_below',
+        symbol: 'QQQ',
+        lookback: 14,
+        threshold: 40
+      },
+      exit_rule: {
+        kind: 'atomic',
+        type: 'rsi_above',
+        symbol: 'QQQ',
+        lookback: 14,
+        threshold: 70
+      },
+      position_management: {
+        scale_in_fraction: 0.5,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 2,
         min_bars_between_scale_ins: 3,
         scale_in_requires_persistent_signal: true,
+        minimum_trade_notional: 500
+      }
+    }
+  },
+  {
+    id: 'spy-core-rsi-starter',
+    title: 'SPY Core RSI Starter',
+    shortExplanation: 'Major ETF starter example that keeps a SPY core and uses RSI for the tactical sleeve.',
+    symbols: ['SPY'],
+    categoryLabel: 'Major ETF starter',
+    tags: ['SPY', 'RSI', 'core sleeve', 'starter'],
+    style: 'Overlay',
+    riskLevel: 'Lower',
+    strategyFamily: 'Core RSI overlay',
+    referenceSeriesUsage: 'None',
+    expectedBehavior: 'Keeps an 80% SPY core, adds two 50% overlay steps on RSI pullbacks, and exits the overlay on RSI recovery; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Keep an 80% SPY core. Add overlay exposure when SPY RSI(14) falls below 40.',
+    exitRuleText: 'Exit the SPY tactical overlay when RSI(14) rises above 70.',
+    riskControls: ['80% core allocation', '50% overlay entries', 'Up to 2 entries', '3-bar wait between adds', 'Skips trades below $500'],
+    config: {
+      ...BASE_CONFIG,
+      name: 'SPY Core RSI Starter',
+      tradable_symbol: 'SPY',
+      benchmark_symbol: 'SPY',
+      reference_symbols: [],
+      risk: {
+        ...BASE_CONFIG.risk,
+        stop_loss_pct: null
+      },
+      core_overlay: {
+        enabled: true,
+        core_allocation_pct: 0.8
+      },
+      entry_rule: {
+        kind: 'atomic',
+        type: 'rsi_below',
+        symbol: 'SPY',
+        lookback: 14,
+        threshold: 40
+      },
+      exit_rule: {
+        kind: 'atomic',
+        type: 'rsi_above',
+        symbol: 'SPY',
+        lookback: 14,
+        threshold: 70
+      },
+      position_management: {
+        scale_in_fraction: 0.5,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 2,
+        min_bars_between_scale_ins: 3,
+        scale_in_requires_persistent_signal: true,
+        minimum_trade_notional: 500
+      }
+    }
+  },
+  {
+    id: 'xlre-core-relative-strength-defensive',
+    title: 'XLRE Core Relative Strength Defensive',
+    shortExplanation: 'Real estate sector defensive overlay research selected from gallery-ready discovery candidates.',
+    symbols: ['XLRE', 'SPY'],
+    categoryLabel: 'Sector overlay',
+    tags: ['XLRE', 'SPY', 'relative strength', 'defensive'],
+    style: 'Relative strength',
+    riskLevel: 'Lower',
+    strategyFamily: 'Sector core relative strength',
+    referenceSeriesUsage: 'ETF relative strength',
+    expectedBehavior: 'Keeps a 50% XLRE core and adds the overlay only while XLRE has stronger 60-day return than SPY; the recent holdout trailed buy-and-hold.',
+    entryRuleText: 'Keep a 50% XLRE core. Add overlay exposure when XLRE has stronger 60-day return than SPY.',
+    exitRuleText: 'Sell the tactical overlay when XLRE no longer has stronger 60-day return than SPY.',
+    riskControls: ['50% core allocation', '60-day relative-strength filter', 'Single full overlay entry', 'Full overlay exit when leadership fades', 'Skips trades below $500'],
+    config: {
+      ...BASE_CONFIG,
+      name: 'XLRE Core Relative Strength Defensive',
+      tradable_symbol: 'XLRE',
+      benchmark_symbol: 'SPY',
+      reference_symbols: ['SPY'],
+      risk: {
+        ...BASE_CONFIG.risk,
+        stop_loss_pct: null
+      },
+      core_overlay: {
+        enabled: true,
+        core_allocation_pct: 0.5
+      },
+      entry_rule: {
+        kind: 'atomic',
+        type: 'relative_return_above',
+        symbol: 'XLRE',
+        reference_symbol: 'SPY',
+        lookback: 60,
+        threshold: 0
+      },
+      exit_rule: {
+        kind: 'not',
+        rule: {
+          kind: 'atomic',
+          type: 'relative_return_above',
+          symbol: 'XLRE',
+          reference_symbol: 'SPY',
+          lookback: 60,
+          threshold: 0
+        }
+      },
+      position_management: {
+        scale_in_fraction: 1.0,
+        exit_behavior: 'sell_all',
+        profit_reduce_threshold: null,
+        max_scale_in_steps: 1,
+        min_bars_between_scale_ins: 0,
+        scale_in_requires_persistent_signal: false,
         minimum_trade_notional: 500
       }
     }
