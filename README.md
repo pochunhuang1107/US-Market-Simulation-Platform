@@ -187,6 +187,24 @@ If a saved strategy version is attached to the run, `base_config` may be omitted
 
 ---
 
+## Strategy Discovery Harness
+
+To screen historically interesting Gallery candidates without changing product
+copy or templates, run:
+
+```bash
+python scripts/discover_gallery_candidates.py
+```
+
+The harness writes ignored CSV/JSON reports under `data/discovery_reports/`,
+compares each candidate against traded ETF buy-and-hold plus a market benchmark,
+and separates Gallery-ready outperformance, Gallery-ready defensive, watchlist,
+and sanity-failed candidates with train vs holdout checks. Use `--resume` to
+reuse local per-candidate cache files during larger broad runs. If nothing passes, it says so plainly. See
+[docs/STRATEGY_DISCOVERY.md](docs/STRATEGY_DISCOVERY.md).
+
+---
+
 ## Notes
 
 - All strategies must map to the Strategy V2 schema
