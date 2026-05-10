@@ -172,6 +172,10 @@ def _ensure_default_test_plan(db_session: Session) -> Plan:
         allow_parameter_sweeps=True,
         allow_ai_builder=True,
         allow_strategy_history=True,
+        allow_rotation_templates=True,
+        allow_custom_rotation=True,
+        allow_rotation_edit=True,
+        allow_advanced_builder=True,
         is_active=True,
     )
     db_session.add(plan)

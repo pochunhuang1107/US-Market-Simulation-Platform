@@ -91,6 +91,10 @@ class Plan(Base):
     allow_parameter_sweeps: Mapped[bool] = mapped_column(Boolean, nullable=False)
     allow_ai_builder: Mapped[bool] = mapped_column(Boolean, nullable=False)
     allow_strategy_history: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    allow_rotation_templates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    allow_custom_rotation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    allow_rotation_edit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    allow_advanced_builder: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

@@ -58,6 +58,10 @@ def get_my_entitlements(
             allow_parameter_sweeps=entitlements.allow_parameter_sweeps,
             allow_ai_builder=entitlements.allow_ai_builder,
             allow_strategy_history=entitlements.allow_strategy_history,
+            allow_rotation_templates=entitlements.allow_rotation_templates,
+            allow_custom_rotation=entitlements.allow_custom_rotation,
+            allow_rotation_edit=entitlements.allow_rotation_edit,
+            allow_advanced_builder=entitlements.allow_advanced_builder,
         ),
         limits=MeUsageLimitsResponse(
             daily_free_runs=entitlements.daily_free_runs,

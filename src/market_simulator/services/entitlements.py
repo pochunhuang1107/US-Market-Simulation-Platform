@@ -16,6 +16,12 @@ from market_simulator.repositories.plans import (
 
 
 DEFAULT_MAX_COMPARISON_RUNS = 4
+ADVANCED_ROTATION_LIMIT_CODE = "PLAN_LIMIT_CUSTOM_ROTATION"
+ADVANCED_ROTATION_MESSAGE = "Custom rotation strategies require Research access."
+ADVANCED_ROTATION_GUIDANCE = (
+    "You can still run curated Gallery examples within your plan limits. "
+    "This is a plan limit, not a strategy validation error."
+)
 
 
 @dataclass
@@ -35,6 +41,10 @@ class UserEntitlements:
     allow_parameter_sweeps: bool
     allow_ai_builder: bool
     allow_strategy_history: bool
+    allow_rotation_templates: bool
+    allow_custom_rotation: bool
+    allow_rotation_edit: bool
+    allow_advanced_builder: bool
 
 
 def _get_dev_admin_override_entitlements(user_id: str) -> UserEntitlements | None:
@@ -68,6 +78,10 @@ def _get_dev_admin_override_entitlements(user_id: str) -> UserEntitlements | Non
         allow_parameter_sweeps=True,
         allow_ai_builder=True,
         allow_strategy_history=True,
+        allow_rotation_templates=True,
+        allow_custom_rotation=True,
+        allow_rotation_edit=True,
+        allow_advanced_builder=True,
     )
 
 
@@ -98,7 +112,66 @@ def get_user_entitlements(db: Session, user_id: str) -> UserEntitlements:
         allow_parameter_sweeps=plan.allow_parameter_sweeps,
         allow_ai_builder=plan.allow_ai_builder,
         allow_strategy_history=plan.allow_strategy_history,
+        allow_rotation_templates=getattr(plan, "allow_rotation_templates", False),
+        allow_custom_rotation=getattr(plan, "allow_custom_rotation", False),
+        allow_rotation_edit=getattr(plan, "allow_rotation_edit", False),
+        allow_advanced_builder=getattr(plan, "allow_advanced_builder", False),
     )
+
+
+def is_rotation_enabled_config(config: dict | None) -> bool:
+    if not isinstance(config, dict):
+        return False
+    rotation = config.get("rotation")
+    return isinstance(rotation, dict) and rotation.get("enabled") is True
+
+
+def is_curated_gallery_run_payload(request_payload: dict | None) -> bool:
+    if not isinstance(request_payload, dict):
+        return False
+
+    return (
+        request_payload.get("source") == "strategy_gallery"
+        and isinstance(request_payload.get("template_id"), str)
+        and bool(request_payload.get("template_id", "").strip())
+        and isinstance(request_payload.get("template_title"), str)
+        and bool(request_payload.get("template_title", "").strip())
+    )
+
+
+def advanced_rotation_limit_detail() -> dict[str, str | bool]:
+    return {
+        "code": ADVANCED_ROTATION_LIMIT_CODE,
+        "message": ADVANCED_ROTATION_MESSAGE,
+        "guidance": ADVANCED_ROTATION_GUIDANCE,
+        "plan_limit": True,
+    }
+
+
+def advanced_rotation_limit_message() -> str:
+    return f"{ADVANCED_ROTATION_MESSAGE} {ADVANCED_ROTATION_GUIDANCE}"
+
+
+def enforce_custom_rotation_access_for_config(
+    entitlements: UserEntitlements,
+    *,
+    config: dict | None,
+    current_config: dict | None = None,
+    request_payload: dict | None = None,
+    require_advanced_builder: bool = False,
+) -> None:
+    if not is_rotation_enabled_config(config):
+        return
+
+    if is_curated_gallery_run_payload(request_payload) and entitlements.allow_rotation_templates:
+        return
+
+    is_editing_rotation = is_rotation_enabled_config(current_config)
+    allowed = entitlements.allow_rotation_edit if is_editing_rotation else entitlements.allow_custom_rotation
+    if allowed and (not require_advanced_builder or entitlements.allow_advanced_builder):
+        return
+
+    raise HTTPException(status_code=403, detail=advanced_rotation_limit_detail())
 
 
 def enforce_builder_access(db: Session, user_id: str) -> UserEntitlements:

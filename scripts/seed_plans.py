@@ -22,6 +22,10 @@ KNOWN_PLAN_SPECS = (
         "allow_parameter_sweeps": False,
         "allow_ai_builder": True,
         "allow_strategy_history": False,
+        "allow_rotation_templates": True,
+        "allow_custom_rotation": False,
+        "allow_rotation_edit": False,
+        "allow_advanced_builder": False,
         "is_active": True,
     },
     {
@@ -40,6 +44,10 @@ KNOWN_PLAN_SPECS = (
         "allow_parameter_sweeps": False,
         "allow_ai_builder": True,
         "allow_strategy_history": True,
+        "allow_rotation_templates": True,
+        "allow_custom_rotation": True,
+        "allow_rotation_edit": True,
+        "allow_advanced_builder": True,
         "is_active": True,
     },
     {
@@ -58,6 +66,10 @@ KNOWN_PLAN_SPECS = (
         "allow_parameter_sweeps": True,
         "allow_ai_builder": True,
         "allow_strategy_history": True,
+        "allow_rotation_templates": True,
+        "allow_custom_rotation": True,
+        "allow_rotation_edit": True,
+        "allow_advanced_builder": True,
         "is_active": True,
     },
 )
