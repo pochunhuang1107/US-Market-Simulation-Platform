@@ -36,6 +36,33 @@ def test_completed_run_detail_keeps_chart_first_compact_result_hierarchy():
     assert "verdict.description" not in hero_source
 
 
+def test_run_detail_uses_rotation_rebalance_inspector_for_rotation_runs():
+    page_source = (ROOT / "frontend/src/pages/RunDetailPage.tsx").read_text()
+    inspector_source = (
+        ROOT / "frontend/src/components/run-detail/RotationRebalanceInspector.tsx"
+    ).read_text()
+    types_source = (ROOT / "frontend/src/types/api.ts").read_text()
+
+    assert "import { RotationRebalanceInspector }" in page_source
+    assert "data.rotation_review?.is_rotation" in page_source
+    assert "<RotationRebalanceInspector review={data.rotation_review} />" in page_source
+    assert "<TradeEventInspector runId={data.run.id} />" in page_source
+    assert "Rotation Rebalance Inspector" in inspector_source
+    assert "Ranks / trailing returns" in inspector_source
+    assert "Rebalance trades" in inspector_source
+    assert "Holdings after rebalance" in inspector_source
+    assert "rotation_review: Nullable<RotationReviewResponse>;" in types_source
+
+
+def test_run_detail_hero_has_optional_universe_equal_weight_metrics():
+    hero_source = (ROOT / "frontend/src/components/run-detail/RunInsightHero.tsx").read_text()
+
+    assert "universe_equal_weight_buy_hold_return_pct" in hero_source
+    assert "label: 'Equal-Weight Universe'" in hero_source
+    assert "label: 'Universe Alpha'" in hero_source
+    assert "label: 'Rebalances'" in hero_source
+
+
 def test_run_detail_polls_active_runs_more_responsively():
     source = (ROOT / "frontend/src/pages/RunDetailPage.tsx").read_text()
     api_source = (ROOT / "frontend/src/lib/api.ts").read_text()

@@ -7,6 +7,7 @@ import { getDraftConfig, RunHeader } from '../components/run-detail/RunHeader';
 import { RunInsightBreakdown } from '../components/run-detail/RunInsightBreakdown';
 import { RunInsightHero } from '../components/run-detail/RunInsightHero';
 import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
+import { RotationRebalanceInspector } from '../components/run-detail/RotationRebalanceInspector';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
 import { TradeEventInspector } from '../components/run-detail/TradeEventInspector';
 import { StateCard } from '../components/shared/StateCard';
@@ -410,7 +411,11 @@ export function RunDetailPage() {
 
             <RunCharts chartData={data.chart_data} run={data.run} />
 
-            <TradeEventInspector runId={data.run.id} />
+            {data.rotation_review?.is_rotation ? (
+              <RotationRebalanceInspector review={data.rotation_review} />
+            ) : (
+              <TradeEventInspector runId={data.run.id} />
+            )}
           </>
         )}
 

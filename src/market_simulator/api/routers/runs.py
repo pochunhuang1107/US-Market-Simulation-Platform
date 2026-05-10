@@ -48,6 +48,7 @@ from market_simulator.platform.services.run_comparison_service import (
 )
 from market_simulator.platform.services.run_dispatcher_service import RunDispatcherService
 from market_simulator.platform.services.run_worker_service import RunWorkerService
+from market_simulator.platform.services.rotation_review import RotationReviewService
 from market_simulator.platform.services.trade_event_inspector import TradeEventInspectorService
 from market_simulator.repositories.runs import (
     count_runs,
@@ -89,6 +90,7 @@ artifact_store = build_artifact_store()
 chart_service = RunChartService()
 comparison_service = RunComparisonService()
 trade_event_inspector = TradeEventInspectorService()
+rotation_review_service = RotationReviewService()
 
 
 ARTIFACT_UNAVAILABLE_STATUS_CODE = 424
@@ -374,6 +376,17 @@ def _load_variant_trade_events(variant: dict, config: dict | None) -> dict:
         return trade_event_inspector.load_trade_events(manifest, config=config)
     except Exception:
         return {"total_count": 0, "events": []}
+
+
+def _load_rotation_review(run) -> dict | None:
+    if not run.artifact_manifest_json:
+        return None
+
+    return rotation_review_service.load_rotation_review(
+        run.artifact_manifest_json,
+        config=_run_strategy_config(run),
+        summary=run.summary_json or {},
+    )
 
 
 def _sweep_variant_items(run) -> list[dict]:
@@ -1228,6 +1241,7 @@ def get_run_dashboard_api(
                 sleeve_weight_curve=[],
                 trade_markers=[],
             ),
+            rotation_review=None,
         )
 
     if not run.artifact_manifest_json:
@@ -1245,10 +1259,12 @@ def get_run_dashboard_api(
                 sleeve_weight_curve=[],
                 trade_markers=[],
             ),
+            rotation_review=None,
         )
 
     try:
         chart_data = chart_service.load_chart_data(run.artifact_manifest_json)
+        rotation_review = _load_rotation_review(run)
         chart_response = RunChartDataResponse(
             run_id=str(run.id),
             equity_curve=chart_data["equity_curve"],
@@ -1262,6 +1278,7 @@ def get_run_dashboard_api(
         return RunDashboardResponse(
             run=run_response,
             chart_data=chart_response,
+            rotation_review=rotation_review,
         )
     except ARTIFACT_UNAVAILABLE_EXCEPTIONS as exc:
         raise _artifact_unavailable_exception(run, exc) from exc

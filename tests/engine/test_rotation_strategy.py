@@ -168,6 +168,7 @@ def test_rotation_monthly_rebalance_dates_are_deterministic() -> None:
     rebalance_dates = [row["date"] for row in result.timeline if row["rebalance"]]
 
     assert rebalance_dates == ["2021-01-01", "2021-02-01", "2021-03-01"]
+    assert result.summary["rebalance_count"] == 3
 
 
 def test_rotation_ranking_does_not_look_ahead_after_rebalance_date() -> None:

@@ -346,6 +346,63 @@ class TradeEventContextResponse(BaseModel):
     events: list[TradeEventContext]
 
 
+class RotationSummaryMetrics(BaseModel):
+    strategy_return_pct: float | None = None
+    market_benchmark_return_pct: float | None = None
+    universe_equal_weight_return_pct: float | None = None
+    alpha_vs_universe_equal_weight_pct: float | None = None
+    max_drawdown_pct: float | None = None
+    rebalance_count: int | None = None
+    held_assets_count: int | None = None
+    universe_size: int | None = None
+
+
+class RotationAssetRankRow(BaseModel):
+    symbol: str
+    rank: int | None = None
+    trailing_return_pct: float | None = None
+    target_weight_pct: float | None = None
+    selected: bool = False
+
+
+class RotationTradeRow(BaseModel):
+    action: str
+    symbol: str | None = None
+    shares: float | None = None
+    price: float | None = None
+    notional: float | None = None
+    fee: float | None = None
+    gross_pnl: float | None = None
+    net_pnl: float | None = None
+
+
+class RotationHoldingRow(BaseModel):
+    symbol: str
+    shares: float | None = None
+    market_value: float | None = None
+    weight_pct: float | None = None
+
+
+class RotationRebalanceEvent(BaseModel):
+    id: str
+    date: str
+    selected_assets: list[str] = Field(default_factory=list)
+    target_weights: dict[str, float] = Field(default_factory=dict)
+    asset_ranks: list[RotationAssetRankRow] = Field(default_factory=list)
+    trades: list[RotationTradeRow] = Field(default_factory=list)
+    cash: float | None = None
+    holdings: list[RotationHoldingRow] = Field(default_factory=list)
+    risk_filter_passed: bool | None = None
+    fallback_used: str | None = None
+
+
+class RotationReviewResponse(BaseModel):
+    is_rotation: bool
+    metrics: RotationSummaryMetrics
+    total_count: int
+    rebalances: list[RotationRebalanceEvent]
+
+
 class RunChartDataResponse(BaseModel):
     run_id: str
     equity_curve: list[EquityCurvePoint]
@@ -429,6 +486,7 @@ class RunComparisonChartResponse(BaseModel):
 class RunDashboardResponse(BaseModel):
     run: RunResponse
     chart_data: RunChartDataResponse
+    rotation_review: RotationReviewResponse | None = None
 
 
 class RunDashboardListItem(BaseModel):
