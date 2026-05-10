@@ -31,6 +31,16 @@ function formatBps(value: unknown): string {
   return `${value} bps`;
 }
 
+function getRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function formatSymbolList(value: unknown): string {
+  if (!Array.isArray(value)) return '—';
+  const symbols = value.filter((symbol): symbol is string => typeof symbol === 'string' && symbol.trim().length > 0);
+  return symbols.length > 0 ? symbols.join(', ') : '—';
+}
+
 function InfoPill({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
     <div className="app-home-draft-panel rounded-2xl px-4 py-3">
@@ -164,13 +174,21 @@ export function StrategyDraftCard({
 
   const viewModel = useMemo(() => {
     const config = draft.config ?? {};
-    const allocation = (config.allocation as Record<string, unknown> | undefined) ?? {};
-    const risk = (config.risk as Record<string, unknown> | undefined) ?? {};
-    const coreOverlay = (config.core_overlay as Record<string, unknown> | undefined) ?? {};
-    const positionManagement = (config.position_management as Record<string, unknown> | undefined) ?? {};
+    const allocation = getRecord(config.allocation);
+    const risk = getRecord(config.risk);
+    const coreOverlay = getRecord(config.core_overlay);
+    const positionManagement = getRecord(config.position_management);
+    const rotation = getRecord(config.rotation);
+    const rotationRanking = getRecord(rotation.ranking);
+    const rotationRebalance = getRecord(rotation.rebalance);
+    const rotationSelection = getRecord(rotation.selection);
+    const rotationAllocation = getRecord(rotation.allocation);
+    const rotationFallback = getRecord(rotation.fallback);
+    const rotationEnabled = rotation.enabled === true;
     const behaviorFields = getStrategyBehaviorFields(config);
 
-    const maxPosition = typeof allocation.max_position_pct === 'number' ? `${(allocation.max_position_pct * 100).toFixed(1)}%` : '—';
+    const maxPositionSource = rotationEnabled ? rotationAllocation.max_position_pct : allocation.max_position_pct;
+    const maxPosition = typeof maxPositionSource === 'number' ? `${(maxPositionSource * 100).toFixed(1)}%` : '—';
     const stopLoss = formatPercent(risk.stop_loss_pct);
     const takeProfit = formatPercent(risk.take_profit_pct);
     const cooldown = typeof risk.cooldown_bars === 'number' ? (risk.cooldown_bars === 0 ? 'None' : `${risk.cooldown_bars} bars`) : '—';
@@ -189,6 +207,27 @@ export function StrategyDraftCard({
         : null;
     const hasScaleInPolicy = scaleInFraction !== null;
     const strategyHeadline = typeof config.name === 'string' && config.name.trim() ? config.name : 'Generated strategy';
+    const rotationUniverse = formatSymbolList(rotation.universe);
+    const rotationLookback = typeof rotationRanking.lookback === 'number' ? `${rotationRanking.lookback} trading days` : '—';
+    const rotationFrequency = typeof rotationRebalance.frequency === 'string' ? rotationRebalance.frequency : '—';
+    const rotationTopN = typeof rotationSelection.top_n === 'number' ? `Top ${rotationSelection.top_n}` : '—';
+    const rotationFallbackLabel =
+      rotationFallback.type === 'asset' && typeof rotationFallback.symbol === 'string'
+        ? rotationFallback.symbol.toUpperCase()
+        : rotationFallback.type === 'cash'
+          ? 'Cash'
+          : '—';
+    const rotationRiskFilterLabel = rotationEnabled
+      ? rotation.risk_filter
+        ? explainRule(rotation.risk_filter, { tradableSymbol: config.tradable_symbol })
+        : 'No separate risk filter'
+      : '';
+    const entryRuleLabel = rotationEnabled
+      ? `Rank the rotation universe by trailing relative return and select ${rotationTopN.toLowerCase()}.`
+      : explainRule(config.entry_rule, { tradableSymbol: config.tradable_symbol });
+    const exitRuleLabel = rotationEnabled
+      ? `Rebalance ${rotationFrequency}; use ${rotationFallbackLabel.toLowerCase()} when the rotation cannot hold selected assets.`
+      : explainRule(config.exit_rule, { tradableSymbol: config.tradable_symbol });
 
     return {
       strategyHeadline,
@@ -200,18 +239,39 @@ export function StrategyDraftCard({
       transactionCost: formatBps(config.transaction_cost_bps),
       entryValue: behaviorFields.find((field) => field.label === 'Entry sizing' || field.label === 'Entry allocation')?.value ?? '—',
       maxPosition,
+      rotationEnabled,
+      rotationUniverse,
+      rotationLookback,
+      rotationFrequency,
+      rotationTopN,
+      rotationFallbackLabel,
       coreOverlayEnabled,
       coreAllocationValue,
       overlayAllocationValue,
-      entryRuleLabel: explainRule(config.entry_rule, { tradableSymbol: config.tradable_symbol }),
-      exitRuleLabel: explainRule(config.exit_rule, { tradableSymbol: config.tradable_symbol }),
+      entryRuleLabel,
+      exitRuleLabel,
       stopLoss,
       takeProfit,
       cooldown,
-      coreOverlayLabel: coreOverlayEnabled ? `Enabled · ${coreAllocation} · ${overlaySleeveAllocation}` : 'Disabled',
+      coreOverlayLabel: rotationEnabled
+        ? 'Not used for rotation'
+        : coreOverlayEnabled
+          ? `Enabled · ${coreAllocation} · ${overlaySleeveAllocation}`
+          : 'Disabled',
       behaviorFields,
-      readableExplanation: [
-        `Trade ${typeof config.tradable_symbol === 'string' ? config.tradable_symbol : 'the selected asset'} from ${typeof config.start_date === 'string' ? config.start_date : 'the chosen start date'} to ${typeof config.end_date === 'string' ? config.end_date : 'the chosen end date'}.`,
+      readableExplanation: rotationEnabled
+        ? [
+          `Rotate across ${rotationUniverse} from ${typeof config.start_date === 'string' ? config.start_date : 'the chosen start date'} to ${typeof config.end_date === 'string' ? config.end_date : 'the chosen end date'}.`,
+          typeof config.benchmark_symbol === 'string'
+            ? `Compare performance against ${config.benchmark_symbol}; the template wording treats equal-weight universe comparison as research context.`
+            : null,
+          `Rank assets by ${rotationLookback} trailing relative return.`,
+          `Rebalance ${rotationFrequency} into ${rotationTopN.toLowerCase()} with equal weighting.`,
+          rotationRiskFilterLabel ? `Risk filter: ${rotationRiskFilterLabel}.` : null,
+          `Fallback: ${rotationFallbackLabel}.`,
+        ].filter((item): item is string => Boolean(item))
+        : [
+          `Trade ${typeof config.tradable_symbol === 'string' ? config.tradable_symbol : 'the selected asset'} from ${typeof config.start_date === 'string' ? config.start_date : 'the chosen start date'} to ${typeof config.end_date === 'string' ? config.end_date : 'the chosen end date'}.`,
         typeof config.benchmark_symbol === 'string'
           ? `Compare performance against ${config.benchmark_symbol}.`
           : null,
@@ -253,6 +313,8 @@ export function StrategyDraftCard({
     const entryRule = (config.entry_rule as Record<string, unknown> | undefined) ?? {};
     const exitRule = (config.exit_rule as Record<string, unknown> | undefined) ?? {};
     const coreOverlayEnabled = coreOverlay.enabled === true;
+    const rotation = getRecord(config.rotation);
+    const rotationEnabled = rotation.enabled === true;
 
     const prompts: string[] = [];
 
@@ -262,6 +324,11 @@ export function StrategyDraftCard({
           ? 'Change benchmark to QQQ'
           : 'Change benchmark to SPY'
       );
+    }
+
+    if (rotationEnabled) {
+      prompts.push('Explain this draft in simple terms');
+      return Array.from(new Set(prompts)).slice(0, 6);
     }
 
     if (typeof risk.stop_loss_pct === 'number') {
@@ -350,6 +417,15 @@ export function StrategyDraftCard({
               <InfoPill label="Overlay Allocation" value={viewModel.overlayAllocationValue} />
               <InfoPill label="Overlay Max Position" value={viewModel.maxPosition} />
             </>
+          ) : viewModel.rotationEnabled ? (
+            <>
+              <InfoPill label="Universe" value={viewModel.rotationUniverse} />
+              <InfoPill label="Lookback" value={viewModel.rotationLookback} />
+              <InfoPill label="Rebalance" value={viewModel.rotationFrequency} />
+              <InfoPill label="Selection" value={viewModel.rotationTopN} />
+              <InfoPill label="Fallback" value={viewModel.rotationFallbackLabel} />
+              <InfoPill label="Max Position" value={viewModel.maxPosition} />
+            </>
           ) : (
             <>
               <InfoPill label="Entry Sizing" value={viewModel.entryValue} />
@@ -374,11 +450,15 @@ export function StrategyDraftCard({
           <Section eyebrow="Signal logic" title="Entry and exit rules">
             <div className="space-y-3 text-sm">
               <div className="app-home-draft-panel rounded-2xl p-4">
-                <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">Entry</div>
+                <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+                  {viewModel.rotationEnabled ? 'Selection' : 'Entry'}
+                </div>
                 <div className="app-title mt-2 leading-6">{viewModel.entryRuleLabel}</div>
               </div>
               <div className="app-home-draft-panel rounded-2xl p-4">
-                <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">Exit</div>
+                <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+                  {viewModel.rotationEnabled ? 'Rebalance / fallback' : 'Exit'}
+                </div>
                 <div className="app-title mt-2 leading-6">{viewModel.exitRuleLabel}</div>
               </div>
             </div>

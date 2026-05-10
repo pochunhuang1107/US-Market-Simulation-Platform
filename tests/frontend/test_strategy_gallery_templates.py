@@ -138,7 +138,38 @@ def _collect_rule_symbols(rule: dict[str, Any] | None) -> set[str]:
         for child in rules:
             symbols.update(_collect_rule_symbols(child))
 
+    steps = rule.get("steps")
+    if isinstance(steps, list):
+        for child in steps:
+            symbols.update(_collect_rule_symbols(child))
+
     return symbols
+
+
+def _collect_rotation_symbols(rotation: dict[str, Any] | None) -> set[str]:
+    if not isinstance(rotation, dict) or rotation.get("enabled") is not True:
+        return set()
+
+    symbols = {
+        symbol.upper()
+        for symbol in rotation.get("universe", [])
+        if isinstance(symbol, str)
+    }
+    fallback = rotation.get("fallback")
+    if isinstance(fallback, dict) and fallback.get("type") == "asset":
+        symbol = fallback.get("symbol")
+        if isinstance(symbol, str):
+            symbols.add(symbol.upper())
+    symbols.update(_collect_rule_symbols(rotation.get("risk_filter")))
+    return symbols
+
+
+def _rotation_templates(templates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        template
+        for template in templates
+        if template["config"].get("rotation", {}).get("enabled") is True
+    ]
 
 
 def test_strategy_gallery_templates_validate_and_build_run_payloads():
@@ -298,6 +329,7 @@ def test_strategy_gallery_templates_include_discovery_metadata():
             "VIX regime",
             "ETF relative strength",
             "ETF trend filter",
+            "Rotation universe",
         }
         assert template["style"]
         assert template["riskLevel"]
@@ -344,8 +376,9 @@ def test_strategy_gallery_templates_use_supported_symbols():
             config["tradable_symbol"],
             config["benchmark_symbol"],
             *config["reference_symbols"],
-            *_collect_rule_symbols(config["entry_rule"]),
-            *_collect_rule_symbols(config["exit_rule"]),
+            *_collect_rule_symbols(config.get("entry_rule")),
+            *_collect_rule_symbols(config.get("exit_rule")),
+            *_collect_rotation_symbols(config.get("rotation")),
         }
         unsupported = sorted(
             symbol
@@ -362,7 +395,9 @@ def test_strategy_gallery_filter_helpers_cover_search_and_filter_facets():
     assert "Lower" in probe["options"]["riskLevels"]
     assert "IWM" in probe["options"]["symbols"]
     assert "VIX regime" in probe["options"]["referenceSeriesUsages"]
+    assert "Rotation universe" in probe["options"]["referenceSeriesUsages"]
     assert "Sector overlay" in probe["options"]["tagsAndCategories"]
+    assert "Rotation" in probe["options"]["tagsAndCategories"]
     assert "iwm-rsi-defensive-pullback" in probe["iwmSymbolIds"]
     assert set(probe["holdoutRiskIds"]) >= {
         "xle-rsi-defensive-pullback",
@@ -476,15 +511,91 @@ def test_refreshed_gallery_templates_include_major_etfs_and_defensive_candidates
     } <= ids
 
 
+def test_rotation_gallery_templates_are_valid_and_benchmark_aware():
+    templates = _load_gallery_templates()
+    rotation_templates = _rotation_templates(templates)
+    rotation_ids = {template["id"] for template in rotation_templates}
+
+    assert {
+        "defensive-cross-asset-252-sma200-rotation",
+        "defensive-cross-asset-252-sma100-rotation",
+        "growth-sector-rate-21d-rotation",
+        "sector-etf-top-3-21d-rotation",
+        "broad-etf-top-2-21d-rotation",
+    } <= rotation_ids
+
+    for template in rotation_templates:
+        config = template["config"]
+        rotation = config["rotation"]
+        strategy = StrategyV2.model_validate(config)
+
+        assert strategy.rotation is not None
+        assert strategy.rotation.enabled is True
+        assert config.get("entry_rule") is None
+        assert config.get("exit_rule") is None
+        assert rotation["ranking"]["type"] == "relative_return"
+        assert rotation["rebalance"]["frequency"] in {"monthly", "weekly", "quarterly"}
+        assert rotation["selection"]["top_n"] <= len(rotation["universe"])
+        assert set(template["symbols"]) >= set(rotation["universe"])
+        assert "Rotation" in template["tags"]
+        assert "Momentum" in template["tags"]
+
+        benchmark_context = " ".join(
+            [
+                template["shortExplanation"],
+                template["expectedBehavior"],
+                " ".join(template["riskControls"]),
+                " ".join(template["tags"]),
+            ]
+        ).lower()
+        assert "equal-weight" in benchmark_context
+        assert "buy-and-hold" in benchmark_context or "benchmark caveat" in benchmark_context
+
+
+def test_rotation_gallery_templates_run_with_synthetic_data():
+    templates = _load_gallery_templates()
+
+    for template in _rotation_templates(templates):
+        config = template["config"]
+        strategy = StrategyV2.model_validate(config)
+        references = {
+            symbol: _synthetic_bars(
+                symbol,
+                config["start_date"],
+                config["end_date"],
+            )
+            for symbol in config["reference_symbols"]
+        }
+
+        result = run_simulation(
+            MarketDataBundle(
+                tradable=_synthetic_bars(
+                    config["tradable_symbol"],
+                    config["start_date"],
+                    config["end_date"],
+                ),
+                references=references,
+            ),
+            strategy,
+        )
+
+        assert len(result.timeline) > 0
+        assert result.summary["initial_capital"] == config["initial_capital"]
+        assert result.summary["strategy_type"] == "rotation"
+
+
 def test_gallery_templates_avoid_performance_promising_wording():
     banned_phrases = [
         "will outperform",
         "beats the market",
+        "beats buy-and-hold",
         "proven alpha",
         "guaranteed",
+        "guaranteed outperformance",
         "best strategy",
         "profitable signal",
         "will beat",
+        "future returns",
     ]
 
     for template in _load_gallery_templates():
@@ -505,9 +616,12 @@ def test_gallery_templates_avoid_performance_promising_wording():
 
 
 def test_builder_sample_prompt_sources_include_refreshed_examples():
+    example_prompt_source = (
+        ROOT / "frontend/src/components/strategy-chat/ExamplePromptChips.tsx"
+    ).read_text()
     prompt_sources = "\n".join(
         [
-            (ROOT / "frontend/src/components/strategy-chat/ExamplePromptChips.tsx").read_text(),
+            example_prompt_source,
             (ROOT / "frontend/src/components/strategy-chat/ChatMessageList.tsx").read_text(),
         ]
     )
@@ -521,6 +635,8 @@ def test_builder_sample_prompt_sources_include_refreshed_examples():
     ]
     for example in expected_examples:
         assert example in prompt_sources
+
+    assert "rotation" not in example_prompt_source.lower()
 
 
 def test_featured_strategy_ideas_use_refreshed_gallery_templates():

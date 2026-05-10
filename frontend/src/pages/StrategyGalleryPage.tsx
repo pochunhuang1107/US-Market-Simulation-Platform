@@ -421,7 +421,7 @@ function TemplatePreview({
   const behaviorFields = getStrategyBehaviorFields(config as unknown as Record<string, unknown>);
 
   return (
-    <aside className="xl:sticky xl:top-28 xl:self-start">
+    <aside className="xl:sticky xl:top-28 xl:max-h-[calc(100vh-7rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
       <SectionCard
         title="Template Preview"
         subtitle="Structured draft summary before running a simulation."

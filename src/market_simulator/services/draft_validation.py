@@ -99,6 +99,28 @@ def _collect_rule_symbols(rule: Any) -> list[str]:
     return symbols
 
 
+def _collect_rotation_symbols(rotation: Any) -> list[str]:
+    if not isinstance(rotation, dict) or rotation.get("enabled") is not True:
+        return []
+
+    symbols: list[str] = []
+
+    universe = rotation.get("universe") or []
+    if isinstance(universe, list):
+        for symbol in universe:
+            if isinstance(symbol, str):
+                symbols.append(symbol.upper())
+
+    fallback = rotation.get("fallback") or {}
+    if isinstance(fallback, dict) and fallback.get("type") == "asset":
+        symbol = fallback.get("symbol")
+        if isinstance(symbol, str):
+            symbols.append(symbol.upper())
+
+    symbols.extend(_collect_rule_symbols(rotation.get("risk_filter") or {}))
+    return symbols
+
+
 def validate_draft_config(
     *,
     config: dict[str, Any],
@@ -145,6 +167,8 @@ def validate_draft_config(
 
     exit_rule = config.get("exit_rule") or {}
     symbols_to_check.extend(_collect_rule_symbols(exit_rule))
+
+    symbols_to_check.extend(_collect_rotation_symbols(config.get("rotation") or {}))
 
     unsupported_symbols = sorted(
         {

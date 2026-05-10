@@ -14,6 +14,10 @@ function getNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function getString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1).replace(/\.0$/, '')}%`;
 }
@@ -28,7 +32,53 @@ export function getStrategyBehaviorFields(config: Record<string, unknown> | null
   const allocation = getRecord(config.allocation);
   const coreOverlay = getRecord(config.core_overlay);
   const positionManagement = getRecord(config.position_management);
+  const rotation = getRecord(config.rotation);
   const fields: StrategyBehaviorField[] = [];
+
+  if (rotation?.enabled === true) {
+    const ranking = getRecord(rotation.ranking);
+    const rebalance = getRecord(rotation.rebalance);
+    const selection = getRecord(rotation.selection);
+    const rotationAllocation = getRecord(rotation.allocation);
+    const fallback = getRecord(rotation.fallback);
+    const universe = Array.isArray(rotation.universe)
+      ? rotation.universe.filter((symbol): symbol is string => typeof symbol === 'string' && symbol.trim().length > 0)
+      : [];
+    const frequency = getString(rebalance?.frequency);
+    const lookback = getNumber(ranking?.lookback);
+    const topN = getNumber(selection?.top_n);
+    const maxPositionPct = getNumber(rotationAllocation?.max_position_pct);
+    const fallbackType = getString(fallback?.type);
+    const fallbackSymbol = getString(fallback?.symbol);
+
+    if (universe.length > 0) {
+      fields.push({ label: 'Rotation universe', value: universe.join(', ') });
+    }
+    if (lookback !== null) {
+      fields.push({ label: 'Momentum lookback', value: `${lookback} trading days` });
+    }
+    if (frequency) {
+      fields.push({ label: 'Rebalance', value: frequency });
+    }
+    if (topN !== null) {
+      fields.push({ label: 'Selection', value: `Top ${topN}` });
+    }
+    if (maxPositionPct !== null) {
+      fields.push({ label: 'Rotation max position', value: formatPercent(maxPositionPct) });
+    }
+    if (fallbackType) {
+      fields.push({
+        label: 'Fallback',
+        value: fallbackType === 'asset' && fallbackSymbol ? fallbackSymbol.toUpperCase() : fallbackType
+      });
+    }
+    if (typeof config.benchmark_symbol === 'string' && config.benchmark_symbol.trim()) {
+      fields.push({ label: 'Benchmark', value: config.benchmark_symbol });
+    }
+
+    return fields;
+  }
+
   const scaleInFraction = positionManagement?.scale_in_fraction;
   const coreAllocationPct =
     coreOverlay?.enabled === true && typeof coreOverlay.core_allocation_pct === 'number'
