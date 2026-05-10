@@ -507,6 +507,54 @@ def _format_exit_behavior(value: Any) -> str:
     return str(value)
 
 
+def _format_rotation_fallback(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "none"
+    if value.get("type") == "asset" and value.get("symbol"):
+        return str(value["symbol"]).upper()
+    if value.get("type") == "cash":
+        return "cash"
+    return str(value.get("type") or "none")
+
+
+def _format_rotation_risk_filter(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "none"
+
+    if value.get("kind") == "atomic" and value.get("type") == "sma_above":
+        symbol = str(value.get("symbol") or "asset").upper()
+        fast_window = value.get("fast_window")
+        slow_window = value.get("slow_window")
+        if fast_window == 1 and slow_window is not None:
+            return f"{symbol} above its {slow_window}-day SMA"
+        if fast_window is not None and slow_window is not None:
+            return f"{symbol} {fast_window}-day SMA above its {slow_window}-day SMA"
+
+    return _describe_rule(value)
+
+
+def _record_rotation_risk_filter_change(
+    changes: list[str],
+    before: Any,
+    after: Any,
+) -> None:
+    if before == after:
+        return
+
+    before_label = _format_rotation_risk_filter(before)
+    after_label = _format_rotation_risk_filter(after)
+    if not isinstance(before, dict) and isinstance(after, dict):
+        changes.append(f"Added rotation risk filter: {after_label}.")
+        return
+    if isinstance(before, dict) and not isinstance(after, dict):
+        changes.append(f"Removed rotation risk filter: {before_label}.")
+        return
+
+    changes.append(
+        f"Updated rotation risk filter from {before_label} to {after_label}."
+    )
+
+
 def _format_pct(value: Any) -> str:
     if value is None:
         return "none"
@@ -600,6 +648,14 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
     final_position_management = config.get("position_management", {}) or {}
     base_core_overlay = base_config.get("core_overlay", {}) or {}
     final_core_overlay = config.get("core_overlay", {}) or {}
+    base_rotation = base_config.get("rotation", {}) or {}
+    final_rotation = config.get("rotation", {}) or {}
+    base_rotation_ranking = base_rotation.get("ranking", {}) if isinstance(base_rotation, dict) else {}
+    final_rotation_ranking = final_rotation.get("ranking", {}) if isinstance(final_rotation, dict) else {}
+    base_rotation_rebalance = base_rotation.get("rebalance", {}) if isinstance(base_rotation, dict) else {}
+    final_rotation_rebalance = final_rotation.get("rebalance", {}) if isinstance(final_rotation, dict) else {}
+    base_rotation_selection = base_rotation.get("selection", {}) if isinstance(base_rotation, dict) else {}
+    final_rotation_selection = final_rotation.get("selection", {}) if isinstance(final_rotation, dict) else {}
 
     _record_change(
         changes,
@@ -921,6 +977,47 @@ def _summarize_changes(base_config: dict[str, Any], config: dict[str, Any]) -> l
         "core allocation percentage",
         _format_pct,
     )
+
+    if base_rotation or final_rotation:
+        _record_change(
+            changes,
+            base_rotation_ranking.get("lookback"),
+            final_rotation_ranking.get("lookback"),
+            "rotation lookback",
+            _format_number,
+        )
+        _record_change(
+            changes,
+            base_rotation_selection.get("top_n"),
+            final_rotation_selection.get("top_n"),
+            "rotation top N",
+            _format_number,
+        )
+        _record_change(
+            changes,
+            base_rotation_rebalance.get("frequency"),
+            final_rotation_rebalance.get("frequency"),
+            "rotation rebalance frequency",
+        )
+        _record_change(
+            changes,
+            base_rotation.get("fallback"),
+            final_rotation.get("fallback"),
+            "rotation fallback",
+            _format_rotation_fallback,
+        )
+        _record_rotation_risk_filter_change(
+            changes,
+            base_rotation.get("risk_filter"),
+            final_rotation.get("risk_filter"),
+        )
+        _record_change(
+            changes,
+            ", ".join(base_rotation.get("universe", [])),
+            ", ".join(final_rotation.get("universe", [])),
+            "rotation universe",
+        )
+
     if _is_relative_strength_rule(base_entry) or _is_relative_strength_rule(final_entry):
         _record_change(
             changes,

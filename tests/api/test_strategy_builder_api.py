@@ -270,6 +270,54 @@ def _qqq_vix_rsi_current_config() -> dict:
     return config
 
 
+def _rotation_current_config() -> dict:
+    return {
+        "schema_version": "2.0",
+        "name": "Multi-Asset Top-1 63D Rotation",
+        "tradable_symbol": "QQQ",
+        "benchmark_symbol": "SPY",
+        "reference_symbols": ["SPY", "TLT", "XLK"],
+        "start_date": "2021-01-01",
+        "end_date": "2024-12-31",
+        "initial_capital": 100000,
+        "transaction_cost_bps": 5,
+        "risk": {
+            "stop_loss_pct": None,
+            "take_profit_pct": None,
+            "cooldown_bars": 0,
+        },
+        "core_overlay": {
+            "enabled": False,
+            "core_allocation_pct": 0.0,
+        },
+        "position_management": None,
+        "rotation": {
+            "enabled": True,
+            "universe": ["QQQ", "SPY", "XLK", "TLT"],
+            "ranking": {
+                "type": "relative_return",
+                "lookback": 63,
+                "descending": True,
+            },
+            "rebalance": {
+                "frequency": "monthly",
+                "day": "first_trading_day",
+            },
+            "selection": {
+                "top_n": 1,
+            },
+            "allocation": {
+                "weighting": "equal_weight",
+                "max_position_pct": 1.0,
+            },
+            "risk_filter": None,
+            "fallback": {
+                "type": "cash",
+            },
+        },
+    }
+
+
 def _assert_strategy_v2_config_preserves(
     config: dict,
     original: dict,
@@ -2483,6 +2531,283 @@ def test_generate_strategy_builder_mixed_composite_operator_returns_guidance(cli
     assert body["response_type"] == "VALIDATION_ERROR"
     assert body["config"] is None
     assert "could not deterministically parse" in body["message"].lower()
+
+
+def test_generate_strategy_builder_creates_monthly_top_1_rotation(client):
+    body = _post_strategy_builder_prompt(
+        client,
+        "Create a monthly rotation between QQQ, SPY, XLK, and TLT using 3-month momentum.",
+    )
+
+    config = body["config"]
+    rotation = config["rotation"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert "allocation" not in config
+    assert "entry_rule" not in config
+    assert "exit_rule" not in config
+    assert config["benchmark_symbol"] == "SPY"
+    assert config["tradable_symbol"] == "QQQ"
+    assert rotation["enabled"] is True
+    assert rotation["universe"] == ["QQQ", "SPY", "XLK", "TLT"]
+    assert rotation["ranking"] == {
+        "type": "relative_return",
+        "lookback": 63,
+        "descending": True,
+    }
+    assert rotation["rebalance"] == {
+        "frequency": "monthly",
+        "day": "first_trading_day",
+    }
+    assert rotation["selection"]["top_n"] == 1
+    assert rotation["allocation"]["weighting"] == "equal_weight"
+    assert rotation["fallback"]["type"] == "cash"
+    assert "Used top 1 selection by default." in body["assumptions"]
+
+
+def test_generate_strategy_builder_creates_sector_top_2_21_day_rotation(client):
+    body = _post_strategy_builder_prompt(
+        client,
+        "Create a sector rotation strategy that holds the top 2 sectors by 21-day momentum.",
+    )
+
+    rotation = body["config"]["rotation"]
+
+    assert rotation["universe"] == ["XLK", "XLY", "XLF", "XLE", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE"]
+    assert rotation["selection"]["top_n"] == 2
+    assert rotation["ranking"]["lookback"] == 21
+    assert rotation["rebalance"]["frequency"] == "monthly"
+
+
+def test_generate_strategy_builder_creates_defensive_rotation_with_spy_sma200_and_cash(client):
+    body = _post_strategy_builder_prompt(
+        client,
+        "Create a defensive rotation using QQQ, SPY, TLT, IEF, and GLD with SPY 200-day SMA risk filter and cash fallback.",
+    )
+
+    config = body["config"]
+    rotation = config["rotation"]
+
+    assert rotation["universe"] == ["QQQ", "SPY", "TLT", "IEF", "GLD"]
+    assert rotation["risk_filter"] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 200,
+    }
+    assert rotation["fallback"]["type"] == "cash"
+    assert "SPY" in config["reference_symbols"]
+
+
+def test_generate_strategy_builder_create_prompt_with_spy_sma200_risk_filter(client):
+    body = _post_strategy_builder_prompt(
+        client,
+        "Create a monthly rotation across QQQ, SPY, XLK, and TLT with SPY above 200-day SMA risk filter.",
+    )
+
+    rotation = body["config"]["rotation"]
+
+    assert rotation["risk_filter"] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 200,
+    }
+    assert "No separate risk filter" not in body["summary"]
+
+
+def test_generate_strategy_builder_creates_fallback_to_tlt_variant(client):
+    body = _post_strategy_builder_prompt(
+        client,
+        "Create a top 1 monthly momentum rotation across QQQ, SPY, XLK, and TLT with fallback to TLT.",
+    )
+
+    rotation = body["config"]["rotation"]
+
+    assert rotation["selection"]["top_n"] == 1
+    assert rotation["fallback"] == {"type": "asset", "symbol": "TLT"}
+
+
+def test_generate_strategy_builder_rotation_edit_lookback_from_63_to_21(client):
+    current_config = _rotation_current_config()
+
+    body = _post_strategy_builder_prompt(
+        client,
+        "Change rotation lookback to 21",
+        current_config=current_config,
+    )
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert body["config"]["rotation"]["ranking"]["lookback"] == 21
+    assert any("rotation lookback" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_rotation_edit_top_n_from_1_to_2(client):
+    current_config = _rotation_current_config()
+
+    body = _post_strategy_builder_prompt(
+        client,
+        "Change top_n from 1 to 2",
+        current_config=current_config,
+    )
+
+    assert body["config"]["rotation"]["selection"]["top_n"] == 2
+    assert any("rotation top N" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_rotation_edit_fallback_from_cash_to_tlt(client):
+    current_config = _rotation_current_config()
+
+    body = _post_strategy_builder_prompt(
+        client,
+        "Edit fallback from cash to TLT",
+        current_config=current_config,
+    )
+
+    assert body["config"]["rotation"]["fallback"] == {"type": "asset", "symbol": "TLT"}
+    assert "Updated rotation fallback from cash to TLT." in body["changes"]
+
+
+@pytest.mark.parametrize(
+    ("prompt", "window"),
+    [
+        ("Add SPY SMA100 risk filter", 100),
+        ("Add SPY SMA200 risk filter", 200),
+        ("add SPY 200-day SMA risk filter", 200),
+        ("add SPY 200 day SMA risk filter", 200),
+        ("use SPY 200-day SMA as risk filter", 200),
+        ("SPY above 200-day SMA risk filter", 200),
+        ("add SPY 100-day SMA risk filter", 100),
+    ],
+)
+def test_generate_strategy_builder_rotation_adds_spy_sma_risk_filter(client, prompt, window):
+    current_config = _rotation_current_config()
+
+    body = _post_strategy_builder_prompt(
+        client,
+        prompt,
+        current_config=current_config,
+    )
+
+    assert body["config"]["rotation"]["risk_filter"] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": window,
+    }
+    assert any("SPY above its" in change for change in body["changes"])
+    assert not any("sma_above|symbol=" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_rotation_combined_sma200_and_tlt_fallback_edit(client):
+    current_config = _rotation_current_config()
+
+    body = _post_strategy_builder_prompt(
+        client,
+        "add SPY 200-day SMA risk filter and fallback to TLT.",
+        current_config=current_config,
+    )
+
+    rotation = body["config"]["rotation"]
+
+    assert rotation["risk_filter"] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 200,
+    }
+    assert rotation["fallback"] == {"type": "asset", "symbol": "TLT"}
+    assert "No separate risk filter" not in body["summary"]
+    assert not any("ADD" in warning for warning in body["warnings"])
+    assert "Added rotation risk filter: SPY above its 200-day SMA." in body["changes"]
+    assert "Updated rotation fallback from cash to TLT." in body["changes"]
+    assert not any("sma_above|symbol=" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_rotation_combined_sma100_and_cash_fallback_edit(client):
+    current_config = _rotation_current_config()
+    current_config["rotation"]["fallback"] = {"type": "asset", "symbol": "TLT"}
+
+    body = _post_strategy_builder_prompt(
+        client,
+        "use SPY 100-day SMA risk filter and fallback to cash",
+        current_config=current_config,
+    )
+
+    rotation = body["config"]["rotation"]
+
+    assert rotation["risk_filter"] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 100,
+    }
+    assert rotation["fallback"] == {"type": "cash"}
+    assert not any("USE" in warning for warning in body["warnings"])
+
+
+def test_generate_strategy_builder_rotation_removes_risk_filter(client):
+    current_config = _rotation_current_config()
+    current_config["rotation"]["risk_filter"] = {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 200,
+    }
+
+    body = _post_strategy_builder_prompt(
+        client,
+        "Remove risk filter",
+        current_config=current_config,
+    )
+
+    assert "risk_filter" not in body["config"]["rotation"]
+    assert any("rotation risk filter" in change for change in body["changes"])
+
+
+def test_generate_strategy_builder_rotation_warns_and_omits_unsupported_symbol(client):
+    body = _post_strategy_builder_prompt(
+        client,
+        "Create a monthly rotation between QQQ, SPY, XYZ, and XLK using 3-month momentum.",
+    )
+
+    assert body["config"]["rotation"]["universe"] == ["QQQ", "SPY", "XLK"]
+    assert any("XYZ" in warning and "omitted" in warning for warning in body["warnings"])
+
+
+def test_generate_strategy_builder_rotation_action_verbs_are_not_ticker_warnings(client):
+    body = _post_strategy_builder_prompt(
+        client,
+        "add SPY 200-day SMA risk filter and fallback to TLT.",
+        current_config=_rotation_current_config(),
+    )
+
+    joined_warnings = " ".join(body["warnings"])
+
+    assert "ADD" not in joined_warnings
+    assert "SET" not in joined_warnings
+    assert "USE" not in joined_warnings
+
+
+def test_generate_strategy_builder_rotation_rejects_ml_ranking_prompt(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a rotation strategy across QQQ, SPY, XLK, and TLT using an ML prediction model for ranking.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["config"] is None
+    assert "ML prediction ranking is not supported" in body["message"]
 
 
 def test_generate_strategy_builder_draft_returns_valid_strategy_v2_config(client):

@@ -64,7 +64,8 @@ def validate_strategy_builder_request(
         if symbol not in supported_symbols
         and symbol not in SUPPORTED_REFERENCE_SERIES_SYMBOLS
     )
-    if unsupported_requested:
+    rotation = config.get("rotation") if isinstance(config.get("rotation"), dict) else {}
+    if unsupported_requested and rotation.get("enabled") is not True:
         joined = ", ".join(unsupported_requested)
         raise ValueError(
             f"{joined} {'is' if len(unsupported_requested) == 1 else 'are'} not supported yet. "

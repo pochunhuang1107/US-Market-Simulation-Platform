@@ -245,6 +245,7 @@ export function StrategyDraftCard({
       rotationFrequency,
       rotationTopN,
       rotationFallbackLabel,
+      rotationRiskFilterLabel,
       coreOverlayEnabled,
       coreAllocationValue,
       overlayAllocationValue,
@@ -424,6 +425,7 @@ export function StrategyDraftCard({
               <InfoPill label="Rebalance" value={viewModel.rotationFrequency} />
               <InfoPill label="Selection" value={viewModel.rotationTopN} />
               <InfoPill label="Fallback" value={viewModel.rotationFallbackLabel} />
+              <InfoPill label="Risk Filter" value={viewModel.rotationRiskFilterLabel} />
               <InfoPill label="Max Position" value={viewModel.maxPosition} />
             </>
           ) : (

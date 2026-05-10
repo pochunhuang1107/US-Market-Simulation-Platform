@@ -55,6 +55,7 @@ from market_simulator.services.strategy_builder_rule_tree import (
 from market_simulator.services.strategy_builder_summary import (
     _build_strategy_name,
     _build_strategy_summary,
+    _describe_rule,
     _rule_label,
     _summarize_changes,
 )
@@ -71,6 +72,7 @@ from market_simulator.services.strategy_builder_config import (
 )
 from market_simulator.services.draft_validation import collect_draft_config_warnings
 from market_simulator.services.strategy_builder_parsers import (
+    SUPPORTED_SYMBOLS,
     _build_confirmation_rules,
     _build_position_management,
     _build_rule_from_clause,
@@ -158,6 +160,72 @@ from market_simulator.services.strategy_builder_parsers import (
     _looks_like_edit_request,
     _looks_like_question,
 )
+
+
+_SECTOR_ROTATION_UNIVERSE = [
+    "XLK",
+    "XLY",
+    "XLF",
+    "XLE",
+    "XLV",
+    "XLI",
+    "XLP",
+    "XLU",
+    "XLB",
+    "XLRE",
+]
+_BROAD_ROTATION_UNIVERSE = [
+    "SPY",
+    "QQQ",
+    "IWM",
+    "VTI",
+    "GLD",
+    "TLT",
+    "IEF",
+    "HYG",
+    "LQD",
+    "XLK",
+    "XLY",
+    "XLV",
+]
+_GROWTH_SECTOR_RATE_ROTATION_UNIVERSE = ["QQQ", "SPY", "XLK", "XLY", "XLV", "TLT"]
+_DEFENSIVE_ROTATION_UNIVERSE = ["QQQ", "SPY", "TLT", "IEF", "GLD"]
+_ROTATION_ACTION_WORDS = {
+    "ADD",
+    "BUILD",
+    "CHANGE",
+    "CREATE",
+    "DELETE",
+    "DRAFT",
+    "DROP",
+    "EDIT",
+    "GENERATE",
+    "INCLUDE",
+    "MAKE",
+    "REMOVE",
+    "SET",
+    "UPDATE",
+    "USE",
+    "USING",
+}
+_ROTATION_NON_SYMBOL_TOKENS = {
+    "AI",
+    "AND",
+    "CASH",
+    "ETF",
+    "ETFS",
+    "ML",
+    "SMA",
+    "TOP",
+} | _ROTATION_ACTION_WORDS
+
+
+def _is_ignored_rotation_symbol_token(symbol: str) -> bool:
+    normalized = symbol.upper()
+    return (
+        normalized in _ROTATION_NON_SYMBOL_TOKENS
+        or re.fullmatch(r"SMA\d{2,3}", normalized) is not None
+    )
 
 
 def _has_current_config(req: StrategyBuilderGenerateRequest) -> bool:
@@ -262,6 +330,674 @@ _UNSUPPORTED_ALLOCATION_ADJUSTMENT_MESSAGE = (
     '"Buy QQQ when VIX is below 15 and sell when VIX is above 35.", or '
     '"Buy and hold QQQ. Add when VIX is below 15. Reduce when VIX is above 35."'
 )
+
+_UNSUPPORTED_ROTATION_MESSAGES: tuple[tuple[str, str], ...] = (
+    (
+        r"\b(intraday|intra-day|hourly|minute|minutes|daily)\b",
+        "Daily or intraday rotation is not supported by the deterministic builder yet. "
+        "Use weekly, monthly, or quarterly rotation.",
+    ),
+    (
+        r"\b(options?|calls?|puts?)\b",
+        "Options rotation is not supported by this builder. Use supported ETF symbols only.",
+    ),
+    (
+        r"\b(short|shorting|short\s+the|inverse)\b",
+        "Short rotation is not supported by this builder. It can only create long ETF rotation drafts.",
+    ),
+    (
+        r"\b(leveraged?|leverage|2x|3x|margin)\b",
+        "Leveraged rotation is not supported by this builder. Use unlevered supported ETF symbols.",
+    ),
+    (
+        r"\b(ml|machine\s+learning|prediction\s+model|predictive|ai\s+model)\b",
+        "ML prediction ranking is not supported by the deterministic builder. "
+        "Use relative-return momentum ranking instead.",
+    ),
+    (
+        r"\b(rank|ranking|ranked)\b.*\b(sharpe|sortino|volatility|drawdown|dividend|yield|alpha)\b",
+        "That rotation ranking type is not supported yet. The deterministic builder currently supports relative-return momentum ranking.",
+    ),
+)
+
+
+def _is_rotation_enabled_config(config: dict[str, Any] | None) -> bool:
+    if not isinstance(config, dict):
+        return False
+    rotation = config.get("rotation")
+    return isinstance(rotation, dict) and rotation.get("enabled") is True
+
+
+def _looks_like_rotation_create_prompt(prompt: str) -> bool:
+    text = prompt.lower()
+    if not re.search(r"\b(create|build|draft|generate|make|rotate|rotation|use)\b", text):
+        return False
+    return bool(
+        re.search(
+            r"\b(rotation|rotate|sector\s+etfs?|top\s+\d+|top-\d+|momentum\s+rotation|fallback)\b",
+            text,
+        )
+    )
+
+
+def _looks_like_rotation_edit_prompt(prompt: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(lookback|momentum|top\s*\d+|top_n|rebalance|weekly|monthly|quarterly|"
+            r"fallback|risk\s+filter|sma\s*\d+|\d+\s*[-\s]?day\s+sma|universe|"
+            r"add\s+[A-Z]{2,5}|remove\s+[A-Z]{2,5}|benchmark)\b",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _looks_like_rotation_explain_prompt(prompt: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(explain|describe|summarize|what\s+does|how\s+does)\b.*\b(this|current|draft|rotation|strategy)\b",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _unsupported_rotation_message(prompt: str) -> str | None:
+    for pattern, message in _UNSUPPORTED_ROTATION_MESSAGES:
+        if re.search(pattern, prompt, flags=re.IGNORECASE):
+            return message
+    return None
+
+
+def _filter_supported_rotation_symbols(
+    symbols: list[str],
+    *,
+    warnings: list[str],
+) -> list[str]:
+    supported: list[str] = []
+    unsupported: list[str] = []
+    for symbol in symbols:
+        normalized = symbol.upper()
+        if _is_ignored_rotation_symbol_token(normalized):
+            continue
+        if normalized in SUPPORTED_SYMBOLS:
+            if normalized not in supported:
+                supported.append(normalized)
+        elif normalized not in unsupported:
+            unsupported.append(normalized)
+
+    if unsupported:
+        warnings.append(
+            f"Unsupported symbols were omitted from the rotation universe: {', '.join(unsupported)}."
+        )
+    return supported
+
+
+def _extract_rotation_prompt_symbols(prompt: str) -> tuple[list[str], list[str]]:
+    raw_symbols: list[str] = []
+    for candidate in re.findall(r"\b[A-Z][A-Z0-9]{1,5}\b", prompt):
+        symbol = candidate.upper()
+        if (
+            _is_ignored_rotation_symbol_token(symbol)
+            or symbol in raw_symbols
+        ):
+            continue
+        raw_symbols.append(symbol)
+
+    for symbol in sorted(SUPPORTED_SYMBOLS):
+        if symbol in raw_symbols:
+            continue
+        if re.search(rf"\b{re.escape(symbol)}\b", prompt, flags=re.IGNORECASE):
+            raw_symbols.append(symbol)
+
+    supported = [symbol for symbol in raw_symbols if symbol in SUPPORTED_SYMBOLS]
+    unsupported = [
+        symbol
+        for symbol in raw_symbols
+        if symbol not in SUPPORTED_SYMBOLS and not _is_ignored_rotation_symbol_token(symbol)
+    ]
+    return supported, unsupported
+
+
+def _supported_universe(symbols: list[str]) -> list[str]:
+    return [symbol for symbol in symbols if symbol in SUPPORTED_SYMBOLS]
+
+
+def _extract_rotation_universe(
+    prompt: str,
+    *,
+    warnings: list[str],
+    assumptions: list[str],
+) -> list[str]:
+    prompt_lower = prompt.lower()
+    explicit_symbols, unsupported_symbols = _extract_rotation_prompt_symbols(prompt)
+    explicit_symbols = _filter_supported_rotation_symbols(
+        [*explicit_symbols, *unsupported_symbols],
+        warnings=warnings,
+    )
+
+    if explicit_symbols and (
+        "between" in prompt_lower
+        or "across" in prompt_lower
+        or "using" in prompt_lower
+    ):
+        return explicit_symbols
+
+    if re.search(r"\bsector\s+etfs?\b|\bsectors?\b", prompt, flags=re.IGNORECASE):
+        assumptions.append("Used the supported sector ETF universe.")
+        return _supported_universe(_SECTOR_ROTATION_UNIVERSE)
+
+    if "growth sector rate mix" in prompt_lower:
+        assumptions.append("Used the supported growth/sector/rate ETF mix.")
+        return _supported_universe(_GROWTH_SECTOR_RATE_ROTATION_UNIVERSE)
+
+    if "broad etf mix" in prompt_lower or "broad supported etf" in prompt_lower:
+        assumptions.append("Used the supported broad ETF mix.")
+        return _supported_universe(_BROAD_ROTATION_UNIVERSE)
+
+    if "defensive mix" in prompt_lower or "defensive rotation" in prompt_lower:
+        assumptions.append("Used the supported defensive mix.")
+        return _supported_universe(_DEFENSIVE_ROTATION_UNIVERSE)
+
+    assumptions.append("No rotation universe was specified, so the supported broad ETF mix was used.")
+    return _supported_universe(_BROAD_ROTATION_UNIVERSE)
+
+
+def _extract_rotation_lookback(prompt: str, *, assumptions: list[str]) -> int:
+    text = prompt.lower()
+    bare_match = re.search(
+        r"\b(?:lookback|momentum)\b[^.\n]{0,30}?\b(21|63|126|252)\b",
+        text,
+    )
+    if bare_match:
+        return int(bare_match.group(1))
+
+    if re.search(r"\b(?:1|one)\s*[-\s]?months?\b|\b21\s*[-\s]?(?:day|d)\b", text):
+        return 21
+    if re.search(r"\b(?:3|three)\s*[-\s]?months?\b|\bquarter(?:ly)?\b|\b63\s*[-\s]?(?:day|d)\b", text):
+        return 63
+    if re.search(r"\b(?:6|six)\s*[-\s]?months?\b|\b126\s*[-\s]?(?:day|d)\b", text):
+        return 126
+    if re.search(r"\b(?:12|twelve)\s*[-\s]?months?\b|\b(?:1|one)\s*[-\s]?years?\b|\b252\s*[-\s]?(?:day|d)\b", text):
+        return 252
+
+    assumptions.append("Used 63 trading days as the momentum lookback by default.")
+    return 63
+
+
+def _extract_rotation_top_n(
+    prompt: str,
+    *,
+    universe_size: int,
+    assumptions: list[str],
+    warnings: list[str],
+) -> int:
+    word_to_int = {"one": 1, "two": 2, "three": 3}
+    match = re.search(
+        r"\btop(?:\s*[-_ ]?\s*n)?\s*(?:from\s+\d+\s+to\s+|to\s+)?(\d+|one|two|three)\b",
+        prompt,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        raw_value = match.group(1).lower()
+        top_n = word_to_int.get(raw_value, int(raw_value) if raw_value.isdigit() else 1)
+    else:
+        top_n = 1
+        assumptions.append("Used top 1 selection by default.")
+
+    if top_n > universe_size:
+        warnings.append(
+            f"Requested top {top_n}, but the supported universe has {universe_size} assets; using top {universe_size}."
+        )
+        top_n = universe_size
+    return max(1, top_n)
+
+
+def _extract_rotation_frequency(prompt: str, *, assumptions: list[str]) -> str:
+    if re.search(r"\bweekly\b", prompt, flags=re.IGNORECASE):
+        return "weekly"
+    if re.search(r"\bquarterly\b", prompt, flags=re.IGNORECASE):
+        return "quarterly"
+    if re.search(r"\bmonthly\b|\bmonth\b", prompt, flags=re.IGNORECASE):
+        return "monthly"
+    assumptions.append("Used monthly rebalancing by default.")
+    return "monthly"
+
+
+def _extract_rotation_fallback_symbol(prompt: str) -> str | None:
+    patterns = [
+        r"\bfallback\s+(?:to|as)\s+([A-Z]{2,5})\b",
+        r"\bfallback\s+from\s+(?:cash|[A-Z]{2,5})\s+to\s+([A-Z]{2,5})\b",
+        r"\b(?:use|using)\s+([A-Z]{2,5})\s+as\s+(?:the\s+)?fallback\b",
+        r"\b([A-Z]{2,5})\s+fallback\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, prompt, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def _extract_rotation_fallback(
+    prompt: str,
+    *,
+    warnings: list[str],
+    assumptions: list[str],
+) -> dict[str, Any]:
+    if re.search(r"\bcash\s+fallback\b|\bfallback\s+to\s+cash\b", prompt, flags=re.IGNORECASE):
+        return {"type": "cash"}
+
+    fallback_symbol = _extract_rotation_fallback_symbol(prompt)
+    if fallback_symbol:
+        if fallback_symbol in SUPPORTED_SYMBOLS:
+            return {"type": "asset", "symbol": fallback_symbol}
+        warnings.append(
+            f"Fallback symbol {fallback_symbol} is not supported, so cash fallback was used."
+        )
+        return {"type": "cash"}
+
+    assumptions.append("Used cash fallback by default.")
+    return {"type": "cash"}
+
+
+def _extract_rotation_risk_filter_symbol(prompt: str) -> str | None:
+    for pattern in _ROTATION_SMA_RISK_FILTER_PATTERNS:
+        match = re.search(pattern, prompt, flags=re.IGNORECASE)
+        if not match:
+            continue
+        symbol = match.group("symbol").upper()
+        if not _is_ignored_rotation_symbol_token(symbol):
+            return symbol
+    return None
+
+
+_ROTATION_SMA_RISK_FILTER_PATTERNS = (
+    r"\b(?P<symbol>[A-Z]{2,5})\b\s+(?:(?:is\s+)?(?:above|over)\s+)?"
+    r"(?P<window>\d{2,3})\s*[-\s]?(?:day|d)?\s*SMA\b",
+    r"\b(?P<symbol>[A-Z]{2,5})\b\s+SMA\s*[-\s]?(?P<window>\d{2,3})\b",
+)
+
+
+def _extract_rotation_risk_filter(
+    prompt: str,
+    *,
+    warnings: list[str],
+) -> dict[str, Any] | None:
+    if not re.search(
+        r"\b(sma|moving\s+average|risk\s+filter|above|below|under|fallback\s+when)\b",
+        prompt,
+        flags=re.IGNORECASE,
+    ):
+        return None
+
+    for pattern in _ROTATION_SMA_RISK_FILTER_PATTERNS:
+        match = re.search(pattern, prompt, flags=re.IGNORECASE)
+        if not match:
+            continue
+        symbol = match.group("symbol").upper()
+        window = int(match.group("window"))
+        if _is_ignored_rotation_symbol_token(symbol):
+            continue
+        if symbol not in SUPPORTED_SYMBOLS:
+            warnings.append(f"Risk filter symbol {symbol} is not supported, so the risk filter was omitted.")
+            return None
+        return {
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": symbol,
+            "fast_window": 1,
+            "slow_window": window,
+        }
+
+    return None
+
+
+def _extract_rotation_benchmark(prompt: str, *, assumptions: list[str]) -> str:
+    benchmark_symbol, benchmark_assumptions = _extract_benchmark_symbol(prompt, "SPY")
+    if benchmark_assumptions:
+        assumptions.append("Used SPY as the benchmark for the rotation draft by default.")
+        return "SPY"
+    return benchmark_symbol
+
+
+def _rotation_reference_symbols(config: dict[str, Any]) -> list[str]:
+    tradable_symbol = str(config.get("tradable_symbol", "")).upper()
+    rotation = config.get("rotation") if isinstance(config.get("rotation"), dict) else {}
+    symbols: list[str] = []
+
+    for symbol in rotation.get("universe", []):
+        if isinstance(symbol, str):
+            symbols.append(symbol.upper())
+
+    fallback = rotation.get("fallback") if isinstance(rotation.get("fallback"), dict) else {}
+    if fallback.get("type") == "asset" and isinstance(fallback.get("symbol"), str):
+        symbols.append(fallback["symbol"].upper())
+
+    risk_filter = rotation.get("risk_filter")
+    if isinstance(risk_filter, dict) and isinstance(risk_filter.get("symbol"), str):
+        symbols.append(risk_filter["symbol"].upper())
+
+    if isinstance(config.get("benchmark_symbol"), str):
+        symbols.append(config["benchmark_symbol"].upper())
+
+    deduped: list[str] = []
+    for symbol in symbols:
+        if symbol != tradable_symbol and symbol not in deduped:
+            deduped.append(symbol)
+    return sorted(deduped)
+
+
+def _build_rotation_name(config: dict[str, Any]) -> str:
+    rotation = config.get("rotation") if isinstance(config.get("rotation"), dict) else {}
+    universe = rotation.get("universe") if isinstance(rotation.get("universe"), list) else []
+    ranking = rotation.get("ranking") if isinstance(rotation.get("ranking"), dict) else {}
+    selection = rotation.get("selection") if isinstance(rotation.get("selection"), dict) else {}
+    lookback = ranking.get("lookback", 63)
+    top_n = selection.get("top_n", 1)
+    if set(universe).issubset(set(_SECTOR_ROTATION_UNIVERSE)):
+        prefix = "Sector ETF"
+    elif set(universe).issubset(set(_DEFENSIVE_ROTATION_UNIVERSE)):
+        prefix = "Defensive Cross-Asset"
+    else:
+        prefix = "Multi-Asset"
+    return f"{prefix} Top-{top_n} {lookback}D Rotation"
+
+
+def _describe_rotation_config(config: dict[str, Any]) -> str:
+    rotation = config.get("rotation") if isinstance(config.get("rotation"), dict) else {}
+    ranking = rotation.get("ranking") if isinstance(rotation.get("ranking"), dict) else {}
+    rebalance = rotation.get("rebalance") if isinstance(rotation.get("rebalance"), dict) else {}
+    selection = rotation.get("selection") if isinstance(rotation.get("selection"), dict) else {}
+    fallback = rotation.get("fallback") if isinstance(rotation.get("fallback"), dict) else {}
+    universe = rotation.get("universe") if isinstance(rotation.get("universe"), list) else []
+    fallback_label = (
+        str(fallback.get("symbol")).upper()
+        if fallback.get("type") == "asset" and fallback.get("symbol")
+        else "cash"
+    )
+    risk_filter = rotation.get("risk_filter")
+    risk_text = (
+        f" It only rotates when {_describe_rule(risk_filter, config.get('tradable_symbol'))}."
+        if isinstance(risk_filter, dict)
+        else " It has no separate risk filter."
+    )
+    return (
+        f"This rotation ranks {', '.join(str(symbol) for symbol in universe)} by "
+        f"{ranking.get('lookback', 63)}-trading-day relative-return momentum, "
+        f"rebalances {rebalance.get('frequency', 'monthly')} into the top "
+        f"{selection.get('top_n', 1)}, and falls back to {fallback_label} when needed."
+        f"{risk_text}"
+    )
+
+
+def _build_rotation_summary(config: dict[str, Any], *, has_current_config: bool) -> str:
+    action = "Updated" if has_current_config else "Drafted"
+    return f"{action} a Strategy V2 rotation draft. {_describe_rotation_config(config)}"
+
+
+def _build_rotation_config(
+    req: StrategyBuilderGenerateRequest,
+    *,
+    max_backtest_years: int,
+) -> tuple[dict[str, Any], str, list[str], list[str], list[str]]:
+    prompt = req.prompt.strip()
+    warnings: list[str] = []
+    assumptions: list[str] = []
+
+    unsupported_message = _unsupported_rotation_message(prompt)
+    if unsupported_message:
+        raise ValueError(unsupported_message)
+
+    current_config = req.context.current_config if req.context else None
+    has_current_config = _is_rotation_enabled_config(current_config)
+    base_config = deepcopy(current_config) if has_current_config and isinstance(current_config, dict) else {}
+
+    if has_current_config:
+        assumptions.append("Used current_config as the base rotation draft for version generation.")
+        config = deepcopy(base_config)
+        rotation = dict(config.get("rotation") or {})
+    else:
+        universe = _extract_rotation_universe(
+            prompt,
+            warnings=warnings,
+            assumptions=assumptions,
+        )
+        if not universe:
+            raise ValueError("I could not build a rotation draft because no supported universe symbols were available.")
+
+        tradable_symbol = universe[0]
+        benchmark_symbol = _extract_rotation_benchmark(prompt, assumptions=assumptions)
+        start_date, end_date, date_assumptions = _extract_date_range(
+            prompt,
+            symbol=tradable_symbol,
+            max_backtest_years=max_backtest_years,
+        )
+        assumptions.extend(date_assumptions)
+        initial_capital, capital_assumptions = _extract_initial_capital(prompt)
+        assumptions.extend(capital_assumptions)
+        lookback = _extract_rotation_lookback(prompt, assumptions=assumptions)
+        frequency = _extract_rotation_frequency(prompt, assumptions=assumptions)
+        top_n = _extract_rotation_top_n(
+            prompt,
+            universe_size=len(universe),
+            assumptions=assumptions,
+            warnings=warnings,
+        )
+        risk_filter = _extract_rotation_risk_filter(prompt, warnings=warnings)
+        fallback = _extract_rotation_fallback(
+            prompt,
+            warnings=warnings,
+            assumptions=assumptions,
+        )
+        assumptions.append("Used first trading day rebalancing.")
+        assumptions.append("Used relative-return momentum ranking.")
+        assumptions.append("Used equal-weight allocation for selected assets.")
+
+        config = {
+            "schema_version": "2.0",
+            "name": "Rotation Strategy",
+            "tradable_symbol": tradable_symbol,
+            "benchmark_symbol": benchmark_symbol,
+            "reference_symbols": [],
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "initial_capital": initial_capital,
+            "transaction_cost_bps": (
+                _extract_transaction_cost_bps_edit(prompt)
+                if _extract_transaction_cost_bps_edit(prompt) is not None
+                else 5
+            ),
+            "risk": {
+                "stop_loss_pct": None,
+                "take_profit_pct": None,
+                "partial_take_profit": None,
+                "cooldown_bars": 0,
+            },
+            "core_overlay": {
+                "enabled": False,
+                "core_allocation_pct": 0.0,
+            },
+            "position_management": None,
+            "rotation": {
+                "enabled": True,
+                "universe": universe,
+                "ranking": {
+                    "type": "relative_return",
+                    "lookback": lookback,
+                    "descending": True,
+                },
+                "rebalance": {
+                    "frequency": frequency,
+                    "day": "first_trading_day",
+                },
+                "selection": {
+                    "top_n": top_n,
+                },
+                "allocation": {
+                    "weighting": "equal_weight",
+                    "max_position_pct": 1.0,
+                },
+                "risk_filter": risk_filter,
+                "fallback": fallback,
+            },
+        }
+        config["name"] = _build_rotation_name(config)
+        rotation = dict(config["rotation"])
+
+    if has_current_config:
+        edits_applied = _apply_rotation_edits(
+            prompt=prompt,
+            config=config,
+            rotation=rotation,
+            warnings=warnings,
+            assumptions=assumptions,
+        )
+        if not edits_applied and _looks_like_rotation_edit_prompt(prompt):
+            warnings.append("No supported rotation edit was detected in that prompt.")
+
+    config["rotation"] = rotation
+    config["reference_symbols"] = _rotation_reference_symbols(config)
+    config["name"] = _build_rotation_name(config)
+
+    validated = StrategyV2.model_validate(config)
+    validated_config = validated.model_dump(mode="json", exclude_none=True)
+    for warning in collect_draft_config_warnings(validated_config):
+        if warning not in warnings:
+            warnings.append(warning)
+
+    changes = _summarize_changes(base_config, validated_config)
+    summary = _build_rotation_summary(validated_config, has_current_config=has_current_config)
+    return validated_config, summary, warnings, assumptions, changes
+
+
+def _apply_rotation_edits(
+    *,
+    prompt: str,
+    config: dict[str, Any],
+    rotation: dict[str, Any],
+    warnings: list[str],
+    assumptions: list[str],
+) -> bool:
+    edited = False
+
+    unsupported_message = _unsupported_rotation_message(prompt)
+    if unsupported_message:
+        raise ValueError(unsupported_message)
+
+    prompt_lower = prompt.lower()
+
+    if re.search(r"\blookback|momentum\b", prompt, flags=re.IGNORECASE):
+        ranking = dict(rotation.get("ranking") or {})
+        new_lookback = _extract_rotation_lookback(prompt, assumptions=[])
+        if new_lookback != ranking.get("lookback"):
+            ranking["type"] = "relative_return"
+            ranking["lookback"] = new_lookback
+            ranking["descending"] = True
+            rotation["ranking"] = ranking
+            edited = True
+
+    if re.search(r"\btop\s*[-_ ]?\s*(\d+|one|two|three)\b|\btop_n\b", prompt, flags=re.IGNORECASE):
+        universe = rotation.get("universe") if isinstance(rotation.get("universe"), list) else []
+        selection = dict(rotation.get("selection") or {})
+        top_n = _extract_rotation_top_n(
+            prompt,
+            universe_size=len(universe),
+            assumptions=[],
+            warnings=warnings,
+        )
+        if top_n != selection.get("top_n"):
+            selection["top_n"] = top_n
+            rotation["selection"] = selection
+            edited = True
+
+    if re.search(r"\bweekly\b|\bmonthly\b|\bquarterly\b|\brebalance\b", prompt, flags=re.IGNORECASE):
+        rebalance = dict(rotation.get("rebalance") or {})
+        frequency = _extract_rotation_frequency(prompt, assumptions=[])
+        if frequency != rebalance.get("frequency"):
+            rebalance["frequency"] = frequency
+            rebalance["day"] = "first_trading_day"
+            rotation["rebalance"] = rebalance
+            edited = True
+
+    if "fallback" in prompt_lower:
+        fallback = _extract_rotation_fallback(
+            prompt,
+            warnings=warnings,
+            assumptions=[],
+        )
+        if fallback != rotation.get("fallback"):
+            rotation["fallback"] = fallback
+            edited = True
+
+    if re.search(r"\b(remove|delete|drop)\b.*\brisk\s+filter\b", prompt, flags=re.IGNORECASE):
+        if rotation.get("risk_filter") is not None:
+            rotation["risk_filter"] = None
+            edited = True
+    elif re.search(
+        r"\b(add|set|use|change|update)\b.*\b(sma|risk\s+filter)\b|"
+        r"\b[A-Z]{2,5}\b\s+(?:above|over)\s+\d{2,3}\s*[-\s]?(?:day|d)?\s*SMA\b|"
+        r"\bSMA\s*[-\s]?(100|200)\b",
+        prompt,
+        flags=re.IGNORECASE,
+    ):
+        risk_filter = _extract_rotation_risk_filter(prompt, warnings=warnings)
+        if risk_filter and risk_filter != rotation.get("risk_filter"):
+            rotation["risk_filter"] = risk_filter
+            edited = True
+
+    if re.search(r"\bbenchmark\b", prompt, flags=re.IGNORECASE):
+        benchmark_symbol, benchmark_assumptions = _extract_benchmark_symbol(
+            prompt,
+            str(config.get("benchmark_symbol") or "SPY"),
+        )
+        if not benchmark_assumptions and benchmark_symbol in {"SPY", "QQQ"}:
+            if benchmark_symbol != config.get("benchmark_symbol"):
+                config["benchmark_symbol"] = benchmark_symbol
+                edited = True
+        elif benchmark_assumptions:
+            warnings.append("Rotation benchmark edits currently support explicit SPY or QQQ.")
+
+    universe = list(rotation.get("universe") or [])
+    explicit_symbols, unsupported_symbols = _extract_rotation_prompt_symbols(prompt)
+    symbols = _filter_supported_rotation_symbols(
+        [*explicit_symbols, *unsupported_symbols],
+        warnings=warnings,
+    )
+    role_symbols = {
+        symbol
+        for symbol in (
+            _extract_rotation_risk_filter_symbol(prompt),
+            _extract_rotation_fallback_symbol(prompt),
+            config.get("benchmark_symbol") if "benchmark" in prompt_lower else None,
+        )
+        if isinstance(symbol, str)
+    }
+    asset_symbols = [symbol for symbol in symbols if symbol not in role_symbols]
+
+    if re.search(r"\b(add|include)\b", prompt, flags=re.IGNORECASE) and asset_symbols:
+        for symbol in asset_symbols:
+            if symbol not in universe:
+                universe.append(symbol)
+                edited = True
+    if re.search(r"\b(remove|delete|drop)\b", prompt, flags=re.IGNORECASE) and asset_symbols:
+        next_universe = [symbol for symbol in universe if symbol not in asset_symbols]
+        if next_universe != universe:
+            universe = next_universe
+            edited = True
+
+    if universe:
+        selection = dict(rotation.get("selection") or {})
+        top_n = int(selection.get("top_n") or 1)
+        if top_n > len(universe):
+            selection["top_n"] = len(universe)
+            rotation["selection"] = selection
+            warnings.append("Selection top N was reduced to fit the rotation universe.")
+            edited = True
+        rotation["universe"] = universe
+        if config.get("tradable_symbol") not in universe:
+            config["tradable_symbol"] = universe[0]
+
+    return edited
 
 
 def _looks_like_unsupported_allocation_adjustment_prompt(prompt: str) -> bool:
@@ -4041,6 +4777,8 @@ def generate_strategy_builder_response(
 ) -> dict[str, Any]:
     prompt = req.prompt.strip()
     has_current_config = _has_current_config(req)
+    current_config = req.context.current_config if req.context else None
+    has_rotation_config = _is_rotation_enabled_config(current_config)
 
     existing_sweep_edit = _generate_existing_parameter_sweep_edit(
         req,
@@ -4053,6 +4791,16 @@ def generate_strategy_builder_response(
         return _generate_parameter_sweep_draft(
             req,
             max_backtest_years=max_backtest_years,
+        )
+
+    if has_rotation_config and _looks_like_rotation_explain_prompt(prompt):
+        message = _describe_rotation_config(current_config if isinstance(current_config, dict) else {})
+        return _build_response(
+            response_type=StrategyBuilderResponseType.ANSWER,
+            message=message,
+            guidance_data=_build_guidance_data(
+                guidance_type=StrategyBuilderGuidanceType.NO_CHANGE,
+            ),
         )
 
     if _looks_like_question(prompt):
@@ -4097,6 +4845,53 @@ def generate_strategy_builder_response(
             guidance_data=_build_guidance_data(
                 guidance_type=StrategyBuilderGuidanceType.GENERAL_GUIDANCE,
             ),
+        )
+
+    should_handle_rotation = (
+        (has_rotation_config and _looks_like_rotation_edit_prompt(prompt))
+        or (not has_current_config and _looks_like_rotation_create_prompt(prompt))
+    )
+    if should_handle_rotation:
+        try:
+            config, summary, warnings, assumptions, changes = _build_rotation_config(
+                req,
+                max_backtest_years=max_backtest_years,
+            )
+        except ValueError as exc:
+            message = str(exc)
+            return _build_response(
+                response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+                message=message,
+                validation_data=build_validation_data(
+                    message=message,
+                    max_backtest_years=max_backtest_years,
+                ),
+                guidance_data=_build_guidance_data(
+                    guidance_type=StrategyBuilderGuidanceType.GENERAL_GUIDANCE,
+                ),
+            )
+
+        if has_rotation_config and req.context and req.context.current_config == config:
+            return _build_response(
+                response_type=StrategyBuilderResponseType.ANSWER,
+                message=NO_CHANGE_MESSAGE,
+                guidance_data=_build_guidance_data(
+                    guidance_type=StrategyBuilderGuidanceType.NO_CHANGE,
+                ),
+            )
+
+        return _build_response(
+            response_type=(
+                StrategyBuilderResponseType.UPDATE_DRAFT
+                if has_rotation_config
+                else StrategyBuilderResponseType.CREATE_DRAFT
+            ),
+            message=summary,
+            config=config,
+            summary=summary,
+            warnings=warnings,
+            assumptions=assumptions,
+            changes=changes,
         )
 
     if not has_current_config and _requires_existing_draft_context(prompt):
