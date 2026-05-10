@@ -11,6 +11,7 @@ from market_simulator.discovery.gallery_candidates import (
     CandidateConfig,
     PeriodSpec,
     _MarketDataLoader,
+    _universe_equal_weight_buy_hold_metrics,
     build_candidate_cache_key,
     build_candidate_flags,
     build_evaluation_metadata,
@@ -20,6 +21,7 @@ from market_simulator.discovery.gallery_candidates import (
     generate_candidate_configs,
     max_drawdown_pct_from_equity,
     rank_candidate_rows,
+    run_discovery,
     score_dual_benchmark_metrics,
     select_candidates_for_run,
     split_candidate_rows,
@@ -114,6 +116,24 @@ class FakeMarketDataRepo:
         )
 
 
+class MultiSymbolMarketDataRepo:
+    def __init__(self, closes: dict[str, list[float]]):
+        self.closes = {symbol.upper(): values for symbol, values in closes.items()}
+
+    def get_market_data(self, tradable_symbol, reference_symbols, start_date, end_date):
+        dates = pd.date_range(start_date, periods=len(self.closes[tradable_symbol.upper()]), freq="B")
+        return MarketDataBundle(
+            tradable=pd.DataFrame(
+                {
+                    "date": dates,
+                    "symbol": [tradable_symbol] * len(dates),
+                    "close": self.closes[tradable_symbol.upper()],
+                }
+            ),
+            references={},
+        )
+
+
 def _strategy_config_with_refs(reference_symbols: list[str], *, start_date: str = "2018-01-02") -> dict:
     config = json.loads(json.dumps(_sample_candidate().config))
     config["tradable_symbol"] = "QQQ"
@@ -149,6 +169,9 @@ def test_candidate_config_generation_validates_strategy_v2_and_uses_supported_sy
         "trend_pullback",
         "vix_trend_filter",
         "realized_volatility_filter",
+        "asset_rotation_momentum",
+        "sector_rotation_momentum",
+        "defensive_rotation_momentum",
     } <= {candidate.family for candidate in candidates}
 
     supported = set(_supported_etfs()) | set(_supported_reference_series())
@@ -268,6 +291,57 @@ def test_gallery_ready_requires_positive_alpha():
     assert flags["gallery_ready_outperformance"] is False
 
 
+def test_rotation_scoring_uses_universe_equal_weight_metrics_before_tradable_alpha():
+    flags = build_candidate_flags(
+        full_period={
+            "alpha_vs_tradable_buy_hold_pct": -25.0,
+            "alpha_vs_universe_equal_weight_pct": 3.5,
+            "alpha_vs_market_benchmark_pct": -1.0,
+            "max_drawdown_pct": -12,
+            "drawdown_delta_vs_tradable_buy_hold_pct": -7,
+            "drawdown_delta_vs_universe_equal_weight_pct": 4,
+            "trade_count": 0,
+            "rebalance_count": 8,
+        },
+        earlier_period={
+            "alpha_vs_tradable_buy_hold_pct": -15.0,
+            "alpha_vs_universe_equal_weight_pct": 1.0,
+            "alpha_vs_market_benchmark_pct": -2.0,
+        },
+        recent_period={
+            "alpha_vs_tradable_buy_hold_pct": -10.0,
+            "alpha_vs_universe_equal_weight_pct": -2.0,
+            "alpha_vs_market_benchmark_pct": 0.5,
+        },
+    )
+
+    assert flags["benchmark_comparison_basis"] == "universe_equal_weight"
+    assert flags["primary_alpha_pct"] == 3.5
+    assert flags["holdout_primary_alpha_pct"] == 0.5
+    assert flags["drawdown_improvement_vs_benchmark"] is True
+    assert flags["trade_count_reasonable"] is True
+    assert flags["gallery_ready_outperformance"] is True
+
+
+def test_non_rotation_scoring_still_uses_tradable_buy_hold_metrics():
+    flags = build_candidate_flags(
+        full_period={
+            "alpha_vs_tradable_buy_hold_pct": -0.1,
+            "alpha_vs_market_benchmark_pct": 5.0,
+            "max_drawdown_pct": -10,
+            "drawdown_delta_vs_tradable_buy_hold_pct": 5,
+            "trade_count": 6,
+        },
+        earlier_period={"alpha_vs_tradable_buy_hold_pct": 1.0},
+        recent_period={"alpha_vs_tradable_buy_hold_pct": 1.0},
+    )
+
+    assert flags["benchmark_comparison_basis"] == "tradable_buy_hold"
+    assert flags["primary_alpha_pct"] == -0.1
+    assert flags["alpha_positive"] is False
+    assert flags["gallery_ready_outperformance"] is False
+
+
 def test_watchlist_can_include_near_miss_or_risk_improvement_candidate():
     near_miss = build_candidate_flags(
         full_period={
@@ -289,6 +363,27 @@ def test_max_drawdown_helper_works_with_synthetic_equity_curve():
     drawdown = max_drawdown_pct_from_equity([100, 120, 90, 95, 130])
 
     assert drawdown == -25.0
+
+
+def test_universe_equal_weight_buy_hold_helper_works_with_synthetic_data():
+    loader = _MarketDataLoader(
+        MultiSymbolMarketDataRepo(
+            {
+                "AAA": [100, 110, 120],
+                "BBB": [100, 90, 80],
+            }
+        )
+    )
+
+    metrics = _universe_equal_weight_buy_hold_metrics(
+        loader,
+        universe=["AAA", "BBB"],
+        start_date="2024-01-02",
+        end_date="2024-01-04",
+    )
+
+    assert metrics["return_pct"] == 0
+    assert metrics["max_drawdown_pct"] == 0
 
 
 def test_report_split_files_are_created_with_synthetic_rows(tmp_path):
@@ -338,6 +433,7 @@ def test_report_split_files_are_created_with_synthetic_rows(tmp_path):
     assert paths["watchlist_candidates_csv"].exists()
     assert paths["failed_candidates_csv"].exists()
     assert paths["top_by_alpha_vs_tradable_csv"].exists()
+    assert paths["top_by_primary_alpha_csv"].exists()
     assert paths["top_by_drawdown_improvement_csv"].exists()
     assert paths["top_by_recent_alpha_csv"].exists()
 
@@ -379,6 +475,26 @@ def test_no_candidates_passing_sanity_prints_no_gallery_ready_message(tmp_path):
     assert summary["watchlist_count"] == 0
 
 
+def test_wrong_family_filter_exposes_available_family_names(tmp_path):
+    result = run_discovery(
+        start_date="2018-01-02",
+        end_date="2024-12-31",
+        mode="smoke",
+        output_dir=tmp_path,
+        run_id="wrong-family",
+        max_candidates=0,
+        families={"not_a_real_family"},
+    )
+
+    summary = json.loads(
+        (tmp_path / "wrong-family" / "candidate_summary.json").read_text(encoding="utf-8")
+    )
+    assert result["candidate_count"] == 0
+    assert "not_a_real_family" in result["unmatched_families"]
+    assert "available_families" in summary["run_metadata"]
+    assert "rsi_mean_reversion" in summary["run_metadata"]["available_families"]
+
+
 def test_split_candidate_rows_separates_gallery_watchlist_and_failed():
     rows = [
         {
@@ -415,6 +531,37 @@ def test_broad_candidate_generation_produces_valid_strategy_v2_configs():
         StrategyV2.model_validate(candidate.config)
 
 
+def test_broad_rotation_generation_produces_richer_valid_strategy_v2_configs():
+    candidates = generate_candidate_configs(
+        start_date="2018-01-02",
+        end_date="2024-12-31",
+        mode="broad",
+        supported_etfs=_supported_etfs(),
+        supported_reference_series=_supported_reference_series(),
+    )
+    rotation_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.config.get("rotation", {}).get("enabled")
+    ]
+
+    assert len(rotation_candidates) > 4
+    assert {21, 63, 126, 252} <= {
+        candidate.config["rotation"]["ranking"]["lookback"]
+        for candidate in rotation_candidates
+    }
+    assert {"monthly", "quarterly"} <= {
+        candidate.config["rotation"]["rebalance"]["frequency"]
+        for candidate in rotation_candidates
+    }
+    assert {"cash", "asset"} <= {
+        candidate.config["rotation"]["fallback"]["type"]
+        for candidate in rotation_candidates
+    }
+    for candidate in rotation_candidates:
+        StrategyV2.model_validate(candidate.config)
+
+
 def test_duplicate_config_hashes_are_removed():
     base = generate_candidate_configs(
         start_date="2018-01-02",
@@ -444,12 +591,16 @@ def test_dual_benchmark_scoring_works_on_synthetic_metrics():
         market_benchmark_symbol="SPY",
         market_benchmark_return_pct=6,
         market_benchmark_max_drawdown_pct=-15,
+        universe_equal_weight_buy_hold_return_pct=9,
+        universe_equal_weight_buy_hold_max_drawdown_pct=-18,
     )
 
     assert scored["alpha_vs_tradable_buy_hold_pct"] == 4
     assert scored["drawdown_delta_vs_tradable_buy_hold_pct"] == 10
     assert scored["alpha_vs_market_benchmark_pct"] == 6
     assert scored["drawdown_delta_vs_market_benchmark_pct"] == 5
+    assert scored["alpha_vs_universe_equal_weight_pct"] == 3
+    assert scored["drawdown_delta_vs_universe_equal_weight_pct"] == 8
 
 
 def test_defensive_category_requires_drawdown_improvement_and_clear_label():
