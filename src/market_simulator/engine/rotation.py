@@ -496,6 +496,7 @@ def run_rotation_simulation(bundle, strategy) -> SimulationResult:
             "rotation_lookback": rotation.ranking.lookback,
             "rotation_rebalance_frequency": rotation.rebalance.frequency,
             "rotation_top_n": rotation.selection.top_n,
+            "rebalance_count": int(tdf["rebalance"].sum()) if "rebalance" in tdf else 0,
         }
     )
     sleeve_summary = build_sleeve_summary(tdf)

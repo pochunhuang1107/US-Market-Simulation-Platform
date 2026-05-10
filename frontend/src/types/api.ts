@@ -249,6 +249,63 @@ export interface TradeEventContextResponse {
   events: TradeEventContext[];
 }
 
+export interface RotationSummaryMetrics {
+  strategy_return_pct: Nullable<number>;
+  market_benchmark_return_pct: Nullable<number>;
+  universe_equal_weight_return_pct: Nullable<number>;
+  alpha_vs_universe_equal_weight_pct: Nullable<number>;
+  max_drawdown_pct: Nullable<number>;
+  rebalance_count: Nullable<number>;
+  held_assets_count: Nullable<number>;
+  universe_size: Nullable<number>;
+}
+
+export interface RotationAssetRankRow {
+  symbol: string;
+  rank: Nullable<number>;
+  trailing_return_pct: Nullable<number>;
+  target_weight_pct: Nullable<number>;
+  selected: boolean;
+}
+
+export interface RotationTradeRow {
+  action: string;
+  symbol: Nullable<string>;
+  shares: Nullable<number>;
+  price: Nullable<number>;
+  notional: Nullable<number>;
+  fee: Nullable<number>;
+  gross_pnl: Nullable<number>;
+  net_pnl: Nullable<number>;
+}
+
+export interface RotationHoldingRow {
+  symbol: string;
+  shares: Nullable<number>;
+  market_value: Nullable<number>;
+  weight_pct: Nullable<number>;
+}
+
+export interface RotationRebalanceEvent {
+  id: string;
+  date: string;
+  selected_assets: string[];
+  target_weights: Record<string, number>;
+  asset_ranks: RotationAssetRankRow[];
+  trades: RotationTradeRow[];
+  cash: Nullable<number>;
+  holdings: RotationHoldingRow[];
+  risk_filter_passed: Nullable<boolean>;
+  fallback_used: Nullable<string>;
+}
+
+export interface RotationReviewResponse {
+  is_rotation: boolean;
+  metrics: RotationSummaryMetrics;
+  total_count: number;
+  rebalances: RotationRebalanceEvent[];
+}
+
 export interface RunChartDataResponse {
   run_id: string;
   equity_curve: EquityCurvePoint[];
@@ -262,6 +319,7 @@ export interface RunChartDataResponse {
 export interface RunDashboardResponse {
   run: RunResponse;
   chart_data: RunChartDataResponse;
+  rotation_review: Nullable<RotationReviewResponse>;
 }
 
 export interface SweepVariantDetailResponse {

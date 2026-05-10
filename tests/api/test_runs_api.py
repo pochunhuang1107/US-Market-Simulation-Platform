@@ -3071,6 +3071,91 @@ def test_get_run_dashboard_returns_artifact_unavailable_for_missing_local_files(
     assert body["detail"]["error_type"] == "FileNotFoundError"
 
 
+def test_get_run_dashboard_includes_rotation_review_when_artifacts_are_rotation(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    tmp_path,
+    monkeypatch,
+):
+    create_user(
+        user_id=current_user_ctx["id"],
+        email="rotation-review-dashboard@example.com",
+    )
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    artifact_dir = tmp_path / "rotation-review-dashboard"
+    artifact_dir.mkdir(parents=True)
+    timeline_path = artifact_dir / "timeline.csv"
+    trade_log_path = artifact_dir / "trade_log.csv"
+    timeline_path.write_text(
+        "date,rebalance,selected_assets,target_weights,asset_returns,asset_ranks,cash,holdings\n"
+        "2024-01-02,True,\"['XLK']\",\"{'XLK': 1.0}\",\"{'XLK': 0.1}\",\"{'XLK': 1}\",5,\"{'XLK': {'shares': 9, 'market_value': 990, 'weight_pct': 99}}\"\n",
+        encoding="utf-8",
+    )
+    trade_log_path.write_text(
+        "date,action,symbol,shares,price\n2024-01-02,BUY,XLK,9,110\n",
+        encoding="utf-8",
+    )
+
+    run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "rotation dashboard review"},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={
+            "strategy_type": "rotation",
+            "total_return_pct": 10.0,
+            "benchmark_return_pct": 7.5,
+            "rotation_universe": ["XLK", "QQQ"],
+        },
+        artifact_dir=str(artifact_dir),
+        artifact_manifest_json={
+            "timeline": str(timeline_path),
+            "trade_log": str(trade_log_path),
+        },
+    )
+
+    def fake_load_chart_data(_):
+        return {
+            "equity_curve": [],
+            "drawdown_curve": [],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.chart_service.load_chart_data",
+        fake_load_chart_data,
+    )
+
+    response = client.get(f"/runs/{run.id}/dashboard")
+    assert response.status_code == 200
+
+    review = response.json()["rotation_review"]
+    assert review["is_rotation"] is True
+    assert review["metrics"]["strategy_return_pct"] == 10.0
+    assert review["metrics"]["market_benchmark_return_pct"] == 7.5
+    assert review["metrics"]["universe_size"] == 2
+    assert review["rebalances"][0]["selected_assets"] == ["XLK"]
+    assert review["rebalances"][0]["trades"][0]["symbol"] == "XLK"
+
+
 def test_get_run_chart_data_returns_artifact_unavailable_for_bad_manifest(
     client,
     db_session,

@@ -147,8 +147,14 @@ export function RunInsightHero({
   const totalReturnPct = getSummaryNumber(summary, 'total_return_pct');
   const benchmarkReturnPct = getSummaryNumber(summary, 'benchmark_return_pct');
   const alphaPct = getSummaryNumber(summary, 'alpha_vs_benchmark_pct');
+  const universeEqualWeightReturnPct =
+    getSummaryNumber(summary, 'universe_equal_weight_return_pct') ??
+    getSummaryNumber(summary, 'universe_equal_weight_buy_hold_return_pct');
+  const alphaVsUniverseEqualWeightPct = getSummaryNumber(summary, 'alpha_vs_universe_equal_weight_pct');
   const cagrPct = getSummaryNumber(summary, 'cagr_pct');
   const maxDrawdownPct = getSummaryNumber(summary, 'max_drawdown_pct');
+  const rebalanceCount = getSummaryNumber(summary, 'rebalance_count');
+  const isRotationRun = summary.strategy_type === 'rotation';
   const benchmarkLabel = inferBenchmarkLabel(run, chartData);
   const benchmarkDisplayLabel = benchmarkLabel ?? 'Benchmark';
 
@@ -182,6 +188,14 @@ export function RunInsightHero({
     });
   }
 
+  if (universeEqualWeightReturnPct !== null) {
+    metrics.push({
+      label: 'Equal-Weight Universe',
+      value: formatPct(universeEqualWeightReturnPct),
+      tone: getTone(universeEqualWeightReturnPct)
+    });
+  }
+
   if (cagrPct !== null) {
     metrics.push({
       label: 'CAGR',
@@ -190,17 +204,31 @@ export function RunInsightHero({
     });
   }
 
-  metrics.push(
-    {
-      label: 'Max Drawdown',
-      value: formatPct(maxDrawdownPct),
-      tone: 'negative'
-    },
-    {
+  metrics.push({
+    label: 'Max Drawdown',
+    value: formatPct(maxDrawdownPct),
+    tone: 'negative'
+  });
+
+  if (isRotationRun && rebalanceCount !== null) {
+    metrics.push({
+      label: 'Rebalances',
+      value: formatTradeActivity({ trade_count: rebalanceCount })
+    });
+  } else {
+    metrics.push({
       label: 'Trades',
       value: formatTradeActivity(summary)
-    }
-  );
+    });
+  }
+
+  if (alphaVsUniverseEqualWeightPct !== null) {
+    metrics.push({
+      label: 'Universe Alpha',
+      value: formatPct(alphaVsUniverseEqualWeightPct),
+      tone: getTone(alphaVsUniverseEqualWeightPct)
+    });
+  }
 
   if (alphaPct !== null) {
     metrics.push({
