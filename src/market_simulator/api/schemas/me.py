@@ -22,6 +22,10 @@ class MeFeatureFlagsResponse(BaseModel):
     allow_parameter_sweeps: bool
     allow_ai_builder: bool
     allow_strategy_history: bool
+    allow_rotation_templates: bool
+    allow_custom_rotation: bool
+    allow_rotation_edit: bool
+    allow_advanced_builder: bool
 
 
 class MeUsageLimitsResponse(BaseModel):

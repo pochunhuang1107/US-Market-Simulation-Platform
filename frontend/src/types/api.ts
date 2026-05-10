@@ -622,6 +622,10 @@ export interface MeFeatureFlagsResponse {
   allow_parameter_sweeps: boolean;
   allow_ai_builder: boolean;
   allow_strategy_history: boolean;
+  allow_rotation_templates: boolean;
+  allow_custom_rotation: boolean;
+  allow_rotation_edit: boolean;
+  allow_advanced_builder: boolean;
 }
 
 export interface MeUsageLimitsResponse {

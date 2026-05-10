@@ -28,6 +28,7 @@ from market_simulator.repositories.strategies import (
     update_strategy_status_for_user,
 )
 from market_simulator.services.entitlements import (
+    enforce_custom_rotation_access_for_config,
     enforce_strategy_create_access,
     enforce_strategy_history_access,
 )
@@ -43,6 +44,14 @@ router = APIRouter(prefix="/strategies", tags=["strategies"])
 def hash_config(config):
     normalized = json.dumps(config, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(normalized.encode()).hexdigest()
+
+
+def _enforce_rotation_config_access(entitlements, *, config: dict, current_config: dict | None = None) -> None:
+    enforce_custom_rotation_access_for_config(
+        entitlements,
+        config=config,
+        current_config=current_config,
+    )
 
 
 def _run_source_metadata(run) -> dict:
@@ -92,6 +101,7 @@ def create_strategy_api(
     user=Depends(get_current_user),
 ):
     entitlements = enforce_strategy_create_access(db, user["id"])
+    _enforce_rotation_config_access(entitlements, config=req.config)
     try:
         validate_backtest_window(
             config=req.config,
@@ -143,6 +153,11 @@ def create_strategy_version_api(
         else None
     )
     if current_version is not None:
+        _enforce_rotation_config_access(
+            entitlements,
+            config=normalized_config,
+            current_config=current_version.config_json,
+        )
         try:
             validate_strategy_version_identity(
                 current_config=current_version.config_json,
@@ -150,6 +165,8 @@ def create_strategy_version_api(
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        _enforce_rotation_config_access(entitlements, config=normalized_config)
 
     try:
         validate_backtest_window(

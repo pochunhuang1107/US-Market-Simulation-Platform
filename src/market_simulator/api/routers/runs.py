@@ -74,6 +74,7 @@ from market_simulator.services.strategy_version_identity import (
     validate_strategy_version_identity,
 )
 from market_simulator.services.entitlements import (
+    enforce_custom_rotation_access_for_config,
     enforce_comparison_run_limit,
     enforce_run_create_access,
     enforce_strategy_history_access,
@@ -212,6 +213,21 @@ def _run_strategy_config(run) -> dict | None:
         return summary_config
 
     return None
+
+
+def _enforce_rotation_config_access(
+    entitlements,
+    *,
+    config: dict | None,
+    current_config: dict | None = None,
+    request_payload: dict | None = None,
+) -> None:
+    enforce_custom_rotation_access_for_config(
+        entitlements,
+        config=config,
+        current_config=current_config,
+        request_payload=request_payload,
+    )
 
 
 def _find_sweep_variant(run, variant_id: str) -> dict | None:
@@ -558,6 +574,7 @@ def create_run_api(
 ):
     entitlements = enforce_run_create_access(db, user["id"], req.run_type)
 
+    request_payload = dict(req.request_payload or {})
     if req.strategy_id is not None:
         _validate_run_strategy_access(
             db,
@@ -568,6 +585,11 @@ def create_run_api(
         if req.strategy_version_id is not None and req.run_type in {"SIMULATION", "PARAMETER_SWEEP"}:
             version = get_strategy_version(db, req.strategy_version_id)
             if version is not None:
+                _enforce_rotation_config_access(
+                    entitlements,
+                    config=version.config_json,
+                    request_payload=request_payload,
+                )
                 try:
                     validate_backtest_window(
                         config=version.config_json,
@@ -583,10 +605,14 @@ def create_run_api(
             raise HTTPException(status_code=404, detail="Parent run not found")
         parent_run_id = parent_run.id
 
-    request_payload = dict(req.request_payload or {})
     if parent_run_id is not None:
         request_payload["parent_run_id"] = str(parent_run_id)
     if req.draft_config is not None:
+        _enforce_rotation_config_access(
+            entitlements,
+            config=req.draft_config,
+            request_payload=request_payload,
+        )
         try:
             validate_draft_config(
                 config=req.draft_config,
@@ -605,6 +631,13 @@ def create_run_api(
                 version = get_strategy_version(db, req.strategy_version_id)
                 if version is not None:
                     fallback_base_config = version.config_json
+
+        base_config = request_payload.get("base_config")
+        _enforce_rotation_config_access(
+            entitlements,
+            config=base_config if isinstance(base_config, dict) else fallback_base_config,
+            request_payload=request_payload,
+        )
 
         try:
             build_sweep_request(
@@ -897,6 +930,12 @@ def save_draft_run_as_strategy_api(
     if not isinstance(draft_config, dict):
         raise HTTPException(status_code=400, detail="Run does not contain a saveable draft config")
 
+    _enforce_rotation_config_access(
+        entitlements,
+        config=draft_config,
+        request_payload=run.request_payload,
+    )
+
     try:
         validate_draft_config(
             config=draft_config,
@@ -994,6 +1033,11 @@ def promote_sweep_variant_api(
                 strategy_name=strategy.name,
                 config=config,
             )
+            _enforce_rotation_config_access(
+                entitlements,
+                config=config,
+                current_config=run.strategy_version.config_json,
+            )
             try:
                 validate_strategy_version_identity(
                     current_config=run.strategy_version.config_json,
@@ -1028,7 +1072,8 @@ def promote_sweep_variant_api(
                 derived_run_id=str(existing_saved_run.id),
             )
 
-        enforce_strategy_create_access(db, user["id"])
+        entitlements = enforce_strategy_create_access(db, user["id"])
+        _enforce_rotation_config_access(entitlements, config=config)
         strategy = create_strategy(
             db,
             user["id"],

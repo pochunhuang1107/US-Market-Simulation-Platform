@@ -207,6 +207,10 @@ function formatLimitError(error: unknown): string {
     return 'Your current plan does not include strategy version history.';
   }
 
+  if (message.includes('Custom rotation strategies require Research access')) {
+    return message;
+  }
+
   if (message.includes('Daily builder prompt limit reached')) {
     return 'You have reached your daily Strategy Builder prompt limit for today.';
   }

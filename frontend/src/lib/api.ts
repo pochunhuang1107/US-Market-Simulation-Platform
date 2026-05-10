@@ -79,6 +79,16 @@ function formatErrorBody(body: ErrorBody): string {
   if (typeof body.error === 'string') return body.error;
 
   if (body.detail !== undefined) {
+    if (body.detail && typeof body.detail === 'object') {
+      const detailMessage = (body.detail as { message?: unknown; guidance?: unknown }).message;
+      const detailGuidance = (body.detail as { message?: unknown; guidance?: unknown }).guidance;
+      if (typeof detailMessage === 'string' && detailMessage.trim()) {
+        return typeof detailGuidance === 'string' && detailGuidance.trim()
+          ? `${detailMessage} ${detailGuidance}`
+          : detailMessage;
+      }
+    }
+
     try {
       return JSON.stringify(body.detail, null, 2);
     } catch {
