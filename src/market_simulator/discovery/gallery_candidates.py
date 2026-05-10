@@ -76,9 +76,14 @@ class _MarketDataLoader:
         return self._symbol_cache[key].copy()
 
     def _bundle_key(self, strategy: StrategyV2) -> tuple[str, tuple[str, ...], str, str]:
+        reference_symbols = (
+            strategy.rotation_required_reference_symbols()
+            if getattr(getattr(strategy, "rotation", None), "enabled", False)
+            else strategy.reference_symbols
+        )
         return (
             strategy.tradable_symbol.upper(),
-            tuple(sorted(symbol.upper() for symbol in strategy.reference_symbols)),
+            tuple(sorted(symbol.upper() for symbol in reference_symbols)),
             str(strategy.start_date),
             str(strategy.end_date),
         )
@@ -201,6 +206,75 @@ def _base_config(
             "min_bars_between_scale_ins": min_bars_between_scale_ins,
             "scale_in_requires_persistent_signal": min_bars_between_scale_ins > 0,
             "minimum_trade_notional": 500,
+        },
+    }
+
+
+def _rotation_config(
+    *,
+    name: str,
+    tradable_symbol: str,
+    benchmark_symbol: str,
+    universe: list[str],
+    start_date: str,
+    end_date: str,
+    lookback: int,
+    top_n: int,
+    fallback: dict[str, Any] | None = None,
+    risk_filter: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    reference_symbols = sorted(
+        {
+            *[symbol.upper() for symbol in universe if symbol.upper() != tradable_symbol.upper()],
+            benchmark_symbol.upper(),
+            *(
+                [str(fallback["symbol"]).upper()]
+                if fallback and fallback.get("type") == "asset" and fallback.get("symbol")
+                else []
+            ),
+        }
+    )
+    return {
+        "schema_version": "2.0",
+        "name": name,
+        "tradable_symbol": tradable_symbol,
+        "benchmark_symbol": benchmark_symbol,
+        "reference_symbols": reference_symbols,
+        "start_date": start_date,
+        "end_date": end_date,
+        "initial_capital": DEFAULT_INITIAL_CAPITAL,
+        "transaction_cost_bps": DEFAULT_TRANSACTION_COST_BPS,
+        "risk": {
+            "stop_loss_pct": None,
+            "take_profit_pct": None,
+            "partial_take_profit": None,
+            "cooldown_bars": 0,
+        },
+        "core_overlay": {
+            "enabled": False,
+            "core_allocation_pct": 0.0,
+        },
+        "rotation": {
+            "enabled": True,
+            "universe": [symbol.upper() for symbol in universe],
+            "ranking": {
+                "type": "relative_return",
+                "lookback": lookback,
+                "descending": True,
+            },
+            "rebalance": {
+                "frequency": "monthly",
+                "day": "first_trading_day",
+            },
+            "selection": {
+                "top_n": top_n,
+            },
+            "allocation": {
+                "weighting": "equal_weight",
+                "max_position_pct": 1.0,
+            },
+            "risk_filter": risk_filter,
+            "fallback": fallback or {"type": "cash"},
         },
     }
 
@@ -895,6 +969,81 @@ def generate_candidate_configs(
                 f"{symbol} RSI pullback only when {lookback}d realized vol < {vol_entry:.0%}",
                 config,
             )
+
+    rotation_candidates = [
+        (
+            "asset_rotation_momentum",
+            "QQQ/SPY/XLK/TLT monthly top-1 relative momentum",
+            _rotation_config(
+                name="QQQ SPY XLK TLT Rotation Top 1 63",
+                tradable_symbol="QQQ",
+                benchmark_symbol="SPY",
+                universe=["QQQ", "SPY", "XLK", "TLT"],
+                start_date=start_date,
+                end_date=end_date,
+                lookback=63,
+                top_n=1,
+            ),
+        ),
+        (
+            "sector_rotation_momentum",
+            "Sector monthly top-2 relative momentum",
+            _rotation_config(
+                name="Sector Rotation Top 2 63",
+                tradable_symbol="XLK",
+                benchmark_symbol="SPY",
+                universe=["XLK", "XLY", "XLF", "XLE", "XLV"],
+                start_date=start_date,
+                end_date=end_date,
+                lookback=63,
+                top_n=2,
+            ),
+        ),
+        (
+            "defensive_rotation_momentum",
+            "QQQ/SPY/XLK monthly top-1 with SPY trend fallback to TLT",
+            _rotation_config(
+                name="Risk Filtered Rotation TLT Fallback 63",
+                tradable_symbol="QQQ",
+                benchmark_symbol="SPY",
+                universe=["QQQ", "SPY", "XLK"],
+                start_date=start_date,
+                end_date=end_date,
+                lookback=63,
+                top_n=1,
+                risk_filter=_atomic(
+                    "sma_above",
+                    symbol="SPY",
+                    fast_window=1,
+                    slow_window=200,
+                ),
+                fallback={"type": "asset", "symbol": "TLT"},
+            ),
+        ),
+        (
+            "defensive_rotation_momentum",
+            "QQQ/SPY/XLK monthly top-1 with SPY trend fallback to cash",
+            _rotation_config(
+                name="Risk Filtered Rotation Cash Fallback 63",
+                tradable_symbol="QQQ",
+                benchmark_symbol="SPY",
+                universe=["QQQ", "SPY", "XLK"],
+                start_date=start_date,
+                end_date=end_date,
+                lookback=63,
+                top_n=1,
+                risk_filter=_atomic(
+                    "sma_above",
+                    symbol="SPY",
+                    fast_window=1,
+                    slow_window=200,
+                ),
+                fallback={"type": "cash"},
+            ),
+        ),
+    ]
+    for family, summary, config in rotation_candidates:
+        add_candidate(family, summary, config)
 
     return dedupe_candidate_configs(candidates)
 
