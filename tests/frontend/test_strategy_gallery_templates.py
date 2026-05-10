@@ -212,15 +212,77 @@ def test_strategy_gallery_reference_templates_remain_runnable_with_synthetic_dat
         assert result.summary["initial_capital"] == config["initial_capital"]
 
 
+def test_strategy_gallery_representative_templates_smoke_with_synthetic_data():
+    templates = _load_gallery_templates()
+    smoke_template_ids = [
+        "qqq-core-rsi-starter",
+        "xle-rsi-defensive-pullback",
+        "qqq-core-vix-trend-overlay",
+    ]
+
+    for template_id in smoke_template_ids:
+        config = _template_by_id(templates, template_id)["config"]
+        strategy = StrategyV2.model_validate(config)
+        references = {}
+        for symbol in config["reference_symbols"]:
+            if symbol == "VIX":
+                references[symbol] = _synthetic_reference_series(
+                    symbol,
+                    config["start_date"],
+                    config["end_date"],
+                )
+            else:
+                references[symbol] = _synthetic_bars(
+                    symbol,
+                    config["start_date"],
+                    config["end_date"],
+                )
+
+        result = run_simulation(
+            MarketDataBundle(
+                tradable=_synthetic_bars(
+                    config["tradable_symbol"],
+                    config["start_date"],
+                    config["end_date"],
+                ),
+                references=references,
+            ),
+            strategy,
+        )
+
+        assert len(result.timeline) > 0
+        assert result.summary["initial_capital"] == config["initial_capital"]
+
+
 def test_strategy_gallery_templates_include_discovery_metadata():
     templates = _load_gallery_templates()
     banned_reference_symbols = {"DGS10", "DGS2", "T10Y2Y", "DFF", "VIX9D", "VXEEM"}
 
     seen_ids: set[str] = set()
     for template in templates:
+        config = template["config"]
+
         assert template["id"] not in seen_ids
         seen_ids.add(template["id"])
 
+        assert isinstance(template["title"], str)
+        assert template["title"].strip()
+        assert isinstance(config["name"], str)
+        assert config["name"].strip()
+        assert isinstance(template["shortExplanation"], str)
+        assert template["shortExplanation"].strip()
+        assert isinstance(template["expectedBehavior"], str)
+        assert template["expectedBehavior"].strip()
+        assert isinstance(template["entryRuleText"], str)
+        assert template["entryRuleText"].strip()
+        assert isinstance(template["exitRuleText"], str)
+        assert template["exitRuleText"].strip()
+        assert isinstance(template["riskControls"], list)
+        assert template["riskControls"]
+        assert all(
+            isinstance(control, str) and control.strip()
+            for control in template["riskControls"]
+        )
         assert isinstance(template["categoryLabel"], str)
         assert template["categoryLabel"].strip()
         assert isinstance(template["tags"], list)
@@ -240,12 +302,35 @@ def test_strategy_gallery_templates_include_discovery_metadata():
         assert template["style"]
         assert template["riskLevel"]
         assert template["symbols"]
-        assert template["shortExplanation"]
-        assert template["expectedBehavior"]
 
-        serialized_config = json.dumps(template["config"])
+        serialized_config = json.dumps(config)
         for symbol in banned_reference_symbols:
             assert symbol not in serialized_config
+
+
+def test_defensive_gallery_templates_are_clearly_labeled():
+    defensive_terms = ("defensive", "risk-control", "risk control")
+
+    for template in _load_gallery_templates():
+        identifier_text = " ".join(
+            [
+                template["id"],
+                template["title"],
+                template["shortExplanation"],
+            ]
+        ).lower()
+        label_text = " ".join(
+            [
+                template["categoryLabel"],
+                template["strategyFamily"],
+                template["expectedBehavior"],
+                *template["tags"],
+                *template["riskControls"],
+            ]
+        ).lower()
+
+        if any(term in identifier_text for term in defensive_terms):
+            assert any(term in label_text for term in defensive_terms)
 
 
 def test_strategy_gallery_templates_use_supported_symbols():
@@ -447,6 +532,43 @@ def test_featured_strategy_ideas_use_refreshed_gallery_templates():
         "qqq-core-vix-trend-overlay",
     ]:
         assert template_id in source
+
+
+def test_gallery_and_featured_template_imports_seed_workspace_draft_card_path():
+    gallery_source = (ROOT / "frontend/src/pages/StrategyGalleryPage.tsx").read_text()
+    workspace_source = (ROOT / "frontend/src/pages/StrategyChatPage.tsx").read_text()
+    message_list_source = (
+        ROOT / "frontend/src/components/strategy-chat/ChatMessageList.tsx"
+    ).read_text()
+
+    assert "function cloneConfig(config: StrategyV2TemplateConfig)" in gallery_source
+    assert "source: 'strategy_gallery'" in gallery_source
+    assert "sourceLabel: 'Strategy Gallery'" in gallery_source
+    assert "sourceDraftConfig: cloneConfig(template.config)" in gallery_source
+    assert "navigate('/workspace', {" in gallery_source
+
+    assert "function handleUseGalleryTemplate(template: StrategyGalleryTemplate)" in workspace_source
+    assert "sourceDraftConfig: JSON.parse(JSON.stringify(template.config))" in workspace_source
+    assert "buildSeededDraftMessage({" in workspace_source
+    assert "response_type: 'UPDATE_DRAFT'" in workspace_source
+    assert "Loaded ${strategyName} as the current editing context." in workspace_source
+    assert "<FeaturedStrategyIdeas onUseTemplate={handleUseGalleryTemplate} />" in workspace_source
+
+    assert "isRunnableDraftMessage(message)" in message_list_source
+    assert "isStrategyDraftMessage(message)" in message_list_source
+    assert "<StrategyDraftCard" in message_list_source
+
+
+def test_strategy_draft_actions_remain_stacked_not_side_by_side():
+    source = (
+        ROOT / "frontend/src/components/strategy-chat/StrategyDraftCard.tsx"
+    ).read_text()
+
+    assert "function StrategyDraftActions" in source
+    assert 'className="flex flex-col items-start gap-3 lg:items-end"' in source
+    assert "w-[6.75rem] whitespace-nowrap" in source
+    assert "min-w-[8.75rem] whitespace-nowrap" in source
+    assert "flex-row" not in source[source.index("function StrategyDraftActions"):source.index("export function StrategyDraftCard")]
 
 
 def test_gallery_templates_do_not_include_duplicate_visible_tags_or_chips():
