@@ -14,7 +14,7 @@ Search modes:
 
 - `smoke`: tiny fast run for CLI checks and development
 - `standard`: bounded default search across the main supported families
-- `broad`: larger local research search across wider ETF, risk, VIX, trend, and sector grids
+- `broad`: larger local research search across wider ETF, risk, VIX, trend, sector, and rotation grids
 - `refine`: reads promising configs from a JSON file when `--refine-input` is supplied and tries nearby risk-control variants
 
 By default the script reads the same market data settings as the backend:
@@ -60,6 +60,29 @@ deterministically generated candidates after family filtering and de-duplication
 The cache key uses canonical Strategy V2 JSON plus the evaluation window and
 split/benchmark policy, so changing the config or date window produces a new key.
 
+The CLI prints available family names at the end of each run. If `--families`
+does not match any generated candidates, the report metadata includes
+`available_families` and `unmatched_families`.
+
+Current generated families include:
+
+- `asset_rotation_momentum`
+- `core_rsi_overlay`
+- `core_vix_trend_overlay`
+- `defensive_relative_strength`
+- `defensive_rotation_momentum`
+- `defensive_trend_filtered_pullback`
+- `realized_volatility_filter`
+- `rsi_mean_reversion`
+- `rsi_vix_regime_filter`
+- `sector_core_relative_strength`
+- `sector_relative_strength`
+- `sector_rotation_momentum`
+- `sma_trend_filter`
+- `trend_pullback`
+- `vix_risk_on_off`
+- `vix_trend_filter`
+
 ## Outputs
 
 Reports are written under `data/discovery_reports/`, which is gitignored:
@@ -73,6 +96,7 @@ Reports are written under `data/discovery_reports/`, which is gitignored:
 - `top_by_alpha_vs_tradable.csv`: best rows by alpha versus traded ETF buy-and-hold, whether or not they are Gallery-ready
 - `top_by_drawdown_improvement.csv`: best rows by drawdown improvement versus traded ETF buy-and-hold
 - `top_by_recent_alpha.csv`: best holdout-period rows by alpha versus traded ETF buy-and-hold
+- `top_by_primary_alpha.csv`: best rows by the scoring benchmark used for the candidate type
 - `candidate_configs/top_*.json`: Gallery-ready and watchlist Strategy V2 configs for manual inspection
 
 Per-candidate resume cache files are written under `data/discovery_reports/cache/`
@@ -102,6 +126,13 @@ include:
 - `max_drawdown_pct`: worst strategy equity drawdown during the period
 - `tradable_buy_hold_max_drawdown_pct`: worst drawdown for the traded ETF buy-and-hold path
 - `drawdown_delta_vs_tradable_buy_hold_pct`: strategy drawdown minus traded ETF drawdown; positive values mean the strategy drew down less
+- `universe_equal_weight_buy_hold_return_pct`: for rotation candidates, equal-weight buy-and-hold return across the rotation universe
+- `universe_equal_weight_buy_hold_max_drawdown_pct`: for rotation candidates, worst drawdown of the equal-weight universe path
+- `alpha_vs_universe_equal_weight_pct`: for rotation candidates, strategy return minus equal-weight universe return
+- `drawdown_delta_vs_universe_equal_weight_pct`: for rotation candidates, strategy drawdown minus equal-weight universe drawdown; positive values mean the strategy drew down less
+- `primary_alpha_pct`: alpha metric used by discovery scoring; rotation candidates use universe equal-weight first, while non-rotation candidates use traded ETF buy-and-hold
+- `benchmark_comparison_basis`: the benchmark family used as the primary scoring basis
+- `rebalance_count`: for rotation candidates, count of scheduled rebalance rows considered for activity reasonableness
 - `trade_count`: count of full exits reported by the engine
 - `sharpe_ratio`: annualized Sharpe from daily strategy equity changes
 
@@ -123,6 +154,10 @@ are sanity checks, not proof of robustness:
 - `recent_alpha_positive`
 - `train_alpha_vs_tradable_buy_hold_pct`
 - `holdout_alpha_vs_tradable_buy_hold_pct`
+- `train_alpha_vs_universe_equal_weight_pct`
+- `holdout_alpha_vs_universe_equal_weight_pct`
+- `train_primary_alpha_pct`
+- `holdout_primary_alpha_pct`
 - `train_pass`
 - `holdout_pass`
 - `stability_flag`
@@ -134,9 +169,12 @@ If no candidates pass the stricter screen, the CLI prints
 `No Gallery-ready candidates found.` Weak candidates are shown only as watchlist
 or least-bad failed rows, not as recommendations.
 
-Outperformance candidates are screened against the traded ETF buy-and-hold path.
-Defensive candidates may underperform buy-and-hold on total return, but must be
-clearly labeled and materially improve drawdown.
+Non-rotation outperformance candidates are screened against the traded ETF
+buy-and-hold path. Rotation candidates are screened against the universe
+equal-weight path and market benchmark metrics, so a placeholder
+`tradable_symbol` does not dominate the decision. Defensive candidates may
+underperform buy-and-hold on total return, but must be clearly labeled and
+materially improve drawdown.
 
 ## Review Workflow
 

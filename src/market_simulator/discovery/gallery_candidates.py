@@ -22,7 +22,7 @@ DEFAULT_OUTPUT_DIR = Path("data/discovery_reports")
 DEFAULT_CACHE_DIR = Path("data/discovery_reports/cache")
 DEFAULT_INITIAL_CAPITAL = 100_000
 DEFAULT_TRANSACTION_COST_BPS = 5
-EVALUATION_SCHEMA_VERSION = "gallery_discovery_v3_dual_benchmark"
+EVALUATION_SCHEMA_VERSION = "gallery_discovery_v4_rotation_equal_weight"
 TOP_CONFIG_COUNT = 25
 MIN_MEANINGFUL_TRADES = 2
 MAX_REASONABLE_TRADES = 120
@@ -220,6 +220,7 @@ def _rotation_config(
     end_date: str,
     lookback: int,
     top_n: int,
+    rebalance_frequency: str = "monthly",
     fallback: dict[str, Any] | None = None,
     risk_filter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -263,7 +264,7 @@ def _rotation_config(
                 "descending": True,
             },
             "rebalance": {
-                "frequency": "monthly",
+                "frequency": rebalance_frequency,
                 "day": "first_trading_day",
             },
             "selection": {
@@ -364,6 +365,159 @@ def select_candidates_for_run(
     if max_candidates is None:
         return candidates
     return candidates[:max_candidates]
+
+
+def _supported_symbols(symbols: Iterable[str], supported_etfs: set[str]) -> list[str]:
+    seen: set[str] = set()
+    filtered: list[str] = []
+    for symbol in symbols:
+        normalized = symbol.upper()
+        if normalized in supported_etfs and normalized not in seen:
+            seen.add(normalized)
+            filtered.append(normalized)
+    return filtered
+
+
+def _rotation_fallback_variants(supported_etfs: set[str], *, mode: SearchMode) -> list[dict[str, Any]]:
+    variants: list[dict[str, Any]] = [{"type": "cash"}]
+    if mode == "smoke":
+        return variants
+    for symbol in ("TLT", "IEF"):
+        if symbol in supported_etfs:
+            variants.append({"type": "asset", "symbol": symbol})
+    return variants
+
+
+def _rotation_risk_filter_variants(supported_etfs: set[str], *, mode: SearchMode) -> list[tuple[str, dict[str, Any] | None]]:
+    variants: list[tuple[str, dict[str, Any] | None]] = [("no_filter", None)]
+    if "SPY" not in supported_etfs or mode == "smoke":
+        return variants
+    variants.append(
+        (
+            "spy_sma200",
+            _atomic("sma_above", symbol="SPY", fast_window=1, slow_window=200),
+        )
+    )
+    if mode == "broad":
+        variants.append(
+            (
+                "spy_sma100",
+                _atomic("sma_above", symbol="SPY", fast_window=1, slow_window=100),
+            )
+        )
+    return variants
+
+
+def _rotation_universe_specs(
+    *,
+    mode: SearchMode,
+    supported_etfs: set[str],
+) -> list[tuple[str, str, str, list[str]]]:
+    sector_universe = _supported_symbols(
+        ["XLK", "XLY", "XLF", "XLE", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE"],
+        supported_etfs,
+    )
+    broad_universe = _supported_symbols(
+        ["SPY", "QQQ", "IWM", "VTI", "GLD", "TLT", "IEF", "HYG", "LQD", "XLK", "XLY", "XLV"],
+        supported_etfs,
+    )
+    specs = [
+        (
+            "asset_rotation_momentum",
+            "Growth/rate ETF mix",
+            "QQQ",
+            _supported_symbols(["QQQ", "SPY", "XLK", "TLT"], supported_etfs),
+        ),
+        (
+            "asset_rotation_momentum",
+            "Growth/sector/rate ETF mix",
+            "QQQ",
+            _supported_symbols(["QQQ", "SPY", "XLK", "XLY", "XLV", "TLT"], supported_etfs),
+        ),
+        (
+            "sector_rotation_momentum",
+            "Sector ETF mix",
+            "XLK",
+            sector_universe,
+        ),
+        (
+            "defensive_rotation_momentum",
+            "Defensive cross-asset mix",
+            "QQQ",
+            _supported_symbols(["QQQ", "SPY", "TLT", "IEF", "GLD"], supported_etfs),
+        ),
+    ]
+    if mode == "broad":
+        specs.append(
+            (
+                "asset_rotation_momentum",
+                "Broad supported ETF mix",
+                "SPY",
+                broad_universe,
+            )
+        )
+
+    valid_specs: list[tuple[str, str, str, list[str]]] = []
+    for family, label, tradable_symbol, universe in specs:
+        if tradable_symbol not in supported_etfs and universe:
+            tradable_symbol = universe[0]
+        if len(universe) >= 2 and tradable_symbol in universe:
+            valid_specs.append((family, label, tradable_symbol, universe))
+    return valid_specs
+
+
+def _rotation_grid(mode: SearchMode, supported_etfs: set[str]) -> list[dict[str, Any]]:
+    lookbacks = [63] if mode == "smoke" else [63, 126]
+    top_ns = [1, 2] if mode != "smoke" else [1]
+    rebalance_frequencies = ["monthly"]
+    fallback_variants = _rotation_fallback_variants(supported_etfs, mode=mode)
+    risk_filter_variants = _rotation_risk_filter_variants(supported_etfs, mode=mode)
+    risk_fallback_pairs = [
+        (risk_label, risk_filter, fallback)
+        for risk_label, risk_filter in risk_filter_variants
+        for fallback in fallback_variants
+    ]
+
+    if mode == "broad":
+        lookbacks = [21, 63, 126, 252]
+        top_ns = [1, 2, 3]
+        rebalance_frequencies = ["monthly", "quarterly"]
+        risk_filter_by_label = dict(risk_filter_variants)
+        fallback_by_label = {
+            fallback.get("symbol", "cash").lower(): fallback
+            for fallback in fallback_variants
+        }
+        desired_pairs = [
+            ("no_filter", "cash"),
+            ("spy_sma200", "cash"),
+            ("spy_sma200", "tlt"),
+            ("spy_sma100", "cash"),
+            ("spy_sma100", "ief"),
+        ]
+        risk_fallback_pairs = [
+            (risk_label, risk_filter_by_label[risk_label], fallback_by_label[fallback_label])
+            for risk_label, fallback_label in desired_pairs
+            if risk_label in risk_filter_by_label and fallback_label in fallback_by_label
+        ]
+
+    grid: list[dict[str, Any]] = []
+    for lookback in lookbacks:
+        for top_n in top_ns:
+            for rebalance_frequency in rebalance_frequencies:
+                for risk_label, risk_filter, fallback in risk_fallback_pairs:
+                    if mode != "broad" and fallback.get("type") == "asset" and risk_filter is None:
+                        continue
+                    grid.append(
+                        {
+                            "lookback": lookback,
+                            "top_n": top_n,
+                            "rebalance_frequency": rebalance_frequency,
+                            "risk_label": risk_label,
+                            "risk_filter": risk_filter,
+                            "fallback": fallback,
+                        }
+                    )
+    return grid
 
 
 def _mode_values(mode: SearchMode) -> dict[str, Any]:
@@ -970,80 +1124,44 @@ def generate_candidate_configs(
                 config,
             )
 
-    rotation_candidates = [
-        (
-            "asset_rotation_momentum",
-            "QQQ/SPY/XLK/TLT monthly top-1 relative momentum",
-            _rotation_config(
-                name="QQQ SPY XLK TLT Rotation Top 1 63",
-                tradable_symbol="QQQ",
+    for family, universe_label, tradable_symbol, universe in _rotation_universe_specs(
+        mode=mode,
+        supported_etfs=etfs,
+    ):
+        for variant in _rotation_grid(mode, etfs):
+            top_n = int(variant["top_n"])
+            if top_n > len(universe):
+                continue
+            fallback = variant["fallback"]
+            fallback_label = fallback.get("symbol", "cash").lower()
+            risk_label = str(variant["risk_label"])
+            rebalance_frequency = str(variant["rebalance_frequency"])
+            lookback = int(variant["lookback"])
+            name = (
+                f"{universe_label} Rotation Top {top_n} {lookback} "
+                f"{rebalance_frequency} {risk_label} fallback {fallback_label}"
+            )
+            config = _rotation_config(
+                name=name,
+                tradable_symbol=tradable_symbol,
                 benchmark_symbol="SPY",
-                universe=["QQQ", "SPY", "XLK", "TLT"],
+                universe=universe,
                 start_date=start_date,
                 end_date=end_date,
-                lookback=63,
-                top_n=1,
-            ),
-        ),
-        (
-            "sector_rotation_momentum",
-            "Sector monthly top-2 relative momentum",
-            _rotation_config(
-                name="Sector Rotation Top 2 63",
-                tradable_symbol="XLK",
-                benchmark_symbol="SPY",
-                universe=["XLK", "XLY", "XLF", "XLE", "XLV"],
-                start_date=start_date,
-                end_date=end_date,
-                lookback=63,
-                top_n=2,
-            ),
-        ),
-        (
-            "defensive_rotation_momentum",
-            "QQQ/SPY/XLK monthly top-1 with SPY trend fallback to TLT",
-            _rotation_config(
-                name="Risk Filtered Rotation TLT Fallback 63",
-                tradable_symbol="QQQ",
-                benchmark_symbol="SPY",
-                universe=["QQQ", "SPY", "XLK"],
-                start_date=start_date,
-                end_date=end_date,
-                lookback=63,
-                top_n=1,
-                risk_filter=_atomic(
-                    "sma_above",
-                    symbol="SPY",
-                    fast_window=1,
-                    slow_window=200,
+                lookback=lookback,
+                top_n=top_n,
+                rebalance_frequency=rebalance_frequency,
+                risk_filter=variant["risk_filter"],
+                fallback=fallback,
+            )
+            add_candidate(
+                family,
+                (
+                    f"{universe_label}: {rebalance_frequency} top-{top_n} relative momentum, "
+                    f"{lookback}d lookback, risk={risk_label}, fallback={fallback_label}"
                 ),
-                fallback={"type": "asset", "symbol": "TLT"},
-            ),
-        ),
-        (
-            "defensive_rotation_momentum",
-            "QQQ/SPY/XLK monthly top-1 with SPY trend fallback to cash",
-            _rotation_config(
-                name="Risk Filtered Rotation Cash Fallback 63",
-                tradable_symbol="QQQ",
-                benchmark_symbol="SPY",
-                universe=["QQQ", "SPY", "XLK"],
-                start_date=start_date,
-                end_date=end_date,
-                lookback=63,
-                top_n=1,
-                risk_filter=_atomic(
-                    "sma_above",
-                    symbol="SPY",
-                    fast_window=1,
-                    slow_window=200,
-                ),
-                fallback={"type": "cash"},
-            ),
-        ),
-    ]
-    for family, summary, config in rotation_candidates:
-        add_candidate(family, summary, config)
+                config,
+            )
 
     return dedupe_candidate_configs(candidates)
 
@@ -1101,6 +1219,45 @@ def _buy_hold_metrics(
     }
 
 
+def _universe_equal_weight_buy_hold_metrics(
+    loader: _MarketDataLoader,
+    *,
+    universe: Iterable[str],
+    start_date: str,
+    end_date: str,
+) -> dict[str, float | None]:
+    symbols = sorted({symbol.upper() for symbol in universe if symbol})
+    if not symbols:
+        return {"return_pct": None, "max_drawdown_pct": None}
+
+    close_frames: list[pd.DataFrame] = []
+    for symbol in symbols:
+        frame = loader.get_symbol_frame(symbol, start_date, end_date)[["date", "close"]].copy()
+        frame["date"] = pd.to_datetime(frame["date"])
+        frame = frame.rename(columns={"close": symbol})
+        close_frames.append(frame)
+
+    merged = close_frames[0]
+    for frame in close_frames[1:]:
+        merged = merged.merge(frame, on="date", how="inner")
+    merged = merged.sort_values("date")
+    if merged.empty:
+        return {"return_pct": None, "max_drawdown_pct": None}
+
+    prices = merged[symbols].astype("float64").dropna()
+    if prices.empty:
+        return {"return_pct": None, "max_drawdown_pct": None}
+
+    normalized = prices / prices.iloc[0]
+    equal_weight_equity = normalized.mean(axis=1)
+    return_pct = round((float(equal_weight_equity.iloc[-1]) - 1.0) * 100, 4)
+    max_drawdown_pct = max_drawdown_pct_from_equity(equal_weight_equity)
+    return {
+        "return_pct": return_pct,
+        "max_drawdown_pct": max_drawdown_pct,
+    }
+
+
 def _benchmark_metrics(loader: _MarketDataLoader, strategy: StrategyV2) -> dict[str, float | None]:
     return _buy_hold_metrics(
         loader,
@@ -1119,6 +1276,8 @@ def score_dual_benchmark_metrics(
     market_benchmark_symbol: str | None = None,
     market_benchmark_return_pct: float | None = None,
     market_benchmark_max_drawdown_pct: float | None = None,
+    universe_equal_weight_buy_hold_return_pct: float | None = None,
+    universe_equal_weight_buy_hold_max_drawdown_pct: float | None = None,
 ) -> dict[str, Any]:
     alpha_vs_tradable = round(strategy_return_pct - tradable_buy_hold_return_pct, 4)
     drawdown_delta_vs_tradable = (
@@ -1136,6 +1295,16 @@ def score_dual_benchmark_metrics(
         if market_benchmark_max_drawdown_pct is not None
         else None
     )
+    alpha_vs_universe_equal_weight = (
+        round(strategy_return_pct - universe_equal_weight_buy_hold_return_pct, 4)
+        if universe_equal_weight_buy_hold_return_pct is not None
+        else None
+    )
+    drawdown_delta_vs_universe_equal_weight = (
+        round(strategy_max_drawdown_pct - universe_equal_weight_buy_hold_max_drawdown_pct, 4)
+        if universe_equal_weight_buy_hold_max_drawdown_pct is not None
+        else None
+    )
     return {
         "strategy_return_pct": strategy_return_pct,
         "tradable_buy_hold_return_pct": tradable_buy_hold_return_pct,
@@ -1147,6 +1316,10 @@ def score_dual_benchmark_metrics(
         "alpha_vs_market_benchmark_pct": alpha_vs_market,
         "market_benchmark_max_drawdown_pct": market_benchmark_max_drawdown_pct,
         "drawdown_delta_vs_market_benchmark_pct": drawdown_delta_vs_market,
+        "universe_equal_weight_buy_hold_return_pct": universe_equal_weight_buy_hold_return_pct,
+        "universe_equal_weight_buy_hold_max_drawdown_pct": universe_equal_weight_buy_hold_max_drawdown_pct,
+        "alpha_vs_universe_equal_weight_pct": alpha_vs_universe_equal_weight,
+        "drawdown_delta_vs_universe_equal_weight_pct": drawdown_delta_vs_universe_equal_weight,
     }
 
 
@@ -1166,12 +1339,22 @@ def _period_benchmark_metrics(loader: _MarketDataLoader, strategy: StrategyV2) -
         start_date=start_date,
         end_date=end_date,
     )
+    universe = {"return_pct": None, "max_drawdown_pct": None}
+    if getattr(getattr(strategy, "rotation", None), "enabled", False):
+        universe = _universe_equal_weight_buy_hold_metrics(
+            loader,
+            universe=strategy.rotation.universe,
+            start_date=start_date,
+            end_date=end_date,
+        )
     return {
         "tradable_buy_hold_return_pct": tradable["return_pct"],
         "tradable_buy_hold_max_drawdown_pct": tradable["max_drawdown_pct"],
         "market_benchmark_symbol": market_symbol,
         "market_benchmark_return_pct": market["return_pct"],
         "market_benchmark_max_drawdown_pct": market["max_drawdown_pct"],
+        "universe_equal_weight_buy_hold_return_pct": universe["return_pct"],
+        "universe_equal_weight_buy_hold_max_drawdown_pct": universe["max_drawdown_pct"],
     }
 
 
@@ -1198,14 +1381,54 @@ def _evaluate_period(
         market_benchmark_symbol=str(benchmark_inputs["market_benchmark_symbol"]),
         market_benchmark_return_pct=float(benchmark_inputs["market_benchmark_return_pct"]),
         market_benchmark_max_drawdown_pct=benchmark_inputs["market_benchmark_max_drawdown_pct"],
+        universe_equal_weight_buy_hold_return_pct=benchmark_inputs[
+            "universe_equal_weight_buy_hold_return_pct"
+        ],
+        universe_equal_weight_buy_hold_max_drawdown_pct=benchmark_inputs[
+            "universe_equal_weight_buy_hold_max_drawdown_pct"
+        ],
     )
     summary.update(dual_metrics)
+    if getattr(getattr(strategy, "rotation", None), "enabled", False):
+        summary["rebalance_count"] = int(
+            sum(1 for row in result.timeline if row.get("rebalance"))
+        )
     summary["benchmark_return_pct"] = dual_metrics["market_benchmark_return_pct"]
     summary["alpha_vs_benchmark_pct"] = dual_metrics["alpha_vs_market_benchmark_pct"]
     summary["benchmark_max_drawdown_pct"] = dual_metrics["market_benchmark_max_drawdown_pct"]
     summary["drawdown_delta_vs_benchmark_pct"] = dual_metrics["drawdown_delta_vs_market_benchmark_pct"]
     summary["period_label"] = period.label
     return summary
+
+
+def _metric_float(payload: dict[str, Any], key: str) -> float | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    return float(value)
+
+
+def _first_metric(payload: dict[str, Any], keys: Iterable[str], default: float = 0.0) -> float:
+    for key in keys:
+        value = _metric_float(payload, key)
+        if value is not None:
+            return value
+    return default
+
+
+def _best_metric(payload: dict[str, Any], keys: Iterable[str], default: float = 0.0) -> float:
+    values = [
+        value
+        for key in keys
+        if (value := _metric_float(payload, key)) is not None
+    ]
+    if not values:
+        return default
+    return max(values)
+
+
+def _uses_rotation_benchmark(full_period: dict[str, Any]) -> bool:
+    return full_period.get("alpha_vs_universe_equal_weight_pct") is not None
 
 
 def build_candidate_flags(
@@ -1217,33 +1440,65 @@ def build_candidate_flags(
     min_trade_count: int = MIN_MEANINGFUL_TRADES,
     max_trade_count: int = MAX_REASONABLE_TRADES,
 ) -> dict[str, Any]:
-    full_alpha = float(
-        full_period.get(
-            "alpha_vs_tradable_buy_hold_pct",
-            full_period.get("alpha_vs_benchmark_pct", 0),
+    use_rotation_benchmark = _uses_rotation_benchmark(full_period)
+    if use_rotation_benchmark:
+        full_alpha = _first_metric(
+            full_period,
+            [
+                "alpha_vs_universe_equal_weight_pct",
+                "alpha_vs_market_benchmark_pct",
+                "alpha_vs_tradable_buy_hold_pct",
+                "alpha_vs_benchmark_pct",
+            ],
         )
-        or 0
-    )
-    earlier_alpha = float(
-        earlier_period.get(
-            "alpha_vs_tradable_buy_hold_pct",
-            earlier_period.get("alpha_vs_benchmark_pct", 0),
+        earlier_alpha = _best_metric(
+            earlier_period,
+            [
+                "alpha_vs_universe_equal_weight_pct",
+                "alpha_vs_market_benchmark_pct",
+                "alpha_vs_tradable_buy_hold_pct",
+                "alpha_vs_benchmark_pct",
+            ],
         )
-        or 0
-    )
-    recent_alpha = float(
-        recent_period.get(
-            "alpha_vs_tradable_buy_hold_pct",
-            recent_period.get("alpha_vs_benchmark_pct", 0),
+        recent_alpha = _best_metric(
+            recent_period,
+            [
+                "alpha_vs_universe_equal_weight_pct",
+                "alpha_vs_market_benchmark_pct",
+                "alpha_vs_tradable_buy_hold_pct",
+                "alpha_vs_benchmark_pct",
+            ],
         )
-        or 0
-    )
+        drawdown_delta = full_period.get(
+            "drawdown_delta_vs_universe_equal_weight_pct",
+            full_period.get(
+                "drawdown_delta_vs_market_benchmark_pct",
+                full_period.get("drawdown_delta_vs_tradable_buy_hold_pct"),
+            ),
+        )
+        benchmark_comparison_basis = "universe_equal_weight"
+    else:
+        full_alpha = _first_metric(
+            full_period,
+            ["alpha_vs_tradable_buy_hold_pct", "alpha_vs_benchmark_pct"],
+        )
+        earlier_alpha = _first_metric(
+            earlier_period,
+            ["alpha_vs_tradable_buy_hold_pct", "alpha_vs_benchmark_pct"],
+        )
+        recent_alpha = _first_metric(
+            recent_period,
+            ["alpha_vs_tradable_buy_hold_pct", "alpha_vs_benchmark_pct"],
+        )
+        drawdown_delta = full_period.get(
+            "drawdown_delta_vs_tradable_buy_hold_pct",
+            full_period.get("drawdown_delta_vs_benchmark_pct"),
+        )
+        benchmark_comparison_basis = "tradable_buy_hold"
     max_drawdown = float(full_period.get("max_drawdown_pct", 0) or 0)
-    drawdown_delta = full_period.get(
-        "drawdown_delta_vs_tradable_buy_hold_pct",
-        full_period.get("drawdown_delta_vs_benchmark_pct"),
+    trade_count = int(
+        full_period.get("rebalance_count", full_period.get("trade_count", 0)) or 0
     )
-    trade_count = int(full_period.get("trade_count", 0) or 0)
     sharpe = float(full_period.get("sharpe_ratio", 0) or 0)
     cagr = float(full_period.get("cagr_pct", 0) or 0)
 
@@ -1318,16 +1573,35 @@ def build_candidate_flags(
         "max_drawdown_acceptable": max_drawdown_acceptable,
         "trade_count_reasonable": trade_count_reasonable,
         "basic_sanity_pass": basic_sanity_pass,
+        "benchmark_comparison_basis": benchmark_comparison_basis,
+        "primary_alpha_pct": full_alpha,
+        "train_primary_alpha_pct": earlier_alpha,
+        "holdout_primary_alpha_pct": recent_alpha,
+        "primary_drawdown_delta_pct": drawdown_delta,
     }
 
 
 def _score_row(row: dict[str, Any]) -> float:
-    full_alpha = float(row.get("alpha_vs_tradable_buy_hold_pct", row.get("alpha_vs_benchmark_pct", 0)) or 0)
+    full_alpha = float(
+        row.get(
+            "primary_alpha_pct",
+            row.get("alpha_vs_tradable_buy_hold_pct", row.get("alpha_vs_benchmark_pct", 0)),
+        )
+        or 0
+    )
     earlier_alpha = float(
-        row.get("train_alpha_vs_tradable_buy_hold_pct", row.get("earlier_alpha_vs_benchmark_pct", 0)) or 0
+        row.get(
+            "train_primary_alpha_pct",
+            row.get("train_alpha_vs_tradable_buy_hold_pct", row.get("earlier_alpha_vs_benchmark_pct", 0)),
+        )
+        or 0
     )
     recent_alpha = float(
-        row.get("holdout_alpha_vs_tradable_buy_hold_pct", row.get("recent_alpha_vs_benchmark_pct", 0)) or 0
+        row.get(
+            "holdout_primary_alpha_pct",
+            row.get("holdout_alpha_vs_tradable_buy_hold_pct", row.get("recent_alpha_vs_benchmark_pct", 0)),
+        )
+        or 0
     )
     cagr = float(row.get("cagr_pct", 0) or 0)
     sharpe = float(row.get("sharpe_ratio", 0) or 0)
@@ -1377,6 +1651,7 @@ def rank_candidate_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             bool(row.get("recent_period_outperforms")),
             int(row.get("split_period_outperforms_count", 0) or 0),
             float(row.get("score", 0) or 0),
+            float(row.get("primary_alpha_pct", 0) or 0),
             float(row.get("alpha_vs_benchmark_pct", 0) or 0),
             float(row.get("max_drawdown_pct", 0) or 0),
         ),
@@ -1421,6 +1696,19 @@ def _row_from_periods(
         "drawdown_delta_vs_market_benchmark_pct": full_period.get(
             "drawdown_delta_vs_market_benchmark_pct"
         ),
+        "universe_equal_weight_buy_hold_return_pct": full_period.get(
+            "universe_equal_weight_buy_hold_return_pct"
+        ),
+        "alpha_vs_universe_equal_weight_pct": full_period.get(
+            "alpha_vs_universe_equal_weight_pct"
+        ),
+        "universe_equal_weight_buy_hold_max_drawdown_pct": full_period.get(
+            "universe_equal_weight_buy_hold_max_drawdown_pct"
+        ),
+        "drawdown_delta_vs_universe_equal_weight_pct": full_period.get(
+            "drawdown_delta_vs_universe_equal_weight_pct"
+        ),
+        "rebalance_count": full_period.get("rebalance_count"),
         "benchmark_return_pct": full_period.get("benchmark_return_pct"),
         "alpha_vs_benchmark_pct": full_period.get("alpha_vs_benchmark_pct"),
         "cagr_pct": full_period.get("cagr_pct"),
@@ -1437,8 +1725,15 @@ def _row_from_periods(
         "train_alpha_vs_tradable_buy_hold_pct": earlier_period.get(
             "alpha_vs_tradable_buy_hold_pct"
         ),
-        "train_pass": (earlier_period.get("alpha_vs_tradable_buy_hold_pct") or 0) > 0,
+        "train_alpha_vs_universe_equal_weight_pct": earlier_period.get(
+            "alpha_vs_universe_equal_weight_pct"
+        ),
+        "train_alpha_vs_market_benchmark_pct": earlier_period.get(
+            "alpha_vs_market_benchmark_pct"
+        ),
+        "train_pass": flags["earlier_period_outperforms"],
         "earlier_trade_count": earlier_period.get("trade_count"),
+        "earlier_rebalance_count": earlier_period.get("rebalance_count"),
         "recent_start_date": recent_period.get("start_date"),
         "recent_end_date": recent_period.get("end_date"),
         "recent_total_return_pct": recent_period.get("total_return_pct"),
@@ -1447,11 +1742,15 @@ def _row_from_periods(
         "holdout_alpha_vs_tradable_buy_hold_pct": recent_period.get(
             "alpha_vs_tradable_buy_hold_pct"
         ),
-        "holdout_pass": (
-            (recent_period.get("alpha_vs_tradable_buy_hold_pct") or 0)
-            >= RECENT_ALPHA_GALLERY_FLOOR_PCT
+        "holdout_alpha_vs_universe_equal_weight_pct": recent_period.get(
+            "alpha_vs_universe_equal_weight_pct"
         ),
+        "holdout_alpha_vs_market_benchmark_pct": recent_period.get(
+            "alpha_vs_market_benchmark_pct"
+        ),
+        "holdout_pass": flags["holdout_primary_alpha_pct"] >= RECENT_ALPHA_GALLERY_FLOOR_PCT,
         "recent_trade_count": recent_period.get("trade_count"),
+        "recent_rebalance_count": recent_period.get("rebalance_count"),
         **flags,
     }
     row["stability_flag"] = (
@@ -1489,7 +1788,10 @@ def build_evaluation_metadata(
         "end_date": end_date,
         "periods": [period.__dict__ for period in periods],
         "split_policy": "full_65pct_train_recent_holdout",
-        "benchmark_policy": "dual_tradable_buy_hold_and_market_benchmark",
+        "benchmark_policy": (
+            "tradable_buy_hold_and_market_benchmark; "
+            "rotation_candidates_also_use_universe_equal_weight_buy_hold"
+        ),
     }
 
 
@@ -1918,11 +2220,20 @@ def _write_outputs(
     top_by_recent_alpha_path = run_dir / "top_by_recent_alpha.csv"
     top_by_recent_alpha = sorted(
         ranked_rows,
-        key=lambda row: float(row.get("holdout_alpha_vs_tradable_buy_hold_pct", 0) or 0),
+        key=lambda row: float(row.get("holdout_primary_alpha_pct", row.get("holdout_alpha_vs_tradable_buy_hold_pct", 0)) or 0),
         reverse=True,
     )[:top_n]
     _write_csv(top_by_recent_alpha_path, top_by_recent_alpha, fieldnames)
     paths["top_by_recent_alpha_csv"] = top_by_recent_alpha_path
+
+    top_by_primary_alpha_path = run_dir / "top_by_primary_alpha.csv"
+    top_by_primary_alpha = sorted(
+        ranked_rows,
+        key=lambda row: float(row.get("primary_alpha_pct", row.get("alpha_vs_tradable_buy_hold_pct", 0)) or 0),
+        reverse=True,
+    )[:top_n]
+    _write_csv(top_by_primary_alpha_path, top_by_primary_alpha, fieldnames)
+    paths["top_by_primary_alpha_csv"] = top_by_primary_alpha_path
 
     top_dir = run_dir / "candidate_configs"
     top_dir.mkdir(parents=True, exist_ok=True)
@@ -1966,8 +2277,13 @@ def run_discovery(
         supported_reference_series=settings.supported_reference_series_symbols,
     )
     total_generated = len(candidates)
+    available_families = sorted({candidate.family for candidate in candidates})
+    requested_families: list[str] | None = None
+    unmatched_families: list[str] = []
     if families:
         normalized_families = {family.strip() for family in families if family.strip()}
+        requested_families = sorted(normalized_families)
+        unmatched_families = sorted(normalized_families - set(available_families))
         candidates = [
             candidate
             for candidate in candidates
@@ -2024,7 +2340,9 @@ def run_discovery(
         "total_after_family_filter": total_after_family_filter,
         "selected_for_run": len(candidates),
         "max_candidates": max_candidates,
-        "families": sorted(families) if families else None,
+        "families": requested_families,
+        "available_families": available_families,
+        "unmatched_families": unmatched_families,
         "cache_hits": evaluation_result["cache_hits"],
         "executed": evaluation_result["executed"],
         "market_data_cache_stats": market_data_cache_stats,
@@ -2052,6 +2370,8 @@ def run_discovery(
         "run_metadata": run_metadata,
         "candidate_count": len(candidates),
         "total_generated": total_generated,
+        "available_families": available_families,
+        "unmatched_families": unmatched_families,
         "cache_hits": evaluation_result["cache_hits"],
         "executed": evaluation_result["executed"],
         "market_data_cache_stats": market_data_cache_stats,
@@ -2129,6 +2449,10 @@ def main() -> None:
     print("\n=== Discovery Complete ===")
     print(f"Mode: {args.mode}")
     print(f"Total generated: {counts['total_generated']}")
+    print(f"Available families: {', '.join(result['available_families'])}")
+    if result["unmatched_families"]:
+        print(f"Unmatched family filters: {', '.join(result['unmatched_families'])}")
+        print("Use one or more available family names with --families.")
     print(f"Selected for this run: {counts['selected_for_run']}")
     print(f"Cache hits / skipped: {counts['cache_hits']}")
     print(f"Executed: {counts['executed']}")
@@ -2152,13 +2476,21 @@ def main() -> None:
         "candidate_category",
         "symbol",
         "benchmark",
+        "benchmark_comparison_basis",
+        "primary_alpha_pct",
+        "holdout_primary_alpha_pct",
         "alpha_vs_tradable_buy_hold_pct",
         "holdout_alpha_vs_tradable_buy_hold_pct",
+        "alpha_vs_universe_equal_weight_pct",
+        "holdout_alpha_vs_universe_equal_weight_pct",
         "alpha_vs_market_benchmark_pct",
         "max_drawdown_pct",
         "tradable_buy_hold_max_drawdown_pct",
         "drawdown_delta_vs_tradable_buy_hold_pct",
+        "universe_equal_weight_buy_hold_max_drawdown_pct",
+        "drawdown_delta_vs_universe_equal_weight_pct",
         "trade_count",
+        "rebalance_count",
         "score",
         "gallery_ready_outperformance",
         "gallery_ready_defensive",
@@ -2202,11 +2534,18 @@ def main() -> None:
                 "candidate_category",
                 "symbol",
                 "benchmark",
+                "benchmark_comparison_basis",
+                "primary_alpha_pct",
+                "holdout_primary_alpha_pct",
                 "alpha_vs_tradable_buy_hold_pct",
                 "holdout_alpha_vs_tradable_buy_hold_pct",
+                "alpha_vs_universe_equal_weight_pct",
+                "holdout_alpha_vs_universe_equal_weight_pct",
                 "max_drawdown_pct",
                 "drawdown_delta_vs_tradable_buy_hold_pct",
+                "drawdown_delta_vs_universe_equal_weight_pct",
                 "trade_count",
+                "rebalance_count",
                 "score",
                 "gallery_ready_outperformance",
                 "gallery_ready_defensive",
