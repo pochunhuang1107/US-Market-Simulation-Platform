@@ -1,6 +1,6 @@
 type StrategyStyle = 'Mean reversion' | 'Trend' | 'Risk filter' | 'Overlay' | 'Relative strength';
 type RiskLevel = 'Lower' | 'Moderate' | 'Higher';
-type ReferenceSeriesUsage = 'None' | 'VIX regime' | 'ETF relative strength' | 'ETF trend filter';
+type ReferenceSeriesUsage = 'None' | 'VIX regime' | 'ETF relative strength' | 'ETF trend filter' | 'Rotation universe';
 
 type AllocationSpec = {
   entry_mode: 'percent_of_equity';
@@ -64,6 +64,32 @@ type GroupRule = {
 
 type RuleNode = AtomicRule | NotRule | GroupRule;
 
+type RotationSpec = {
+  enabled: boolean;
+  universe: string[];
+  ranking: {
+    type: 'relative_return';
+    lookback: number;
+    descending: boolean;
+  };
+  rebalance: {
+    frequency: 'monthly' | 'weekly' | 'quarterly';
+    day: 'first_trading_day';
+  };
+  selection: {
+    top_n: number;
+  };
+  allocation: {
+    weighting: 'equal_weight';
+    max_position_pct: number;
+  };
+  risk_filter?: RuleNode | null;
+  fallback: {
+    type: 'cash' | 'asset';
+    symbol?: string;
+  };
+};
+
 export type StrategyV2TemplateConfig = {
   schema_version: '2.0';
   name: string;
@@ -74,12 +100,13 @@ export type StrategyV2TemplateConfig = {
   end_date: string;
   initial_capital: number;
   transaction_cost_bps: number;
-  allocation: AllocationSpec;
-  entry_rule: RuleNode;
-  exit_rule: RuleNode;
+  allocation?: AllocationSpec | null;
+  entry_rule?: RuleNode | null;
+  exit_rule?: RuleNode | null;
   risk: RiskSpec;
   core_overlay: CoreOverlaySpec;
   position_management?: PositionManagementSpec | null;
+  rotation?: RotationSpec | null;
 };
 
 export type StrategyGalleryTemplate = {
@@ -196,6 +223,32 @@ const BASE_CONFIG = {
   | 'core_overlay'
 >;
 
+const BASE_ROTATION_CONFIG = {
+  schema_version: '2.0',
+  ...DEFAULT_TEMPLATE_DATE_RANGE,
+  initial_capital: 100000,
+  transaction_cost_bps: 5,
+  risk: {
+    stop_loss_pct: null,
+    take_profit_pct: null,
+    partial_take_profit: null,
+    cooldown_bars: 0
+  },
+  core_overlay: {
+    enabled: false,
+    core_allocation_pct: 0
+  }
+} satisfies Pick<
+  StrategyV2TemplateConfig,
+  | 'schema_version'
+  | 'start_date'
+  | 'end_date'
+  | 'initial_capital'
+  | 'transaction_cost_bps'
+  | 'risk'
+  | 'core_overlay'
+>;
+
 export const EMPTY_STRATEGY_GALLERY_FILTERS: StrategyGalleryFilters = {
   query: '',
   style: '',
@@ -305,6 +358,253 @@ export function filterStrategyGalleryTemplates(
 }
 
 export const STRATEGY_GALLERY_TEMPLATES = [
+  {
+    id: 'defensive-cross-asset-252-sma200-rotation',
+    title: 'Defensive Cross-Asset 252D Rotation',
+    shortExplanation: 'Historically screened rotation example ranking QQQ, SPY, Treasuries, and GLD with an SPY 200-day trend gate.',
+    symbols: ['QQQ', 'SPY', 'TLT', 'IEF', 'GLD'],
+    categoryLabel: 'Rotation',
+    tags: ['Rotation', 'Momentum', 'Cross-asset', 'Defensive rotation', 'Equal-weight benchmark', 'cash fallback'],
+    style: 'Relative strength',
+    riskLevel: 'Lower',
+    strategyFamily: 'Cross-asset momentum rotation',
+    referenceSeriesUsage: 'ETF trend filter',
+    expectedBehavior: 'Monthly top-1 cross-asset momentum rotation. The discovery backtest outperformed an equal-weight universe benchmark and SPY, while trailing QQQ buy-and-hold, so treat it as a research example rather than a performance claim.',
+    entryRuleText: 'Each month, rank QQQ, SPY, TLT, IEF, and GLD by 252-day relative return and hold the top-ranked ETF while SPY is above its 200-day SMA.',
+    exitRuleText: 'Move to cash when the SPY 200-day SMA filter fails; otherwise rebalance monthly into the current top-ranked ETF.',
+    riskControls: ['Monthly rebalance', 'Top-1 selection', '252-day momentum lookback', 'SPY 200-day SMA risk filter', 'Cash fallback', 'Equal-weight universe benchmark caveat'],
+    config: {
+      ...BASE_ROTATION_CONFIG,
+      name: 'Defensive Cross-Asset 252D Rotation',
+      tradable_symbol: 'QQQ',
+      benchmark_symbol: 'SPY',
+      reference_symbols: ['GLD', 'IEF', 'SPY', 'TLT'],
+      rotation: {
+        enabled: true,
+        universe: ['QQQ', 'SPY', 'TLT', 'IEF', 'GLD'],
+        ranking: {
+          type: 'relative_return',
+          lookback: 252,
+          descending: true
+        },
+        rebalance: {
+          frequency: 'monthly',
+          day: 'first_trading_day'
+        },
+        selection: {
+          top_n: 1
+        },
+        allocation: {
+          weighting: 'equal_weight',
+          max_position_pct: 1.0
+        },
+        risk_filter: {
+          kind: 'atomic',
+          type: 'sma_above',
+          symbol: 'SPY',
+          fast_window: 1,
+          slow_window: 200
+        },
+        fallback: {
+          type: 'cash'
+        }
+      }
+    }
+  },
+  {
+    id: 'defensive-cross-asset-252-sma100-rotation',
+    title: 'Defensive Cross-Asset 252D Rotation Lite',
+    shortExplanation: 'Historically screened defensive rotation using the same cross-asset universe with a faster SPY 100-day trend gate.',
+    symbols: ['QQQ', 'SPY', 'TLT', 'IEF', 'GLD'],
+    categoryLabel: 'Rotation',
+    tags: ['Rotation', 'Momentum', 'Cross-asset', 'Defensive rotation', 'Equal-weight benchmark', 'cash fallback'],
+    style: 'Relative strength',
+    riskLevel: 'Lower',
+    strategyFamily: 'Cross-asset momentum rotation',
+    referenceSeriesUsage: 'ETF trend filter',
+    expectedBehavior: 'Monthly top-1 cross-asset momentum rotation with a faster market filter. The discovery backtest outperformed an equal-weight universe benchmark in the full window, but the recent SPY comparison was weaker and it trailed QQQ buy-and-hold.',
+    entryRuleText: 'Each month, rank QQQ, SPY, TLT, IEF, and GLD by 252-day relative return and hold the top-ranked ETF while SPY is above its 100-day SMA.',
+    exitRuleText: 'Move to cash when the SPY 100-day SMA filter fails; otherwise rebalance monthly into the current top-ranked ETF.',
+    riskControls: ['Monthly rebalance', 'Top-1 selection', '252-day momentum lookback', 'SPY 100-day SMA risk filter', 'Cash fallback', 'Equal-weight universe benchmark caveat'],
+    config: {
+      ...BASE_ROTATION_CONFIG,
+      name: 'Defensive Cross-Asset 252D Rotation Lite',
+      tradable_symbol: 'QQQ',
+      benchmark_symbol: 'SPY',
+      reference_symbols: ['GLD', 'IEF', 'SPY', 'TLT'],
+      rotation: {
+        enabled: true,
+        universe: ['QQQ', 'SPY', 'TLT', 'IEF', 'GLD'],
+        ranking: {
+          type: 'relative_return',
+          lookback: 252,
+          descending: true
+        },
+        rebalance: {
+          frequency: 'monthly',
+          day: 'first_trading_day'
+        },
+        selection: {
+          top_n: 1
+        },
+        allocation: {
+          weighting: 'equal_weight',
+          max_position_pct: 1.0
+        },
+        risk_filter: {
+          kind: 'atomic',
+          type: 'sma_above',
+          symbol: 'SPY',
+          fast_window: 1,
+          slow_window: 100
+        },
+        fallback: {
+          type: 'cash'
+        }
+      }
+    }
+  },
+  {
+    id: 'growth-sector-rate-21d-rotation',
+    title: 'Growth Sector Rate 21D Rotation',
+    shortExplanation: 'Cross-asset momentum rotation across growth, sector, broad-market, and Treasury ETFs using a 21-day lookback.',
+    symbols: ['QQQ', 'SPY', 'XLK', 'XLY', 'XLV', 'TLT'],
+    categoryLabel: 'Rotation',
+    tags: ['Rotation', 'Momentum', 'Cross-asset', 'Growth', 'Sector rotation', 'Equal-weight benchmark'],
+    style: 'Relative strength',
+    riskLevel: 'Moderate',
+    strategyFamily: 'Cross-asset momentum rotation',
+    referenceSeriesUsage: 'Rotation universe',
+    expectedBehavior: 'Monthly top-1 rotation over a compact growth, sector, and rate-sensitive ETF universe. The discovery backtest outperformed an equal-weight universe benchmark and SPY, while trailing QQQ buy-and-hold.',
+    entryRuleText: 'Each month, rank QQQ, SPY, XLK, XLY, XLV, and TLT by 21-day relative return and hold the top-ranked ETF.',
+    exitRuleText: 'Rebalance monthly into the current top-ranked ETF; if no ranked asset is available, stay in cash.',
+    riskControls: ['Monthly rebalance', 'Top-1 selection', '21-day momentum lookback', 'Cash fallback', 'No separate trend filter', 'Equal-weight universe benchmark caveat'],
+    config: {
+      ...BASE_ROTATION_CONFIG,
+      name: 'Growth Sector Rate 21D Rotation',
+      tradable_symbol: 'QQQ',
+      benchmark_symbol: 'SPY',
+      reference_symbols: ['SPY', 'TLT', 'XLK', 'XLV', 'XLY'],
+      rotation: {
+        enabled: true,
+        universe: ['QQQ', 'SPY', 'XLK', 'XLY', 'XLV', 'TLT'],
+        ranking: {
+          type: 'relative_return',
+          lookback: 21,
+          descending: true
+        },
+        rebalance: {
+          frequency: 'monthly',
+          day: 'first_trading_day'
+        },
+        selection: {
+          top_n: 1
+        },
+        allocation: {
+          weighting: 'equal_weight',
+          max_position_pct: 1.0
+        },
+        risk_filter: null,
+        fallback: {
+          type: 'cash'
+        }
+      }
+    }
+  },
+  {
+    id: 'sector-etf-top-3-21d-rotation',
+    title: 'Sector ETF Top-3 21D Rotation',
+    shortExplanation: 'Sector rotation research example that compares selected sector holdings against the sector universe.',
+    symbols: ['XLK', 'XLY', 'XLF', 'XLE', 'XLV', 'XLI', 'XLP', 'XLU', 'XLB', 'XLRE'],
+    categoryLabel: 'Rotation',
+    tags: ['Rotation', 'Momentum', 'Sector rotation', 'Equal-weight benchmark'],
+    style: 'Relative strength',
+    riskLevel: 'Moderate',
+    strategyFamily: 'Sector momentum rotation',
+    referenceSeriesUsage: 'Rotation universe',
+    expectedBehavior: 'Monthly top-3 sector rotation. The discovery backtest outperformed the equal-weight sector universe benchmark, while trailing SPY and XLK buy-and-hold over the same screen.',
+    entryRuleText: 'Each month, rank the supported sector ETF universe by 21-day relative return and hold the top 3 sectors equally.',
+    exitRuleText: 'Rebalance monthly into the current top 3 sectors; if no ranked sector is available, stay in cash.',
+    riskControls: ['Monthly rebalance', 'Top-3 equal weighting', '21-day momentum lookback', 'Cash fallback', 'Sector universe comparison', 'Benchmark caveat vs SPY and XLK'],
+    config: {
+      ...BASE_ROTATION_CONFIG,
+      name: 'Sector ETF Top-3 21D Rotation',
+      tradable_symbol: 'XLK',
+      benchmark_symbol: 'SPY',
+      reference_symbols: ['SPY', 'XLB', 'XLE', 'XLF', 'XLI', 'XLP', 'XLRE', 'XLU', 'XLV', 'XLY'],
+      rotation: {
+        enabled: true,
+        universe: ['XLK', 'XLY', 'XLF', 'XLE', 'XLV', 'XLI', 'XLP', 'XLU', 'XLB', 'XLRE'],
+        ranking: {
+          type: 'relative_return',
+          lookback: 21,
+          descending: true
+        },
+        rebalance: {
+          frequency: 'monthly',
+          day: 'first_trading_day'
+        },
+        selection: {
+          top_n: 3
+        },
+        allocation: {
+          weighting: 'equal_weight',
+          max_position_pct: 1.0
+        },
+        risk_filter: null,
+        fallback: {
+          type: 'cash'
+        }
+      }
+    }
+  },
+  {
+    id: 'broad-etf-top-2-21d-rotation',
+    title: 'Broad ETF Top-2 21D Rotation',
+    shortExplanation: 'Broad supported ETF rotation research across equities, sectors, bonds, credit, and GLD.',
+    symbols: ['SPY', 'QQQ', 'IWM', 'VTI', 'GLD', 'TLT', 'IEF', 'HYG', 'LQD', 'XLK', 'XLY', 'XLV'],
+    categoryLabel: 'Rotation',
+    tags: ['Rotation', 'Momentum', 'Cross-asset', 'Broad ETF mix', 'Equal-weight benchmark'],
+    style: 'Relative strength',
+    riskLevel: 'Moderate',
+    strategyFamily: 'Broad ETF momentum rotation',
+    referenceSeriesUsage: 'Rotation universe',
+    expectedBehavior: 'Monthly top-2 broad ETF rotation. The discovery backtest outperformed the equal-weight universe benchmark in the full window, while trailing SPY buy-and-hold and showing weaker train-period behavior.',
+    entryRuleText: 'Each month, rank the broad supported ETF universe by 21-day relative return and hold the top 2 ETFs equally.',
+    exitRuleText: 'Rebalance monthly into the current top 2 ETFs; if no ranked asset is available, stay in cash.',
+    riskControls: ['Monthly rebalance', 'Top-2 equal weighting', '21-day momentum lookback', 'Cash fallback', 'Broad ETF universe comparison', 'Benchmark caveat vs SPY'],
+    config: {
+      ...BASE_ROTATION_CONFIG,
+      name: 'Broad ETF Top-2 21D Rotation',
+      tradable_symbol: 'SPY',
+      benchmark_symbol: 'SPY',
+      reference_symbols: ['GLD', 'HYG', 'IEF', 'IWM', 'LQD', 'QQQ', 'SPY', 'TLT', 'VTI', 'XLK', 'XLV', 'XLY'],
+      rotation: {
+        enabled: true,
+        universe: ['SPY', 'QQQ', 'IWM', 'VTI', 'GLD', 'TLT', 'IEF', 'HYG', 'LQD', 'XLK', 'XLY', 'XLV'],
+        ranking: {
+          type: 'relative_return',
+          lookback: 21,
+          descending: true
+        },
+        rebalance: {
+          frequency: 'monthly',
+          day: 'first_trading_day'
+        },
+        selection: {
+          top_n: 2
+        },
+        allocation: {
+          weighting: 'equal_weight',
+          max_position_pct: 1.0
+        },
+        risk_filter: null,
+        fallback: {
+          type: 'cash'
+        }
+      }
+    }
+  },
   {
     id: 'xle-rsi-defensive-pullback',
     title: 'XLE RSI Defensive Pullback',
