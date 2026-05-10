@@ -520,9 +520,17 @@ def test_rotation_gallery_templates_are_valid_and_benchmark_aware():
         "defensive-cross-asset-252-sma200-rotation",
         "defensive-cross-asset-252-sma100-rotation",
         "growth-sector-rate-21d-rotation",
-        "sector-etf-top-3-21d-rotation",
+        "sector-etf-top-1-21d-spy-sma100-rotation",
         "broad-etf-top-2-21d-rotation",
     } <= rotation_ids
+
+    rotation_categories = {template["categoryLabel"] for template in rotation_templates}
+    assert {
+        "Cross-asset rotation",
+        "Sector rotation",
+        "Defensive rotation",
+    } <= rotation_categories
+    assert "sector-etf-top-3-21d-rotation" not in rotation_ids
 
     for template in rotation_templates:
         config = template["config"]
@@ -539,6 +547,12 @@ def test_rotation_gallery_templates_are_valid_and_benchmark_aware():
         assert set(template["symbols"]) >= set(rotation["universe"])
         assert "Rotation" in template["tags"]
         assert "Momentum" in template["tags"]
+        assert template["categoryLabel"] in {
+            "Cross-asset rotation",
+            "Sector rotation",
+            "Defensive rotation",
+            "Rotation research",
+        }
 
         benchmark_context = " ".join(
             [
@@ -588,7 +602,12 @@ def test_gallery_templates_avoid_performance_promising_wording():
     banned_phrases = [
         "will outperform",
         "beats the market",
+        "beats qqq",
+        "beat qqq",
+        "outperforms qqq",
+        "outperformed qqq",
         "beats buy-and-hold",
+        "beats buy and hold",
         "proven alpha",
         "guaranteed",
         "guaranteed outperformance",
