@@ -52,6 +52,7 @@ def create_test_schema() -> Generator[None, None, None]:
 
 @pytest.fixture(autouse=True)
 def clean_database() -> Generator[None, None, None]:
+    Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             conn.execute(text(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE'))

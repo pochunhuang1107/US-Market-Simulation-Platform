@@ -483,7 +483,7 @@ export const STRATEGY_GALLERY_TEMPLATES = [
     shortExplanation: 'Major ETF risk-control example using a SPY core plus a VIX and trend-gated tactical sleeve.',
     symbols: ['SPY', 'VIX'],
     categoryLabel: 'Major ETF starter',
-    tags: ['SPY', 'VIX', 'trend filter', 'core sleeve'],
+    tags: ['SPY', 'VIX', 'trend filter', 'core sleeve', 'risk control'],
     style: 'Overlay',
     riskLevel: 'Lower',
     strategyFamily: 'Core VIX trend overlay',

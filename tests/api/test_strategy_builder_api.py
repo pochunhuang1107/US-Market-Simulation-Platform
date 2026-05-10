@@ -35,6 +35,75 @@ def default_builder_metadata_lookup(monkeypatch):
     monkeypatch.setattr(builder_parsers, "get_etf_history_range", lambda symbol: None)
 
 
+WORKSPACE_SAMPLE_PROMPTS = [
+    pytest.param(
+        "Create an XLE RSI pullback strategy with RSI below 45, exit above 60, 12% stop loss, 5-bar cooldown, and max position 75%.",
+        id="xle-rsi-pullback",
+    ),
+    pytest.param(
+        "Create an IWM RSI strategy that enters below 45, exits above 70, uses an 8% stop loss, and waits 3 bars after exits.",
+        id="iwm-rsi-risk-control",
+    ),
+    pytest.param(
+        "Create a QQQ strategy with entry when VIX below 30 and RSI below 40, exit when VIX above 40 or RSI above 70.",
+        id="qqq-vix-rsi-filter",
+    ),
+    pytest.param(
+        "Create a SPY strategy with entry when VIX below 30 and SPY is above its 100-day SMA, exit when SPY crosses below its 100-day SMA.",
+        id="spy-defensive-trend",
+    ),
+    pytest.param(
+        "Create an XLV RSI risk-control strategy that enters below 35, exits above 70, and uses an 8% stop loss.",
+        id="xlv-risk-control",
+    ),
+    pytest.param(
+        "Create a SPY core-overlay strategy with an 80% core and RSI overlay.",
+        id="spy-core-overlay",
+    ),
+]
+
+
+def _collect_rule_symbols(rule: dict | None) -> set[str]:
+    if not isinstance(rule, dict):
+        return set()
+
+    symbols: set[str] = set()
+    for key in ("symbol", "reference_symbol"):
+        symbol = rule.get(key)
+        if isinstance(symbol, str):
+            symbols.add(symbol.upper())
+
+    child = rule.get("rule")
+    if isinstance(child, dict):
+        symbols.update(_collect_rule_symbols(child))
+
+    children = rule.get("rules")
+    if isinstance(children, list):
+        for child_rule in children:
+            symbols.update(_collect_rule_symbols(child_rule))
+
+    return symbols
+
+
+def _assert_strategy_config_uses_supported_symbols(config: dict) -> None:
+    settings = get_settings()
+    supported_symbols = set(settings.supported_etf_symbols)
+    supported_references = set(settings.supported_reference_series_symbols)
+    symbols = {
+        config["tradable_symbol"],
+        config["benchmark_symbol"],
+        *config.get("reference_symbols", []),
+        *_collect_rule_symbols(config.get("entry_rule")),
+        *_collect_rule_symbols(config.get("exit_rule")),
+    }
+
+    assert sorted(
+        symbol
+        for symbol in symbols
+        if symbol not in supported_symbols and symbol not in supported_references
+    ) == []
+
+
 def _qqq_rsi_core_overlay_current_config() -> dict:
     return {
         "schema_version": "2.0",
@@ -3657,6 +3726,34 @@ def test_generate_strategy_builder_existing_vix_rsi_prompt_still_works(client):
     assert config["entry_rule"]["kind"] == "group"
     assert any(rule.get("type") == "rsi_below" for rule in config["entry_rule"]["rules"])
     assert any(rule.get("type") == "series_below" for rule in config["entry_rule"]["rules"])
+
+
+@pytest.mark.parametrize("prompt", WORKSPACE_SAMPLE_PROMPTS)
+def test_workspace_sample_prompts_compile_to_supported_strategy_v2_drafts(client, prompt):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": prompt},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] in {"CREATE_DRAFT", "UPDATE_DRAFT"}
+    assert body["config"] is not None
+    config = body["config"]
+
+    StrategyV2.model_validate(config)
+    _assert_strategy_config_uses_supported_symbols(config)
+
+
+def test_workspace_sample_prompt_set_keeps_major_and_defensive_examples():
+    prompt_text = "\n".join(
+        param.values[0] for param in WORKSPACE_SAMPLE_PROMPTS
+    )
+    prompt_text_lower = prompt_text.lower()
+
+    assert "QQQ" in prompt_text
+    assert "SPY" in prompt_text
+    assert "risk-control" in prompt_text_lower or "defensive" in prompt_text_lower
 
 
 def test_generate_strategy_builder_draft_parses_core_overlay_prompt(client):
