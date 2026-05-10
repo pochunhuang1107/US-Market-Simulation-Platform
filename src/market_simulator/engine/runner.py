@@ -4,6 +4,7 @@ import pandas as pd
 
 from market_simulator.engine.execution import transaction_cost
 from market_simulator.engine.portfolio import PortfolioState
+from market_simulator.engine.rotation import run_rotation_simulation
 from market_simulator.models.strategy_v2 import AtomicRule, GroupRule, NotRule, SequenceRule, WindowRule
 from market_simulator.models.result import SimulationResult
 from market_simulator.reporting.metrics import (
@@ -408,6 +409,9 @@ def _risk_signal(
 
 
 def run_simulation(bundle, strategy):
+    if getattr(getattr(strategy, "rotation", None), "enabled", False):
+        return run_rotation_simulation(bundle, strategy)
+
     bundle = enrich_market_data(bundle, strategy)
     df = bundle.tradable.reset_index(drop=True).copy()
     bench = _benchmark_curve(df, strategy.initial_capital)

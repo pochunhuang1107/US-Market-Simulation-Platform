@@ -32,9 +32,14 @@ class SimulationService:
         return self.run_from_strategy(strategy, output_dir=output_dir)
 
     def run_from_strategy(self, strategy, output_dir: str | Path | None = None):
+        reference_symbols = (
+            strategy.rotation_required_reference_symbols()
+            if getattr(getattr(strategy, "rotation", None), "enabled", False)
+            else strategy.reference_symbols
+        )
         market_data = self.repo.get_market_data(
             tradable_symbol=strategy.tradable_symbol,
-            reference_symbols=strategy.reference_symbols,
+            reference_symbols=reference_symbols,
             start_date=str(strategy.start_date),
             end_date=str(strategy.end_date),
         )

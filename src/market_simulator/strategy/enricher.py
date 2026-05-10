@@ -73,8 +73,13 @@ def enrich_market_data(bundle: MarketDataBundle, strategy):
     working_bundle = MarketDataBundle(tradable=tradable, references=refs)
 
     rules = []
-    _collect(strategy.entry_rule, rules)
-    _collect(strategy.exit_rule, rules)
+    if strategy.entry_rule is not None:
+        _collect(strategy.entry_rule, rules)
+    if strategy.exit_rule is not None:
+        _collect(strategy.exit_rule, rules)
+    rotation = getattr(strategy, "rotation", None)
+    if rotation is not None and rotation.risk_filter is not None:
+        _collect(rotation.risk_filter, rules)
 
     for rule in rules:
         target_key, _ = resolve_market_data_target(

@@ -142,6 +142,64 @@ class SequenceRule(BaseModel):
 RuleNode = Union[AtomicRule, NotRule, GroupRule, WindowRule, SequenceRule]
 
 
+class RotationRankingSpec(BaseModel):
+    type: Literal["relative_return"] = "relative_return"
+    lookback: int = Field(gt=0, le=756)
+    descending: bool = True
+
+
+class RotationRebalanceSpec(BaseModel):
+    frequency: Literal["monthly", "weekly", "quarterly"] = "monthly"
+    day: Literal["first_trading_day"] = "first_trading_day"
+
+
+class RotationSelectionSpec(BaseModel):
+    top_n: int = Field(ge=1, le=50)
+
+
+class RotationAllocationSpec(BaseModel):
+    weighting: Literal["equal_weight"] = "equal_weight"
+    max_position_pct: float = Field(default=1.0, gt=0, le=1.0)
+
+
+class RotationFallbackSpec(BaseModel):
+    type: Literal["cash", "asset"] = "cash"
+    symbol: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_symbol(self) -> "RotationFallbackSpec":
+        if self.type == "asset" and not self.symbol:
+            raise ValueError("symbol required for asset fallback")
+        return self
+
+
+class RotationSpec(BaseModel):
+    enabled: bool = False
+    universe: list[str] = Field(default_factory=list)
+    ranking: Optional[RotationRankingSpec] = None
+    rebalance: RotationRebalanceSpec = RotationRebalanceSpec()
+    selection: Optional[RotationSelectionSpec] = None
+    allocation: RotationAllocationSpec = RotationAllocationSpec()
+    risk_filter: Optional[RuleNode] = None
+    fallback: RotationFallbackSpec = RotationFallbackSpec()
+
+    @model_validator(mode="after")
+    def validate_rotation(self) -> "RotationSpec":
+        self.universe = [symbol.upper() for symbol in self.universe]
+        if self.enabled:
+            if not self.universe:
+                raise ValueError("universe required when rotation is enabled")
+            if self.ranking is None:
+                raise ValueError("ranking required when rotation is enabled")
+            if self.selection is None:
+                raise ValueError("selection required when rotation is enabled")
+            if self.selection.top_n > len(self.universe):
+                raise ValueError("selection.top_n cannot exceed universe size")
+        if self.fallback.symbol:
+            self.fallback.symbol = self.fallback.symbol.upper()
+        return self
+
+
 class StrategyV2(BaseModel):
     schema_version: Literal["2.0"] = "2.0"
     name: str
@@ -152,21 +210,42 @@ class StrategyV2(BaseModel):
     end_date: date
     initial_capital: float = Field(gt=0)
     transaction_cost_bps: float = Field(ge=0)
-    allocation: AllocationSpec
-    entry_rule: RuleNode
-    exit_rule: RuleNode
+    allocation: Optional[AllocationSpec] = None
+    entry_rule: Optional[RuleNode] = None
+    exit_rule: Optional[RuleNode] = None
     risk: RiskSpec = RiskSpec()
     core_overlay: CoreOverlaySpec = CoreOverlaySpec()
     position_management: Optional[PositionManagementSpec] = None
+    rotation: Optional[RotationSpec] = None
 
     @model_validator(mode="after")
     def validate_dates(self) -> "StrategyV2":
         if self.start_date >= self.end_date:
             raise ValueError("start_date must be earlier than end_date")
+        if not self.rotation or not self.rotation.enabled:
+            if self.allocation is None:
+                raise ValueError("allocation required unless rotation is enabled")
+            if self.entry_rule is None:
+                raise ValueError("entry_rule required unless rotation is enabled")
+            if self.exit_rule is None:
+                raise ValueError("exit_rule required unless rotation is enabled")
         return self
+
+    def rotation_required_reference_symbols(self) -> list[str]:
+        if not self.rotation or not self.rotation.enabled:
+            return []
+
+        symbols = set(self.reference_symbols)
+        symbols.update(self.rotation.universe)
+        if self.rotation.fallback.type == "asset" and self.rotation.fallback.symbol:
+            symbols.add(self.rotation.fallback.symbol)
+        symbols.add(self.benchmark_symbol)
+        symbols.discard(self.tradable_symbol)
+        return sorted(symbols)
 
 
 NotRule.model_rebuild()
 GroupRule.model_rebuild()
 WindowRule.model_rebuild()
 SequenceRule.model_rebuild()
+RotationSpec.model_rebuild()
