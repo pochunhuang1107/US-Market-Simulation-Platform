@@ -4179,6 +4179,155 @@ def test_workspace_sample_prompts_compile_to_supported_strategy_v2_drafts(client
     _assert_strategy_config_uses_supported_symbols(config)
 
 
+def test_generate_strategy_builder_exact_xle_rsi_prompt_parses_cooldown_and_max_position(client):
+    prompt = (
+        "Create an XLE RSI pullback strategy with RSI below 45, exit above 60, "
+        "12% stop loss, 5-bar cooldown, and max position 75%."
+    )
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": prompt},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert config["tradable_symbol"] == "XLE"
+    assert config["entry_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_below",
+        "symbol": "XLE",
+        "lookback": 14,
+        "threshold": 45.0,
+    }
+    assert config["exit_rule"] == {
+        "kind": "atomic",
+        "type": "rsi_above",
+        "symbol": "XLE",
+        "lookback": 14,
+        "threshold": 60.0,
+    }
+    assert config["risk"]["stop_loss_pct"] == 0.12
+    assert config["risk"]["cooldown_bars"] == 5
+    assert config["allocation"]["max_position_pct"] == 0.75
+    assert "Stop loss set to 12.0%." in body["summary"]
+    assert "Cooldown set to 5 bars." in body["summary"]
+    assert "Max position set to 75.0%." in body["summary"]
+    assert "cooldown 0 bars" not in body["summary"].lower()
+    assert "Used cooldown of 0 bars by default." not in body["assumptions"]
+
+
+@pytest.mark.parametrize(
+    "cooldown_phrase",
+    [
+        "5-bar cooldown",
+        "5 bar cooldown",
+        "cooldown 5 bars",
+        "set cooldown to 5 bars",
+        "wait 5 bars before re-entering",
+    ],
+)
+def test_generate_strategy_builder_draft_parses_cooldown_phrase_variants(
+    client,
+    cooldown_phrase,
+):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": (
+                "Create a QQQ RSI strategy with RSI below 30, exit above 70, "
+                f"and {cooldown_phrase}."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert body["config"]["risk"]["cooldown_bars"] == 5
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "5-bar cooldown",
+        "5 bar cooldown",
+        "cooldown 5 bars",
+        "set cooldown to 5 bars",
+        "wait 5 bars before re-entering",
+    ],
+)
+def test_generate_strategy_builder_follow_up_sets_cooldown_phrase_variants(
+    client,
+    prompt,
+):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["risk"]["take_profit_pct"] = 0.2
+    original = copy.deepcopy(current_config)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["risk"]["cooldown_bars"] == 5
+    _assert_strategy_v2_config_preserves(
+        config,
+        original,
+        changed_top_level=set(),
+        changed_nested={"risk": {"cooldown_bars"}},
+    )
+
+
+@pytest.mark.parametrize("prompt", ["remove cooldown", "no cooldown"])
+def test_generate_strategy_builder_follow_up_removes_cooldown_without_touching_unrelated_config(
+    client,
+    prompt,
+):
+    current_config = _qqq_rsi_core_overlay_current_config()
+    current_config["risk"]["cooldown_bars"] = 5
+    current_config["risk"]["take_profit_pct"] = 0.2
+    original = copy.deepcopy(current_config)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": prompt,
+            "context": {
+                "mode": "NEW_VERSION",
+                "current_config": current_config,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    config = body["config"]
+
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert config["risk"]["cooldown_bars"] == 0
+    _assert_strategy_v2_config_preserves(
+        config,
+        original,
+        changed_top_level=set(),
+        changed_nested={"risk": {"cooldown_bars"}},
+    )
+
+
 def test_workspace_sample_prompt_set_keeps_major_and_defensive_examples():
     prompt_text = "\n".join(
         param.values[0] for param in WORKSPACE_SAMPLE_PROMPTS

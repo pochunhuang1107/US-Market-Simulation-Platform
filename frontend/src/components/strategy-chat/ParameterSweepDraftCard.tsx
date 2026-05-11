@@ -125,7 +125,7 @@ export function ParameterSweepDraftCard({
             </button>
           ) : (
             <div className="app-surface-soft max-w-[11.5rem] rounded-2xl border px-3 py-2 text-sm font-medium leading-5 app-text-muted">
-              Superseded by newer draft
+              Newer draft exists
             </div>
           )}
         </div>

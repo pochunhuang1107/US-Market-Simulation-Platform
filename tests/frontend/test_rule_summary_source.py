@@ -83,7 +83,7 @@ def test_strategy_draft_superseded_badge_stays_compact():
     ).read_text()
 
     for source in [draft_source, sweep_source]:
-        assert "Superseded by newer draft" in source
+        assert "Newer draft exists" in source
         assert "Superseded by a newer draft" not in source
         assert "max-w-[11.5rem]" in source
         assert "px-3 py-2 text-sm font-medium leading-5" in source
