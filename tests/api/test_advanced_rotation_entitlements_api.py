@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import market_simulator.services.strategy_builder_parsers as builder_parsers
 from market_simulator import settings as settings_module
 from market_simulator.db.enums import SubscriptionStatus
 from market_simulator.db.models.user import Plan, UserPlanSubscription
@@ -193,6 +194,7 @@ def test_free_cannot_create_custom_rotation_via_builder(
     db_session,
     create_user,
     current_user_ctx,
+    monkeypatch,
 ):
     user = create_user(user_id=current_user_ctx["id"], with_default_plan=False)
     plan = _create_plan(
@@ -205,6 +207,14 @@ def test_free_cannot_create_custom_rotation_via_builder(
     )
     _attach_plan(db_session, user_id=str(user.id), plan=plan)
 
+    metadata_calls: list[str] = []
+
+    def fail_if_metadata_is_loaded(symbol: str):
+        metadata_calls.append(symbol)
+        raise AssertionError("FREE custom rotation builder prompt should not load ETF metadata")
+
+    monkeypatch.setattr(builder_parsers, "get_etf_history_range", fail_if_metadata_is_loaded)
+
     response = client.post(
         "/strategy-builder/generate",
         json={
@@ -213,7 +223,42 @@ def test_free_cannot_create_custom_rotation_via_builder(
     )
 
     _assert_rotation_plan_limit(response)
-    assert response.json()["response_type"] == "VALIDATION_ERROR"
+    body = response.json()
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["validation_data"]["validation_type"] == "PLAN_LIMIT"
+    assert body["config"] is None
+    assert metadata_calls == []
+
+
+def test_free_can_create_normal_single_etf_strategy_via_builder(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+    monkeypatch,
+):
+    user = create_user(user_id=current_user_ctx["id"], with_default_plan=False)
+    plan = _create_plan(
+        db_session,
+        code="FREE",
+        allow_rotation_templates=True,
+        allow_custom_rotation=False,
+        allow_rotation_edit=False,
+        allow_advanced_builder=False,
+    )
+    _attach_plan(db_session, user_id=str(user.id), plan=plan)
+    monkeypatch.setattr(builder_parsers, "get_etf_history_range", lambda symbol: None)
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create a mean reversion strategy for QQQ using RSI below 35 and exit above 65."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert body["config"]["tradable_symbol"] == "QQQ"
+    assert "rotation" not in body["config"]
 
 
 def test_free_cannot_run_custom_rotation_config_but_can_run_single_etf_strategy(
@@ -277,6 +322,7 @@ def test_beta_tester_can_create_edit_and_run_rotation(
     db_session,
     create_user,
     current_user_ctx,
+    monkeypatch,
 ):
     user = create_user(user_id=current_user_ctx["id"], with_default_plan=False)
     plan = _create_plan(
@@ -289,6 +335,18 @@ def test_beta_tester_can_create_edit_and_run_rotation(
         allow_parameter_sweeps=True,
     )
     _attach_plan(db_session, user_id=str(user.id), plan=plan)
+    monkeypatch.setattr(builder_parsers, "get_etf_history_range", lambda symbol: None)
+
+    builder = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a monthly rotation between QQQ, SPY, XLK, and TLT using 3-month momentum."
+        },
+    )
+    assert builder.status_code == 200
+    builder_body = builder.json()
+    assert builder_body["response_type"] == "CREATE_DRAFT"
+    assert builder_body["config"]["rotation"]["enabled"] is True
 
     created = client.post("/strategies", json=_strategy_payload(_rotation_config(name="Beta Rotation")))
     assert created.status_code == 200
@@ -325,6 +383,18 @@ def test_dev_admin_override_can_create_edit_and_run_rotation(
         ),
     )
     create_user(user_id=current_user_ctx["id"], with_default_plan=False)
+    monkeypatch.setattr(builder_parsers, "get_etf_history_range", lambda symbol: None)
+
+    builder = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a monthly rotation between QQQ, SPY, XLK, and TLT using 3-month momentum."
+        },
+    )
+    assert builder.status_code == 200
+    builder_body = builder.json()
+    assert builder_body["response_type"] == "CREATE_DRAFT"
+    assert builder_body["config"]["rotation"]["enabled"] is True
 
     created = client.post("/strategies", json=_strategy_payload(_rotation_config(name="Dev Rotation")))
     assert created.status_code == 200

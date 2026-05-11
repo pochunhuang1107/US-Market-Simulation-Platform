@@ -25,6 +25,7 @@ from market_simulator.services.strategy_builder_guardrails import (
 )
 from market_simulator.services.strategy_builder_service import (
     build_validation_data,
+    detect_custom_rotation_builder_intent,
     generate_strategy_builder_response,
 )
 
@@ -128,6 +129,29 @@ def generate_strategy_draft_api(
                 f"{entitlements.builder_prompt_max_chars} characters"
             ),
         )
+
+    if detect_custom_rotation_builder_intent(req):
+        current_config = req.context.current_config if req.context else None
+        try:
+            enforce_custom_rotation_access_for_config(
+                entitlements,
+                config={"rotation": {"enabled": True}},
+                current_config=current_config if isinstance(current_config, dict) else None,
+                require_advanced_builder=True,
+            )
+        except HTTPException:
+            message = advanced_rotation_limit_message()
+            _record_rejected_prompt(
+                db,
+                user_id=user["id"],
+                prompt_chars=prompt_chars,
+                reason="CUSTOM_ROTATION_NOT_ALLOWED",
+            )
+            return _structured_builder_limit_response(
+                status_code=403,
+                message=message,
+                max_backtest_years=entitlements.max_backtest_years,
+            )
 
     result = generate_strategy_builder_response(
         req,

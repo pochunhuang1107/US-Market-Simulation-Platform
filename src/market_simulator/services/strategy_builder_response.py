@@ -311,6 +311,16 @@ def build_validation_data(
             "suggested_action": "Shorten the date range and try again.",
         }
 
+    if "Custom rotation strategies require Research access." in message:
+        return {
+            "validation_type": StrategyBuilderValidationType.PLAN_LIMIT,
+            "unsupported_symbols": [],
+            "supported_data_start": None,
+            "supported_data_end": None,
+            "max_backtest_years": max_backtest_years,
+            "suggested_action": "Use a curated Gallery rotation template or upgrade to Research access.",
+        }
+
     if "must use ISO format like 2021-04-14" in message:
         return {
             "validation_type": StrategyBuilderValidationType.INVALID_DATE_FORMAT,
