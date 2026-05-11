@@ -29,6 +29,9 @@ dev = [
     "pytest>=8.2.0",
     "httpx>=0.27",
 ]
+openai = [
+    "openai>=1.68.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -108,6 +108,38 @@ def test_preflight_rejects_missing_frontend_auth0_vars(tmp_path):
     assert "VITE_AUTH0_AUDIENCE" in result.stderr
 
 
+def test_preflight_requires_openai_key_only_when_provider_is_openai(tmp_path):
+    backend = valid_backend_values()
+    backend["STRATEGY_BUILDER_PROVIDER"] = "openai"
+    backend_path = tmp_path / "backend.env"
+    frontend_path = tmp_path / "frontend.env"
+    write_env(backend_path, backend)
+    write_env(frontend_path, valid_frontend_values())
+
+    result = run_preflight(
+        "--backend-env",
+        str(backend_path),
+        "--frontend-env",
+        str(frontend_path),
+    )
+
+    assert result.returncode == 1
+    assert "OPENAI_API_KEY is required only when STRATEGY_BUILDER_PROVIDER=openai." in result.stderr
+
+    backend["STRATEGY_BUILDER_PROVIDER"] = "deterministic"
+    backend["OPENAI_API_KEY"] = ""
+    write_env(backend_path, backend)
+
+    result = run_preflight(
+        "--backend-env",
+        str(backend_path),
+        "--frontend-env",
+        str(frontend_path),
+    )
+
+    assert result.returncode == 0
+
+
 def test_preflight_does_not_print_secret_values(tmp_path):
     backend = valid_backend_values()
     backend["DATABASE_URL"] = (

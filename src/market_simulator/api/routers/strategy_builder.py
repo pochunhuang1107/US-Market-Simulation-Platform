@@ -53,6 +53,9 @@ def _structured_builder_limit_response(
     status_code: int,
     message: str,
     max_backtest_years: int,
+    translation_provider: str = "deterministic",
+    translation_mode: str = "deterministic",
+    llm_enabled: bool = False,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -73,9 +76,9 @@ def _structured_builder_limit_response(
                 ),
                 "guidance_data": None,
                 "sweep_draft": None,
-                "translation_provider": "deterministic",
-                "translation_mode": "deterministic",
-                "llm_enabled": False,
+                "translation_provider": translation_provider,
+                "translation_mode": translation_mode,
+                "llm_enabled": llm_enabled,
             }
         ),
     )
@@ -185,6 +188,9 @@ def generate_strategy_draft_api(
                 status_code=403,
                 message=message,
                 max_backtest_years=entitlements.max_backtest_years,
+                translation_provider=result.get("translation_provider", "deterministic"),
+                translation_mode=result.get("translation_mode", "deterministic"),
+                llm_enabled=bool(result.get("llm_enabled", False)),
             )
 
     sweep_draft = result.get("sweep_draft") if isinstance(result.get("sweep_draft"), dict) else None
@@ -229,6 +235,9 @@ def generate_strategy_draft_api(
             status_code=403,
             message=message,
             max_backtest_years=entitlements.max_backtest_years,
+            translation_provider=result.get("translation_provider", "deterministic"),
+            translation_mode=result.get("translation_mode", "deterministic"),
+            llm_enabled=bool(result.get("llm_enabled", False)),
         )
 
     if (

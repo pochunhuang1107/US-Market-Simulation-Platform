@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -27,6 +28,15 @@ from market_simulator.settings import get_settings
 
 DETERMINISTIC_PROVIDER = "deterministic"
 LLM_PROVIDER = "llm"
+OPENAI_PROVIDER = "openai"
+
+
+class StrategyTranslationProviderUnavailable(RuntimeError):
+    """Raised when an explicitly configured provider cannot be used safely."""
+
+
+class StrategyTranslationProviderError(RuntimeError):
+    """Raised when a provider call fails and should be reported safely."""
 
 
 @dataclass(frozen=True)
@@ -75,6 +85,9 @@ class LlmStructuredTranslationOutput(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     unsupported_features: list[str] = Field(default_factory=list)
     validation_errors: list[str] = Field(default_factory=list)
+    changes: list[str] = Field(default_factory=list)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_config_payload(self) -> "LlmStructuredTranslationOutput":
@@ -203,6 +216,178 @@ class LlmTranslationProvider(StrategyTranslationProvider):
             )
 
 
+class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
+    """OpenAI-backed Strategy Builder translator, disabled unless configured.
+
+    The provider returns only the shared structured contract. The shared
+    validation and normalization pipeline decides whether a config can be
+    returned to the frontend.
+    """
+
+    name = OPENAI_PROVIDER
+    mode = LLM_PROVIDER
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout_seconds: float | None = None,
+        max_retries: int | None = None,
+        client: Any | None = None,
+    ) -> None:
+        settings = get_settings()
+        self.api_key = api_key if api_key is not None else settings.openai_api_key
+        self.model = model or settings.openai_model
+        self.timeout_seconds = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else settings.openai_timeout_seconds
+        )
+        self.max_retries = (
+            max_retries if max_retries is not None else settings.openai_max_retries
+        )
+        self._client = client
+        self.llm_enabled = bool(self.api_key or self._client is not None)
+
+    def translate(self, request: StrategyTranslationRequest) -> StrategyTranslationResult:
+        if not self.llm_enabled:
+            message = (
+                "OpenAI Strategy Builder translation is configured, but OPENAI_API_KEY "
+                "is not set. The deterministic Strategy V2 builder remains available."
+            )
+            return _provider_guidance_result(
+                message=message,
+                provider=self.name,
+                mode=self.mode,
+                llm_enabled=False,
+                max_backtest_years=request.max_backtest_years,
+            )
+
+        try:
+            contract = self._request_contract(request)
+        except StrategyTranslationProviderUnavailable as exc:
+            message = str(exc)
+            return _provider_guidance_result(
+                message=message,
+                provider=self.name,
+                mode=self.mode,
+                llm_enabled=False,
+                max_backtest_years=request.max_backtest_years,
+            )
+        except (ValidationError, ValueError) as exc:
+            message = _format_translation_error(exc)
+            return _provider_guidance_result(
+                message=message,
+                provider=self.name,
+                mode=self.mode,
+                llm_enabled=True,
+                max_backtest_years=request.max_backtest_years,
+            )
+        except Exception:
+            message = (
+                "OpenAI Strategy Builder translation is temporarily unavailable. "
+                "The deterministic Strategy V2 builder remains available."
+            )
+            return _provider_guidance_result(
+                message=message,
+                provider=self.name,
+                mode=self.mode,
+                llm_enabled=True,
+                max_backtest_years=request.max_backtest_years,
+            )
+
+        try:
+            response = build_strategy_builder_response_from_llm_contract(
+                contract,
+                request=request,
+            )
+            return StrategyTranslationResult(
+                response=response,
+                translation_provider=self.name,
+                translation_mode=self.mode,
+                llm_enabled=True,
+                validation_errors=[],
+            )
+        except (ValidationError, ValueError) as exc:
+            message = _format_translation_error(exc)
+            return _provider_guidance_result(
+                message=message,
+                provider=self.name,
+                mode=self.mode,
+                llm_enabled=True,
+                max_backtest_years=request.max_backtest_years,
+            )
+
+    def _request_contract(
+        self,
+        request: StrategyTranslationRequest,
+    ) -> LlmStructuredTranslationOutput:
+        client = self._client or self._build_client()
+        responses = getattr(client, "responses", None)
+        create_response = getattr(responses, "create", None)
+        if create_response is None:
+            raise StrategyTranslationProviderUnavailable(
+                "The installed OpenAI SDK does not support the Responses API. "
+                "Install or upgrade the optional OpenAI SDK to enable this provider."
+            )
+
+        response = create_response(
+            model=self.model,
+            input=[
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": _openai_translation_instructions(),
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": json.dumps(
+                                _openai_translation_context(request),
+                                sort_keys=True,
+                            ),
+                        }
+                    ],
+                },
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "strategy_translation_output",
+                    "schema": LlmStructuredTranslationOutput.model_json_schema(),
+                    "strict": False,
+                }
+            },
+        )
+        output_text = _extract_response_text(response)
+        if not output_text:
+            raise StrategyTranslationProviderError("OpenAI response did not include JSON output.")
+        return LlmStructuredTranslationOutput.model_validate_json(output_text)
+
+    def _build_client(self) -> Any:
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise StrategyTranslationProviderUnavailable(
+                "OpenAI Strategy Builder translation is configured, but the optional "
+                "OpenAI SDK is not installed. Install it only in environments that "
+                "enable STRATEGY_BUILDER_PROVIDER=openai."
+            ) from exc
+
+        return OpenAI(
+            api_key=self.api_key,
+            timeout=self.timeout_seconds,
+            max_retries=self.max_retries,
+        )
+
+
 def build_strategy_translation_request(
     req: StrategyBuilderGenerateRequest,
     *,
@@ -231,6 +416,9 @@ def select_strategy_translation_provider(
     configured_provider = settings.strategy_builder_provider.strip().lower()
     explicit_mode = (requested_mode or "").strip().lower()
     requested_llm = explicit_mode in {"llm", "ai", "natural_language_llm"}
+
+    if configured_provider == OPENAI_PROVIDER:
+        return OpenAIStrategyTranslationProvider()
 
     if configured_provider == LLM_PROVIDER and settings.strategy_builder_llm_enabled:
         return LlmTranslationProvider(enabled=True)
@@ -316,7 +504,7 @@ def build_strategy_builder_response_from_llm_contract(
         summary=summary,
         warnings=warnings,
         assumptions=contract.assumptions,
-        changes=[],
+        changes=contract.changes,
     )
 
 
@@ -411,6 +599,95 @@ def _format_translation_error(exc: Exception) -> str:
     return str(exc)
 
 
+def _provider_guidance_result(
+    *,
+    message: str,
+    provider: str,
+    mode: str,
+    llm_enabled: bool,
+    max_backtest_years: int,
+) -> StrategyTranslationResult:
+    response = _build_response(
+        response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
+        message=message,
+        validation_data=build_validation_data(
+            message=message,
+            max_backtest_years=max_backtest_years,
+        ),
+        guidance_data=_build_guidance_data(
+            guidance_type=StrategyBuilderGuidanceType.GENERAL_GUIDANCE,
+        ),
+    )
+    return StrategyTranslationResult(
+        response=response,
+        translation_provider=provider,
+        translation_mode=mode,
+        llm_enabled=llm_enabled,
+        validation_errors=[message],
+    )
+
+
+def _openai_translation_instructions() -> str:
+    return (
+        "You translate natural-language ETF strategy requests into structured JSON "
+        "matching the provided schema. Strategy V2 JSON is the only executable form. "
+        "Do not write or execute code, call tools, simulate returns, or make promises "
+        "of profit or future performance. Use only supported tradable and reference "
+        "symbols supplied in the request context. Do not invent unsupported indicators, "
+        "fields, assets, or strategy semantics. If the request needs unsupported "
+        "features or unsupported symbols, return action='guidance' or include them in "
+        "unsupported_features instead of inventing config fields. For create_config, "
+        "return a complete Strategy V2 full_config. For edit_config, return either a "
+        "complete full_config or a minimal config_patch against current_config."
+    )
+
+
+def _openai_translation_context(request: StrategyTranslationRequest) -> dict[str, Any]:
+    return {
+        "prompt": request.prompt,
+        "current_config": request.current_config,
+        "context_mode": request.context_mode,
+        "max_backtest_years": request.max_backtest_years,
+        "user_entitlements": request.user_entitlements,
+        "supported_symbols": list(request.supported_symbols),
+        "supported_reference_symbols": list(request.supported_reference_symbols),
+        "contract_notes": {
+            "actions": ["create_config", "edit_config", "guidance"],
+            "config_rule": "Return declarative Strategy V2 JSON only; backend validation is mandatory.",
+            "unsupported_rule": "Unsupported requests should become guidance, not invented fields.",
+        },
+    }
+
+
+def _extract_response_text(response: Any) -> str:
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text
+
+    if isinstance(response, dict):
+        payload = response
+    elif hasattr(response, "model_dump"):
+        payload = response.model_dump()
+    else:
+        payload = response
+
+    texts: list[str] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            text = value.get("text")
+            if isinstance(text, str) and text.strip():
+                texts.append(text)
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(payload)
+    return "\n".join(texts).strip()
+
+
 def _with_provider_metadata(result: StrategyTranslationResult) -> StrategyTranslationResult:
     response = result.response_payload()
     return StrategyTranslationResult(
@@ -433,10 +710,13 @@ def _entitlements_snapshot(entitlements: Any) -> dict[str, Any]:
 __all__ = [
     "DETERMINISTIC_PROVIDER",
     "LLM_PROVIDER",
+    "OPENAI_PROVIDER",
     "DeterministicTranslationProvider",
     "LlmStructuredTranslationOutput",
     "LlmTranslationProvider",
+    "OpenAIStrategyTranslationProvider",
     "StrategyTranslationProvider",
+    "StrategyTranslationProviderUnavailable",
     "StrategyTranslationRequest",
     "StrategyTranslationResult",
     "build_strategy_builder_response_from_llm_contract",
