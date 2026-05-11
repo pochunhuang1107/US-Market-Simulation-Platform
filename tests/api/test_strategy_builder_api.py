@@ -8,6 +8,7 @@ import pytest
 import market_simulator.services.strategy_builder_service as builder_service
 import market_simulator.services.strategy_builder_parsers as builder_parsers
 import market_simulator.services.strategy_builder_response as builder_response
+from market_simulator import settings as settings_module
 from market_simulator.data.repository import MarketDataBundle
 from market_simulator.engine import runner
 from market_simulator.models.strategy_v2 import StrategyV2
@@ -18,7 +19,7 @@ from market_simulator.platform.services.parameter_sweep import (
 )
 from market_simulator.strategy.enricher import enrich_market_data
 from market_simulator.strategy.evaluator import evaluate_rule
-from market_simulator.settings import get_settings
+from market_simulator.settings import Settings, get_settings
 from market_simulator.db.models import Plan
 
 
@@ -316,6 +317,111 @@ def _rotation_current_config() -> dict:
             },
         },
     }
+
+
+def test_generate_strategy_builder_response_includes_translation_metadata(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a QQQ RSI strategy that enters below 30 and exits above 70."
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert body["config"]["tradable_symbol"] == "QQQ"
+    assert body["translation_provider"] == "deterministic"
+    assert body["translation_mode"] == "deterministic"
+    assert body["llm_enabled"] is False
+
+
+def test_generate_strategy_builder_rotation_prompt_uses_deterministic_provider(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a monthly rotation between QQQ, SPY, XLK, and TLT using 3-month momentum."
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert body["config"]["rotation"]["enabled"] is True
+    assert body["translation_provider"] == "deterministic"
+    assert body["llm_enabled"] is False
+
+
+def test_generate_strategy_builder_current_config_follow_up_remains_deterministic(client):
+    current_config = _qqq_rsi_core_overlay_current_config()
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Change max position to 50%.",
+            "context": {"current_config": current_config},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "UPDATE_DRAFT"
+    assert body["config"]["allocation"]["max_position_pct"] == 0.5
+    assert body["translation_provider"] == "deterministic"
+
+
+def test_disabled_llm_provider_setting_falls_back_without_calling_llm(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="llm",
+            strategy_builder_llm_enabled=False,
+        ),
+    )
+
+    def fail_if_llm_translate_is_called(*args, **kwargs):
+        raise AssertionError("disabled LLM provider should not be called")
+
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_translation.LlmTranslationProvider.translate",
+        fail_if_llm_translate_is_called,
+    )
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a QQQ RSI strategy that enters below 30 and exits above 70.",
+            "context": {"mode": "llm"},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert body["translation_provider"] == "deterministic"
+    assert body["llm_enabled"] is False
+
+
+def test_rotation_prompt_warns_when_unsupported_symbols_are_omitted(client):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a monthly rotation across QQQ, SPY, TSLA, and XLK using 3-month momentum."
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "CREATE_DRAFT"
+    assert "TSLA" not in body["config"]["rotation"]["universe"]
+    assert any("TSLA" in warning for warning in body["warnings"])
 
 
 def _assert_strategy_v2_config_preserves(
