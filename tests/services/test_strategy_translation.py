@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from market_simulator.api.schemas.strategy_builder import (
     StrategyBuilderContext,
@@ -188,6 +189,48 @@ def test_default_translation_provider_uses_deterministic_builder(monkeypatch):
     assert body["config"]["tradable_symbol"] == "QQQ"
 
 
+def test_deterministic_translation_emits_safe_timing_without_changing_payload(
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="deterministic",
+            strategy_builder_log_translation_timing=True,
+        ),
+    )
+    req = StrategyBuilderGenerateRequest(
+        prompt="Create a QQQ RSI strategy that buys below 30 and sells above 70."
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_builder_parsers.get_etf_history_range",
+        lambda symbol: None,
+    )
+
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        result = translate_strategy_builder_request(
+            req,
+            entitlements={"plan_code": "TEST"},
+            max_backtest_years=10,
+        )
+
+    body = result.response_payload()
+    log_text = caplog.text
+    assert body["translation_provider"] == "deterministic"
+    assert "diagnostics" not in body
+    assert "strategy_builder.deterministic_provider" in log_text
+    assert "strategy_builder.translation" in log_text
+    assert "provider=deterministic" in log_text
+    assert "prompt_chars=" in log_text
+    assert req.prompt not in log_text
+    assert any(record.name == "uvicorn.error" for record in caplog.records)
+
+
 def test_openai_provider_is_not_selected_unless_configured(monkeypatch):
     monkeypatch.setattr(
         settings_module,
@@ -279,6 +322,112 @@ def test_openai_mocked_structured_response_is_validated_and_returned():
     call = fake_client.responses.calls[0]
     assert call["model"]
     assert call["text"]["format"]["type"] == "json_schema"
+
+
+def test_openai_mocked_structured_response_emits_size_and_latency_logs(
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_log_translation_timing=True,
+        ),
+    )
+    req = StrategyBuilderGenerateRequest(prompt="Create a QQQ RSI strategy.")
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    fake_client = _FakeOpenAIClient(
+        payload={
+            "action": "create_config",
+            "full_config": _valid_single_etf_config(),
+            "summary": "Translated a QQQ RSI Strategy V2 draft.",
+        },
+    )
+    provider = OpenAIStrategyTranslationProvider(
+        client=fake_client,
+        model="gpt-test",
+    )
+
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        result = provider.translate(translation_request).response_payload()
+
+    log_text = caplog.text
+    assert result["response_type"] == "CREATE_DRAFT"
+    assert "diagnostics" not in result
+    assert "strategy_builder.openai_request" in log_text
+    assert "strategy_builder.openai_response" in log_text
+    assert "strategy_builder.validation" in log_text
+    assert "strategy_builder.openai_provider" in log_text
+    assert "model=gpt-test" in log_text
+    assert "api_ms=" in log_text
+    assert "extraction_ms=" in log_text
+    assert "contract_ms=" in log_text
+    assert "guardrail_ms=" in log_text
+    assert "strategy_v2_ms=" in log_text
+    assert "prompt_chars=" in log_text
+    assert "system_chars=" in log_text
+    assert "context_chars=" in log_text
+    assert "schema_chars=" in log_text
+    assert "response_chars=" in log_text
+    assert req.prompt not in log_text
+    assert "Translated a QQQ RSI Strategy V2 draft." not in log_text
+    assert any(record.name == "uvicorn.error" for record in caplog.records)
+
+
+def test_openai_latency_logs_redact_api_key_and_avoid_raw_payloads(
+    monkeypatch,
+    caplog,
+):
+    secret_key = "test-secret-latency-key"
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            openai_api_key=secret_key,
+            strategy_builder_log_translation_timing=True,
+        ),
+    )
+    prompt = f"Create a QQQ strategy. Do not log {secret_key}."
+    req = StrategyBuilderGenerateRequest(prompt=prompt)
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    fake_client = _FakeOpenAIClient(
+        payload={
+            "action": "create_config",
+            "full_config": _valid_single_etf_config(name=secret_key),
+            "summary": f"Translated with {secret_key}.",
+        },
+    )
+    provider = OpenAIStrategyTranslationProvider(
+        client=fake_client,
+        api_key=secret_key,
+        model="gpt-test",
+    )
+
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        result = provider.translate(translation_request).response_payload()
+
+    log_text = caplog.text
+    assert result["response_type"] == "CREATE_DRAFT"
+    assert secret_key not in log_text
+    assert prompt not in log_text
+    assert f"Translated with {secret_key}." not in log_text
+    assert "strategy_builder.openai_response" in log_text
+    assert "response_chars=" in log_text
 
 
 def test_openai_mocked_rotation_block_only_is_repaired_into_valid_config():
