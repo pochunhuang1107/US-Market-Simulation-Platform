@@ -4847,10 +4847,7 @@ def generate_strategy_builder_response(
             ),
         )
 
-    should_handle_rotation = (
-        (has_rotation_config and _looks_like_rotation_edit_prompt(prompt))
-        or (not has_current_config and _looks_like_rotation_create_prompt(prompt))
-    )
+    should_handle_rotation = detect_custom_rotation_builder_intent(req)
     if should_handle_rotation:
         try:
             config, summary, warnings, assumptions, changes = _build_rotation_config(
@@ -4990,4 +4987,16 @@ def generate_strategy_builder_response(
         warnings=warnings,
         assumptions=assumptions,
         changes=changes,
+    )
+
+
+def detect_custom_rotation_builder_intent(req: StrategyBuilderGenerateRequest) -> bool:
+    prompt = req.prompt.strip()
+    has_current_config = _has_current_config(req)
+    current_config = req.context.current_config if req.context else None
+    has_rotation_config = _is_rotation_enabled_config(current_config)
+
+    return (
+        (has_rotation_config and _looks_like_rotation_edit_prompt(prompt))
+        or (not has_current_config and _looks_like_rotation_create_prompt(prompt))
     )
