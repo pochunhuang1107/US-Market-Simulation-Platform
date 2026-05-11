@@ -436,6 +436,8 @@ def test_dev_admin_override_can_create_edit_and_run_rotation(
             artifact_storage_backend="LOCAL",
             enable_dev_admin_override=True,
             dev_admin_user_ids_csv=current_user_ctx["id"],
+            strategy_builder_provider="deterministic",
+            openai_api_key=None,
         ),
     )
     create_user(user_id=current_user_ctx["id"], with_default_plan=False)

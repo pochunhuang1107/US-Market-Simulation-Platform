@@ -64,7 +64,13 @@ def reset_app_settings(monkeypatch) -> Generator[None, None, None]:
     monkeypatch.setattr(
         settings_module,
         "_settings",
-        Settings(env="test", auth_mode="dev", artifact_storage_backend="LOCAL"),
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="deterministic",
+            openai_api_key=None,
+        ),
     )
     yield
 

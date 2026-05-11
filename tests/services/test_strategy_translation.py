@@ -91,7 +91,81 @@ def _valid_single_etf_config(**overrides):
     return config
 
 
+def _valid_rotation_block(**overrides):
+    block = {
+        "enabled": True,
+        "universe": ["QQQ", "SPY", "XLK", "TLT"],
+        "ranking": {
+            "type": "relative_return",
+            "lookback": 63,
+            "descending": True,
+        },
+        "rebalance": {
+            "frequency": "monthly",
+            "day": "first_trading_day",
+        },
+        "selection": {
+            "top_n": 1,
+        },
+        "allocation": {
+            "weighting": "equal_weight",
+            "max_position_pct": 1.0,
+        },
+        "risk_filter": {
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": "SPY",
+            "fast_window": 1,
+            "slow_window": 200,
+        },
+        "fallback": {
+            "type": "asset",
+            "symbol": "TLT",
+        },
+    }
+    block.update(overrides)
+    return block
+
+
+def _valid_rotation_config(**overrides):
+    config = {
+        "schema_version": "2.0",
+        "name": "QQQ SPY XLK TLT Rotation",
+        "tradable_symbol": "QQQ",
+        "benchmark_symbol": "SPY",
+        "reference_symbols": ["SPY", "XLK", "TLT"],
+        "start_date": "2021-01-01",
+        "end_date": "2024-12-31",
+        "initial_capital": 100000,
+        "transaction_cost_bps": 5,
+        "allocation": None,
+        "entry_rule": None,
+        "exit_rule": None,
+        "risk": {
+            "cooldown_bars": 0,
+        },
+        "core_overlay": {
+            "enabled": False,
+            "core_allocation_pct": 0.0,
+        },
+        "position_management": None,
+        "rotation": _valid_rotation_block(),
+    }
+    config.update(overrides)
+    return config
+
+
 def test_default_translation_provider_uses_deterministic_builder(monkeypatch):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="deterministic",
+        ),
+    )
     req = StrategyBuilderGenerateRequest(
         prompt="Create a QQQ RSI strategy that buys below 30 and sells above 70."
     )
@@ -207,6 +281,118 @@ def test_openai_mocked_structured_response_is_validated_and_returned():
     assert call["text"]["format"]["type"] == "json_schema"
 
 
+def test_openai_mocked_rotation_block_only_is_repaired_into_valid_config():
+    req = StrategyBuilderGenerateRequest(
+        prompt=(
+            "Create a monthly rotation between QQQ, SPY, XLK, and TLT using "
+            "3-month momentum. Add a SPY 200-day SMA risk filter and fallback to TLT."
+        )
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = OpenAIStrategyTranslationProvider(
+        client=_FakeOpenAIClient(
+            payload={
+                "action": "create_config",
+                "full_config": _valid_rotation_block(),
+                "summary": "Translated a cross-asset rotation Strategy V2 draft.",
+            },
+        )
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "CREATE_DRAFT"
+    config = result["config"]
+    assert config["schema_version"] == "2.0"
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["benchmark_symbol"] == "SPY"
+    assert config["reference_symbols"] == ["SPY", "XLK", "TLT"]
+    assert config["initial_capital"] == 100000
+    assert config["transaction_cost_bps"] == 5
+    assert config["risk"]["cooldown_bars"] == 0
+    assert config["core_overlay"] == {
+        "enabled": False,
+        "core_allocation_pct": 0.0,
+    }
+    assert config["rotation"]["enabled"] is True
+
+
+def test_openai_mocked_rotation_missing_tradable_symbol_defaults_to_first_universe():
+    incomplete_config = _valid_rotation_config(reference_symbols=[])
+    incomplete_config.pop("tradable_symbol")
+    req = StrategyBuilderGenerateRequest(
+        prompt=(
+            "Create a monthly rotation between QQQ, SPY, XLK, and TLT using "
+            "3-month momentum. Add a SPY 200-day SMA risk filter and fallback to TLT."
+        )
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = OpenAIStrategyTranslationProvider(
+        client=_FakeOpenAIClient(
+            payload={
+                "action": "create_config",
+                "full_config": incomplete_config,
+                "summary": "Translated a cross-asset rotation Strategy V2 draft.",
+            },
+        )
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "CREATE_DRAFT"
+    config = result["config"]
+    assert config["tradable_symbol"] == "QQQ"
+    assert config["reference_symbols"] == ["SPY", "XLK", "TLT"]
+    assert config["rotation"]["risk_filter"] == {
+        "kind": "atomic",
+        "type": "sma_above",
+        "symbol": "SPY",
+        "fast_window": 1,
+        "slow_window": 200,
+    }
+    assert config["rotation"]["fallback"] == {
+        "type": "asset",
+        "symbol": "TLT",
+    }
+
+
+def test_openai_mocked_rotation_reference_symbols_are_derived_from_dependencies():
+    incomplete_config = _valid_rotation_config(
+        tradable_symbol="QQQ",
+        reference_symbols=[],
+    )
+    req = StrategyBuilderGenerateRequest(
+        prompt="Create a monthly rotation between QQQ, SPY, XLK, and TLT."
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = OpenAIStrategyTranslationProvider(
+        client=_FakeOpenAIClient(
+            payload={
+                "action": "create_config",
+                "full_config": incomplete_config,
+                "summary": "Translated a rotation Strategy V2 draft.",
+            },
+        )
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "CREATE_DRAFT"
+    assert result["config"]["reference_symbols"] == ["SPY", "XLK", "TLT"]
+
+
 def test_openai_mocked_invalid_config_is_rejected_with_guidance():
     invalid_config = _valid_single_etf_config()
     invalid_config.pop("exit_rule")
@@ -260,6 +446,63 @@ def test_openai_mocked_unsupported_symbol_is_rejected():
     assert result["response_type"] == "VALIDATION_ERROR"
     assert "TSLA is not supported yet" in result["message"]
     assert result["validation_data"]["validation_type"] == "UNSUPPORTED_SYMBOL"
+
+
+def test_openai_mocked_rotation_unsupported_symbol_still_fails():
+    req = StrategyBuilderGenerateRequest(
+        prompt="Create a monthly rotation between TSLA and QQQ using 3-month momentum."
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = OpenAIStrategyTranslationProvider(
+        client=_FakeOpenAIClient(
+            payload={
+                "action": "create_config",
+                "full_config": _valid_rotation_block(universe=["TSLA", "QQQ"]),
+                "summary": "Translated a rotation Strategy V2 draft.",
+            },
+        )
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "VALIDATION_ERROR"
+    assert "TSLA is not supported yet" in result["message"]
+    assert result["validation_data"]["validation_type"] == "UNSUPPORTED_SYMBOL"
+
+
+def test_openai_mocked_rotation_invalid_ranking_type_still_fails():
+    req = StrategyBuilderGenerateRequest(
+        prompt="Create a monthly rotation between QQQ, SPY, XLK, and TLT ranked by Sharpe."
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = OpenAIStrategyTranslationProvider(
+        client=_FakeOpenAIClient(
+            payload={
+                "action": "create_config",
+                "full_config": _valid_rotation_block(
+                    ranking={
+                        "type": "sharpe",
+                        "lookback": 63,
+                        "descending": True,
+                    },
+                ),
+                "summary": "Translated a rotation Strategy V2 draft.",
+            },
+        )
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "VALIDATION_ERROR"
+    assert "rotation.ranking.type" in result["message"]
 
 
 def test_openai_provider_error_returns_safe_guidance_without_raw_error():
