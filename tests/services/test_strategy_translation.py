@@ -378,6 +378,39 @@ def test_hybrid_supported_rsi_prompt_uses_deterministic_without_openai(monkeypat
     assert result["config"]["tradable_symbol"] == "QQQ"
 
 
+def test_hybrid_exact_xle_rsi_prompt_uses_deterministic_without_openai(monkeypatch):
+    req = StrategyBuilderGenerateRequest(
+        prompt=(
+            "Create an XLE RSI pullback strategy with RSI below 45, exit above 60, "
+            "12% stop loss, 5-bar cooldown, and max position 75%."
+        )
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_builder_parsers.get_etf_history_range",
+        lambda symbol: None,
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = HybridStrategyTranslationProvider(
+        fallback_provider=_FailIfCalledProvider(),
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "CREATE_DRAFT"
+    assert result["translation_provider"] == "deterministic"
+    assert result["translation_mode"] == "hybrid"
+    assert result["translation_fallback_used"] is False
+    assert result["deterministic_attempted"] is True
+    assert result["openai_attempted"] is False
+    assert result["config"]["tradable_symbol"] == "XLE"
+    assert result["config"]["risk"]["cooldown_bars"] == 5
+    assert result["config"]["allocation"]["max_position_pct"] == 0.75
+
+
 def test_hybrid_supported_rotation_prompt_uses_deterministic_without_openai(
     monkeypatch,
 ):

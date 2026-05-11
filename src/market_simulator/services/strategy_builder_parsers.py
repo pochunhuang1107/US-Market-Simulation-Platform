@@ -1955,6 +1955,7 @@ def _extract_max_position_pct_edit(text: str) -> float | None:
         r"change\s+max\s+position(?:\s+pct)?\s+to\s+(\d+(?:\.\d+)?)%",
         r"set\s+max\s+position(?:\s+pct)?\s+to\s+(\d+(?:\.\d+)?)%",
         r"max\s+position(?:\s+pct)?\s+(?:at|to)\s+(\d+(?:\.\d+)?)%",
+        r"max\s+position(?:\s+pct)?\s+(\d+(?:\.\d+)?)%",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -2006,7 +2007,10 @@ def _extract_cooldown_edit(text: str) -> int | None:
         [
             r"change\s+cooldown\s+to\s+(\d+)\s+bars?",
             r"set\s+cooldown\s+to\s+(\d+)\s+bars?",
+            r"(\d+)[-\s]+bars?\s+cooldown",
             r"cooldown\s+(\d+)\s+bars?",
+            r"waits?\s+(\d+)\s+bars?\s+before\s+re[-\s]?entering",
+            r"waits?\s+(\d+)\s+bars?\s+after\s+exits?",
         ],
     )
 
