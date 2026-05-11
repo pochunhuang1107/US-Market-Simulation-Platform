@@ -173,6 +173,15 @@ class Settings(BaseModel):
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     openai_timeout_seconds: float = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "20"))
     openai_max_retries: int = int(os.getenv("OPENAI_MAX_RETRIES", "1"))
+    strategy_builder_log_translation_timing: bool = os.getenv(
+        "STRATEGY_BUILDER_LOG_TRANSLATION_TIMING",
+        (
+            "true"
+            if os.getenv("ENV", "local").lower()
+            in {"local", "dev", "development", "test"}
+            else "false"
+        ),
+    ).lower() in {"1", "true", "yes", "on"}
     queue_oldest_warning_seconds: int = int(
         os.getenv("QUEUE_OLDEST_WARNING_SECONDS", "600")
     )

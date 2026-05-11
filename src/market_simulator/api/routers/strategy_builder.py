@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -27,7 +29,10 @@ from market_simulator.services.strategy_builder_service import (
     build_validation_data,
     detect_custom_rotation_builder_intent,
 )
-from market_simulator.services.strategy_translation import translate_strategy_builder_request
+from market_simulator.services.strategy_translation import (
+    log_strategy_builder_timing,
+    translate_strategy_builder_request,
+)
 
 router = APIRouter(prefix="/strategy-builder", tags=["strategy-builder"])
 
@@ -90,6 +95,7 @@ def generate_strategy_draft_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    pre_translation_start = time.perf_counter()
     entitlements = get_user_entitlements(db, user["id"])
     prompt_chars = len(req.prompt)
 
@@ -158,6 +164,14 @@ def generate_strategy_draft_api(
                 message=message,
                 max_backtest_years=entitlements.max_backtest_years,
             )
+
+    log_strategy_builder_timing(
+        "strategy_builder.entitlements",
+        stage="pre_translation",
+        total_ms=round((time.perf_counter() - pre_translation_start) * 1000, 2),
+        prompt_chars=prompt_chars,
+        max_backtest_years=entitlements.max_backtest_years,
+    )
 
     translation_result = translate_strategy_builder_request(
         req,
@@ -248,6 +262,7 @@ def generate_strategy_draft_api(
         }
         and result.get("config") is not None
     ):
+        guardrail_start = time.perf_counter()
         try:
             validate_strategy_builder_request(
                 prompt=req.prompt,
@@ -255,6 +270,16 @@ def generate_strategy_draft_api(
                 max_backtest_years=entitlements.max_backtest_years,
             )
         except ValueError as exc:
+            log_strategy_builder_timing(
+                "strategy_builder.router_validation",
+                provider=result.get("translation_provider", "deterministic"),
+                mode=result.get("translation_mode", "deterministic"),
+                guardrail_ms=round(
+                    (time.perf_counter() - guardrail_start) * 1000,
+                    2,
+                ),
+                status="invalid_config",
+            )
             message = str(exc)
 
             _record_rejected_prompt(
@@ -294,6 +319,17 @@ def generate_strategy_draft_api(
                         "llm_enabled": bool(result.get("llm_enabled", False)),
                     }
                 ),
+            )
+        else:
+            log_strategy_builder_timing(
+                "strategy_builder.router_validation",
+                provider=result.get("translation_provider", "deterministic"),
+                mode=result.get("translation_mode", "deterministic"),
+                guardrail_ms=round(
+                    (time.perf_counter() - guardrail_start) * 1000,
+                    2,
+                ),
+                status="ok",
             )
 
     if result["response_type"] == StrategyBuilderResponseType.PARAMETER_SWEEP_DRAFT:

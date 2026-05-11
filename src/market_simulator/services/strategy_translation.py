@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field as dataclass_field
 from datetime import timedelta
 import json
 import logging
 import re
+import time
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -34,6 +35,39 @@ LLM_PROVIDER = "llm"
 OPENAI_PROVIDER = "openai"
 
 logger = logging.getLogger(__name__)
+TIMING_LOGGER_NAME = "uvicorn.error"
+
+
+def _elapsed_ms(start: float) -> float:
+    return round((time.perf_counter() - start) * 1000, 2)
+
+
+def _safe_log_value(value: Any) -> str:
+    if value is None:
+        return "none"
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    text = str(value).replace("\n", "\\n").replace(" ", "_")
+    return _redact_sensitive_values(text)
+
+
+def _redact_sensitive_values(value: str) -> str:
+    settings = get_settings()
+    api_key = settings.openai_api_key
+    redacted = value
+    if api_key:
+        redacted = redacted.replace(api_key, "<redacted>")
+    redacted = re.sub(r"sk-[A-Za-z0-9_-]+", "sk-<redacted>", redacted)
+    return redacted
+
+
+def log_strategy_builder_timing(event: str, **fields: Any) -> None:
+    if not get_settings().strategy_builder_log_translation_timing:
+        return
+    safe_fields = " ".join(
+        f"{key}={_safe_log_value(value)}" for key, value in fields.items()
+    )
+    logging.getLogger(TIMING_LOGGER_NAME).info("%s %s", event, safe_fields)
 
 
 class StrategyTranslationProviderUnavailable(RuntimeError):
@@ -63,6 +97,7 @@ class StrategyTranslationResult:
     translation_mode: str
     llm_enabled: bool
     validation_errors: list[str]
+    diagnostics: dict[str, Any] = dataclass_field(default_factory=dict)
 
     def response_payload(self) -> dict[str, Any]:
         payload = dict(self.response)
@@ -120,6 +155,7 @@ class DeterministicTranslationProvider(StrategyTranslationProvider):
     llm_enabled = False
 
     def translate(self, request: StrategyTranslationRequest) -> StrategyTranslationResult:
+        start = time.perf_counter()
         from market_simulator.services.strategy_builder_service import (
             generate_strategy_builder_response,
         )
@@ -128,12 +164,21 @@ class DeterministicTranslationProvider(StrategyTranslationProvider):
             request.raw_request,
             max_backtest_years=request.max_backtest_years,
         )
+        deterministic_ms = _elapsed_ms(start)
+        log_strategy_builder_timing(
+            "strategy_builder.deterministic_provider",
+            provider=self.name,
+            mode=self.mode,
+            total_ms=deterministic_ms,
+            prompt_chars=len(request.prompt),
+        )
         return StrategyTranslationResult(
             response=response,
             translation_provider=self.name,
             translation_mode=self.mode,
             llm_enabled=self.llm_enabled,
             validation_errors=[],
+            diagnostics={"deterministic_ms": deterministic_ms},
         )
 
 
@@ -255,59 +300,129 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
         )
         self._client = client
         self.llm_enabled = bool(self.api_key or self._client is not None)
+        self._last_request_diagnostics: dict[str, Any] = {}
 
     def translate(self, request: StrategyTranslationRequest) -> StrategyTranslationResult:
+        provider_start = time.perf_counter()
+        validation_diagnostics: dict[str, Any] = {}
         if not self.llm_enabled:
             message = (
                 "OpenAI Strategy Builder translation is configured, but OPENAI_API_KEY "
                 "is not set. The deterministic Strategy V2 builder remains available."
             )
+            provider_ms = _elapsed_ms(provider_start)
+            log_strategy_builder_timing(
+                "strategy_builder.openai_provider",
+                provider=self.name,
+                mode=self.mode,
+                model=self.model,
+                total_ms=provider_ms,
+                status="missing_api_key",
+                prompt_chars=len(request.prompt),
+            )
             return _provider_guidance_result(
                 message=message,
                 provider=self.name,
                 mode=self.mode,
                 llm_enabled=False,
                 max_backtest_years=request.max_backtest_years,
+                diagnostics={"openai_provider_ms": provider_ms},
             )
 
         try:
+            self._last_request_diagnostics = {}
             contract = self._request_contract(request)
+            request_diagnostics = dict(self._last_request_diagnostics)
+            validation_diagnostics["contract_ms"] = request_diagnostics.get("contract_ms")
             contract.provider_metadata.setdefault("provider", self.name)
         except StrategyTranslationProviderUnavailable as exc:
             message = str(exc)
+            provider_ms = _elapsed_ms(provider_start)
+            log_strategy_builder_timing(
+                "strategy_builder.openai_provider",
+                provider=self.name,
+                mode=self.mode,
+                model=self.model,
+                total_ms=provider_ms,
+                status="unavailable",
+                prompt_chars=len(request.prompt),
+            )
             return _provider_guidance_result(
                 message=message,
                 provider=self.name,
                 mode=self.mode,
                 llm_enabled=False,
                 max_backtest_years=request.max_backtest_years,
+                diagnostics={
+                    "openai_provider_ms": provider_ms,
+                    **self._last_request_diagnostics,
+                },
             )
         except (ValidationError, ValueError) as exc:
             message = _format_translation_error(exc)
+            provider_ms = _elapsed_ms(provider_start)
+            log_strategy_builder_timing(
+                "strategy_builder.openai_provider",
+                provider=self.name,
+                mode=self.mode,
+                model=self.model,
+                total_ms=provider_ms,
+                status="invalid_contract",
+                prompt_chars=len(request.prompt),
+            )
             return _provider_guidance_result(
                 message=message,
                 provider=self.name,
                 mode=self.mode,
                 llm_enabled=True,
                 max_backtest_years=request.max_backtest_years,
+                diagnostics={
+                    "openai_provider_ms": provider_ms,
+                    **self._last_request_diagnostics,
+                },
             )
         except Exception:
             message = (
                 "OpenAI Strategy Builder translation is temporarily unavailable. "
                 "The deterministic Strategy V2 builder remains available."
             )
+            provider_ms = _elapsed_ms(provider_start)
+            log_strategy_builder_timing(
+                "strategy_builder.openai_provider",
+                provider=self.name,
+                mode=self.mode,
+                model=self.model,
+                total_ms=provider_ms,
+                status="error",
+                prompt_chars=len(request.prompt),
+            )
             return _provider_guidance_result(
                 message=message,
                 provider=self.name,
                 mode=self.mode,
                 llm_enabled=True,
                 max_backtest_years=request.max_backtest_years,
+                diagnostics={
+                    "openai_provider_ms": provider_ms,
+                    **self._last_request_diagnostics,
+                },
             )
 
         try:
             response = build_strategy_builder_response_from_llm_contract(
                 contract,
                 request=request,
+                diagnostics=validation_diagnostics,
+            )
+            provider_ms = _elapsed_ms(provider_start)
+            log_strategy_builder_timing(
+                "strategy_builder.openai_provider",
+                provider=self.name,
+                mode=self.mode,
+                model=self.model,
+                total_ms=provider_ms,
+                status="ok",
+                prompt_chars=len(request.prompt),
             )
             return StrategyTranslationResult(
                 response=response,
@@ -315,21 +430,42 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 translation_mode=self.mode,
                 llm_enabled=True,
                 validation_errors=[],
+                diagnostics={
+                    "openai_provider_ms": provider_ms,
+                    **request_diagnostics,
+                    **validation_diagnostics,
+                },
             )
         except (ValidationError, ValueError) as exc:
             message = _format_translation_error(exc)
+            provider_ms = _elapsed_ms(provider_start)
+            log_strategy_builder_timing(
+                "strategy_builder.openai_provider",
+                provider=self.name,
+                mode=self.mode,
+                model=self.model,
+                total_ms=provider_ms,
+                status="invalid_strategy",
+                prompt_chars=len(request.prompt),
+            )
             return _provider_guidance_result(
                 message=message,
                 provider=self.name,
                 mode=self.mode,
                 llm_enabled=True,
                 max_backtest_years=request.max_backtest_years,
+                diagnostics={
+                    "openai_provider_ms": provider_ms,
+                    **request_diagnostics,
+                    **validation_diagnostics,
+                },
             )
 
     def _request_contract(
         self,
         request: StrategyTranslationRequest,
     ) -> LlmStructuredTranslationOutput:
+        self._last_request_diagnostics = {}
         client = self._client or self._build_client()
         responses = getattr(client, "responses", None)
         create_response = getattr(responses, "create", None)
@@ -339,52 +475,117 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 "Install or upgrade the optional OpenAI SDK to enable this provider."
             )
 
-        response = create_response(
-            model=self.model,
-            input=[
-                {
-                    "role": "system",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": _openai_translation_instructions(),
-                        }
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": json.dumps(
-                                _openai_translation_context(request),
-                                sort_keys=True,
-                            ),
-                        }
-                    ],
-                },
-            ],
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "strategy_translation_output",
-                    "schema": LlmStructuredTranslationOutput.model_json_schema(),
-                    "strict": False,
-                }
-            },
+        instructions = _openai_translation_instructions()
+        context_json = json.dumps(
+            _openai_translation_context(request),
+            sort_keys=True,
         )
-        output_text = _extract_response_text(response)
-        if not output_text:
-            raise StrategyTranslationProviderError("OpenAI response did not include JSON output.")
+        schema = LlmStructuredTranslationOutput.model_json_schema()
+        schema_json = json.dumps(schema, sort_keys=True)
+        output_text = ""
+        api_ms: float | None = None
+        extraction_ms: float | None = None
+        contract_ms: float | None = None
+        status = "ok"
+
         try:
-            return LlmStructuredTranslationOutput.model_validate_json(output_text)
-        except ValidationError as exc:
-            _log_provider_validation_failure(
-                provider=self.name,
-                exc=exc,
-                provider_output=output_text,
+            request_start = time.perf_counter()
+            response = create_response(
+                model=self.model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": instructions,
+                            }
+                        ],
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": context_json,
+                            }
+                        ],
+                    },
+                ],
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": "strategy_translation_output",
+                        "schema": schema,
+                        "strict": False,
+                    }
+                },
             )
+            api_ms = _elapsed_ms(request_start)
+            extraction_start = time.perf_counter()
+            output_text = _extract_response_text(response)
+            extraction_ms = _elapsed_ms(extraction_start)
+            if not output_text:
+                status = "empty_response"
+                raise StrategyTranslationProviderError(
+                    "OpenAI response did not include JSON output."
+                )
+            contract_start = time.perf_counter()
+            try:
+                contract = LlmStructuredTranslationOutput.model_validate_json(output_text)
+                contract_ms = _elapsed_ms(contract_start)
+                return contract
+            except ValidationError as exc:
+                status = "invalid_contract"
+                contract_ms = _elapsed_ms(contract_start)
+                _log_provider_validation_failure(
+                    provider=self.name,
+                    exc=exc,
+                    provider_output=output_text,
+                )
+                raise
+        except Exception:
+            if status == "ok":
+                status = "api_error" if api_ms is None else "error"
+                if api_ms is None:
+                    api_ms = _elapsed_ms(request_start)
             raise
+        finally:
+            self._last_request_diagnostics = {
+                "api_ms": api_ms,
+                "extraction_ms": extraction_ms,
+                "contract_ms": contract_ms,
+                "prompt_chars": len(request.prompt),
+                "system_chars": len(instructions),
+                "context_chars": len(context_json),
+                "schema_chars": len(schema_json),
+                "response_chars": len(output_text),
+                "model": self.model,
+                "provider": self.name,
+                "mode": self.mode,
+            }
+            log_strategy_builder_timing(
+                "strategy_builder.openai_request",
+                provider=self.name,
+                mode=self.mode,
+                model=self.model,
+                status=status,
+                api_ms=api_ms,
+                prompt_chars=len(request.prompt),
+                system_chars=len(instructions),
+                context_chars=len(context_json),
+                schema_chars=len(schema_json),
+            )
+            log_strategy_builder_timing(
+                "strategy_builder.openai_response",
+                provider=self.name,
+                mode=self.mode,
+                model=self.model,
+                status=status,
+                extraction_ms=extraction_ms,
+                contract_ms=contract_ms,
+                response_chars=len(output_text),
+            )
 
     def _build_client(self) -> Any:
         try:
@@ -451,6 +652,7 @@ def translate_strategy_builder_request(
     max_backtest_years: int,
     provider: StrategyTranslationProvider | None = None,
 ) -> StrategyTranslationResult:
+    total_start = time.perf_counter()
     translation_request = build_strategy_translation_request(
         req,
         entitlements=entitlements,
@@ -460,13 +662,36 @@ def translate_strategy_builder_request(
         requested_mode=translation_request.context_mode,
     )
     result = selected_provider.translate(translation_request)
-    return _with_provider_metadata(result)
+    total_ms = _elapsed_ms(total_start)
+    diagnostics = dict(result.diagnostics)
+    diagnostics["total_ms"] = total_ms
+    log_strategy_builder_timing(
+        "strategy_builder.translation",
+        provider=result.translation_provider,
+        mode=result.translation_mode,
+        model=getattr(selected_provider, "model", None),
+        total_ms=total_ms,
+        deterministic_ms=diagnostics.get("deterministic_ms"),
+        openai_provider_ms=diagnostics.get("openai_provider_ms"),
+        prompt_chars=len(req.prompt),
+    )
+    return _with_provider_metadata(
+        StrategyTranslationResult(
+            response=result.response,
+            translation_provider=result.translation_provider,
+            translation_mode=result.translation_mode,
+            llm_enabled=result.llm_enabled,
+            validation_errors=result.validation_errors,
+            diagnostics=diagnostics,
+        )
+    )
 
 
 def build_strategy_builder_response_from_llm_contract(
     contract: LlmStructuredTranslationOutput,
     *,
     request: StrategyTranslationRequest,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if contract.action == "guidance":
         message = _guidance_message(contract)
@@ -486,15 +711,36 @@ def build_strategy_builder_response_from_llm_contract(
             candidate_config,
             prompt=request.prompt,
             max_backtest_years=request.max_backtest_years,
+            diagnostics=diagnostics,
         )
     except (ValidationError, ValueError) as exc:
         provider = _contract_provider_name(contract)
+        if diagnostics is not None:
+            log_strategy_builder_timing(
+                "strategy_builder.validation",
+                provider=provider,
+                contract_ms=diagnostics.get("contract_ms"),
+                guardrail_ms=diagnostics.get("guardrail_ms"),
+                strategy_v2_ms=diagnostics.get("strategy_v2_ms"),
+                normalization_ms=diagnostics.get("normalization_ms"),
+                status="invalid_strategy",
+            )
         _log_provider_validation_failure(
             provider=provider,
             exc=exc,
             provider_output=contract.model_dump(mode="json", exclude_none=True),
         )
         raise
+
+    if diagnostics is not None:
+        log_strategy_builder_timing(
+            "strategy_builder.validation",
+            provider=_contract_provider_name(contract),
+            contract_ms=diagnostics.get("contract_ms"),
+            guardrail_ms=diagnostics.get("guardrail_ms"),
+            strategy_v2_ms=diagnostics.get("strategy_v2_ms"),
+            normalization_ms=diagnostics.get("normalization_ms"),
+        )
 
     summary = _summary_from_contract(contract, normalized_config)
     warnings = list(contract.warnings)
@@ -537,18 +783,37 @@ def normalize_translated_strategy_config(
     *,
     prompt: str,
     max_backtest_years: int,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    config = _repair_rotation_config_defaults(
-        config,
-        max_backtest_years=max_backtest_years,
-    )
-    validate_strategy_builder_request(
-        prompt=prompt,
-        config=config,
-        max_backtest_years=max_backtest_years,
-    )
-    strategy = StrategyV2.model_validate(config)
-    return strategy.model_dump(mode="json", exclude_none=True)
+    normalization_start = time.perf_counter()
+    guardrail_ms: float | None = None
+    strategy_v2_ms: float | None = None
+    try:
+        config = _repair_rotation_config_defaults(
+            config,
+            max_backtest_years=max_backtest_years,
+        )
+        guardrail_start = time.perf_counter()
+        validate_strategy_builder_request(
+            prompt=prompt,
+            config=config,
+            max_backtest_years=max_backtest_years,
+        )
+        guardrail_ms = _elapsed_ms(guardrail_start)
+        strategy_v2_start = time.perf_counter()
+        strategy = StrategyV2.model_validate(config)
+        normalized = strategy.model_dump(mode="json", exclude_none=True)
+        strategy_v2_ms = _elapsed_ms(strategy_v2_start)
+        return normalized
+    finally:
+        if diagnostics is not None:
+            diagnostics.update(
+                {
+                    "guardrail_ms": guardrail_ms,
+                    "strategy_v2_ms": strategy_v2_ms,
+                    "normalization_ms": _elapsed_ms(normalization_start),
+                }
+            )
 
 
 def _repair_rotation_config_defaults(
@@ -819,12 +1084,19 @@ def _log_provider_validation_failure(
     provider_output: Any | None = None,
 ) -> None:
     location = _validation_error_location(exc)
+    output_chars = (
+        len(provider_output)
+        if isinstance(provider_output, str)
+        else len(_json_for_log(provider_output))
+        if provider_output is not None
+        else 0
+    )
     logger.warning(
-        "Strategy translation provider output failed validation provider=%s location=%s error=%s output=%s",
+        "Strategy translation provider output failed validation provider=%s location=%s error=%s output_chars=%s",
         provider,
         location or "<unknown>",
         _truncate_for_log(str(exc)),
-        _truncate_for_log(_json_for_log(provider_output)) if provider_output is not None else "<none>",
+        output_chars,
     )
 
 
@@ -850,7 +1122,7 @@ def _json_for_log(value: Any) -> str:
 
 
 def _truncate_for_log(value: str, *, limit: int = 2000) -> str:
-    sanitized = value.replace("\n", "\\n")
+    sanitized = _redact_sensitive_values(value).replace("\n", "\\n")
     if len(sanitized) <= limit:
         return sanitized
     return sanitized[: limit - 3] + "..."
@@ -863,6 +1135,7 @@ def _provider_guidance_result(
     mode: str,
     llm_enabled: bool,
     max_backtest_years: int,
+    diagnostics: dict[str, Any] | None = None,
 ) -> StrategyTranslationResult:
     response = _build_response(
         response_type=StrategyBuilderResponseType.VALIDATION_ERROR,
@@ -881,6 +1154,7 @@ def _provider_guidance_result(
         translation_mode=mode,
         llm_enabled=llm_enabled,
         validation_errors=[message],
+        diagnostics=diagnostics or {},
     )
 
 
@@ -1031,6 +1305,7 @@ def _with_provider_metadata(result: StrategyTranslationResult) -> StrategyTransl
         translation_mode=result.translation_mode,
         llm_enabled=result.llm_enabled,
         validation_errors=result.validation_errors,
+        diagnostics=result.diagnostics,
     )
 
 
@@ -1056,6 +1331,7 @@ __all__ = [
     "StrategyTranslationResult",
     "build_strategy_builder_response_from_llm_contract",
     "build_strategy_translation_request",
+    "log_strategy_builder_timing",
     "normalize_translated_strategy_config",
     "select_strategy_translation_provider",
     "translate_strategy_builder_request",
