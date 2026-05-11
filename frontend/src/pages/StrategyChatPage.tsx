@@ -309,6 +309,23 @@ function extractStructuredBuilderError(
   };
 }
 
+function decrementBuilderPromptQuota(
+  entitlements: MeEntitlementsResponse
+): MeEntitlementsResponse {
+  const remaining = entitlements.usage.builder_prompts_remaining_today;
+  const usedToday = entitlements.usage.builder_prompts_used_today;
+  const shouldIncrementUsed = remaining > 0;
+
+  return {
+    ...entitlements,
+    usage: {
+      ...entitlements.usage,
+      builder_prompts_remaining_today: Math.max(0, remaining - 1),
+      builder_prompts_used_today: shouldIncrementUsed ? usedToday + 1 : usedToday
+    }
+  };
+}
+
 function EntitlementSummary({
   entitlements,
   loading,
@@ -572,12 +589,19 @@ export function StrategyChatPage() {
 
     const nextMessages = [...messages, userMessage];
     const currentConfig = latestDraftConfig;
+    const entitlementsBeforeSubmit = entitlements;
 
     setMessages(nextMessages);
     setInput('');
+    if (entitlementsBeforeSubmit) {
+      setEntitlements((current) =>
+        current ? decrementBuilderPromptQuota(current) : current
+      );
+    }
     setIsGenerating(true);
 
     const requestId = ++builderRequestIdRef.current;
+    let requestFailed = false;
 
     try {
       const response = await generateStrategyDraft(
@@ -604,6 +628,7 @@ export function StrategyChatPage() {
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
       if (requestId !== builderRequestIdRef.current) return;
+      requestFailed = true;
       const structuredError = extractStructuredBuilderError(error);
 
       const assistantError: ChatMessage = {
@@ -623,7 +648,9 @@ export function StrategyChatPage() {
         const refreshedEntitlements = await fetchMeEntitlements();
         setEntitlements(refreshedEntitlements);
       } catch {
-        // keep existing entitlement state if refresh fails
+        if (requestFailed && entitlementsBeforeSubmit) {
+          setEntitlements(entitlementsBeforeSubmit);
+        }
       }
     }
   }

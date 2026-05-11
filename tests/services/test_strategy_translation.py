@@ -10,8 +10,10 @@ from market_simulator.api.schemas.strategy_builder import (
 from market_simulator import settings as settings_module
 from market_simulator.settings import Settings
 from market_simulator.services.strategy_translation import (
+    HybridStrategyTranslationProvider,
     LlmTranslationProvider,
     OpenAIStrategyTranslationProvider,
+    StrategyTranslationResult,
     build_strategy_translation_request,
     select_strategy_translation_provider,
     translate_strategy_builder_request,
@@ -45,6 +47,88 @@ class _FakeOpenAIResponses:
 class _FakeOpenAIClient:
     def __init__(self, payload=None, error: Exception | None = None):
         self.responses = _FakeOpenAIResponses(payload=payload, error=error)
+
+
+class _FailIfCalledProvider:
+    name = "openai"
+    mode = "llm"
+    llm_enabled = True
+
+    def translate(self, request):
+        raise AssertionError("OpenAI fallback should not be called")
+
+
+class _GuidanceOnlyProvider:
+    name = "deterministic"
+    mode = "deterministic"
+    llm_enabled = False
+
+    def translate(self, request):
+        return StrategyTranslationResult(
+            response={
+                "response_type": "VALIDATION_ERROR",
+                "message": "This request is not supported by deterministic parsing.",
+                "config": None,
+                "summary": None,
+                "warnings": [],
+                "assumptions": [],
+                "changes": [],
+                "answer_data": None,
+                "validation_data": {
+                    "validation_type": "GENERAL",
+                    "unsupported_symbols": [],
+                    "supported_data_start": None,
+                    "supported_data_end": None,
+                    "max_backtest_years": request.max_backtest_years,
+                    "suggested_action": None,
+                },
+                "guidance_data": {
+                    "guidance_type": "GENERAL_GUIDANCE",
+                    "suggested_actions": [],
+                },
+                "sweep_draft": None,
+            },
+            translation_provider=self.name,
+            translation_mode=self.mode,
+            llm_enabled=False,
+            validation_errors=["unsupported"],
+            diagnostics={"deterministic_ms": 1.0},
+        )
+
+
+class _PlanLimitProvider:
+    name = "deterministic"
+    mode = "deterministic"
+    llm_enabled = False
+
+    def translate(self, request):
+        return StrategyTranslationResult(
+            response={
+                "response_type": "VALIDATION_ERROR",
+                "message": "This is a plan limit, not a strategy validation error.",
+                "config": None,
+                "summary": None,
+                "warnings": [],
+                "assumptions": [],
+                "changes": [],
+                "answer_data": None,
+                "validation_data": {
+                    "validation_type": "PLAN_LIMIT",
+                    "unsupported_symbols": [],
+                    "supported_data_start": None,
+                    "supported_data_end": None,
+                    "max_backtest_years": request.max_backtest_years,
+                    "suggested_action": None,
+                },
+                "guidance_data": None,
+                "sweep_draft": None,
+            },
+            translation_provider=self.name,
+            translation_mode=self.mode,
+            llm_enabled=False,
+            validation_errors=["plan_limit"],
+            diagnostics={"deterministic_ms": 1.0},
+        )
 
 
 def _valid_single_etf_config(**overrides):
@@ -247,6 +331,204 @@ def test_openai_provider_is_not_selected_unless_configured(monkeypatch):
     provider = select_strategy_translation_provider(requested_mode="openai")
 
     assert provider.name == "deterministic"
+
+
+def test_hybrid_provider_is_selected_when_configured(monkeypatch):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="hybrid",
+        ),
+    )
+
+    provider = select_strategy_translation_provider()
+
+    assert provider.name == "hybrid"
+
+
+def test_hybrid_supported_rsi_prompt_uses_deterministic_without_openai(monkeypatch):
+    req = StrategyBuilderGenerateRequest(
+        prompt="Create a QQQ RSI strategy that buys below 30 and sells above 70."
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_builder_parsers.get_etf_history_range",
+        lambda symbol: None,
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = HybridStrategyTranslationProvider(
+        fallback_provider=_FailIfCalledProvider(),
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "CREATE_DRAFT"
+    assert result["translation_provider"] == "deterministic"
+    assert result["translation_mode"] == "hybrid"
+    assert result["translation_fallback_used"] is False
+    assert result["deterministic_attempted"] is True
+    assert result["openai_attempted"] is False
+    assert result["config"]["tradable_symbol"] == "QQQ"
+
+
+def test_hybrid_supported_rotation_prompt_uses_deterministic_without_openai(
+    monkeypatch,
+):
+    req = StrategyBuilderGenerateRequest(
+        prompt=(
+            "Create a monthly rotation between QQQ, SPY, XLK, and TLT using "
+            "3-month momentum. Add a SPY 200-day SMA risk filter and fallback to TLT."
+        )
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_builder_parsers.get_etf_history_range",
+        lambda symbol: None,
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = HybridStrategyTranslationProvider(
+        fallback_provider=_FailIfCalledProvider(),
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "CREATE_DRAFT"
+    assert result["translation_provider"] == "deterministic"
+    assert result["translation_fallback_used"] is False
+    assert result["openai_attempted"] is False
+    assert result["config"]["rotation"]["enabled"] is True
+    assert result["config"]["rotation"]["fallback"] == {
+        "type": "asset",
+        "symbol": "TLT",
+    }
+
+
+def test_hybrid_supported_follow_up_edit_uses_deterministic_without_openai(
+    monkeypatch,
+):
+    req = StrategyBuilderGenerateRequest(
+        prompt="Change max position to 50%.",
+        context=StrategyBuilderContext(current_config=_valid_single_etf_config()),
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_builder_parsers.get_etf_history_range",
+        lambda symbol: None,
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = HybridStrategyTranslationProvider(
+        fallback_provider=_FailIfCalledProvider(),
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "UPDATE_DRAFT"
+    assert result["translation_provider"] == "deterministic"
+    assert result["translation_fallback_used"] is False
+    assert result["openai_attempted"] is False
+    assert result["config"]["allocation"]["max_position_pct"] == 0.5
+
+
+def test_hybrid_falls_back_to_mocked_openai_for_deterministic_guidance():
+    req = StrategyBuilderGenerateRequest(
+        prompt="Create a strategy from this messy unsupported description."
+    )
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    fake_client = _FakeOpenAIClient(
+        payload={
+            "action": "create_config",
+            "full_config": _valid_single_etf_config(),
+            "summary": "Translated a QQQ RSI Strategy V2 draft.",
+        },
+    )
+    provider = HybridStrategyTranslationProvider(
+        primary_provider=_GuidanceOnlyProvider(),
+        fallback_provider=OpenAIStrategyTranslationProvider(client=fake_client),
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "CREATE_DRAFT"
+    assert result["translation_provider"] == "openai"
+    assert result["translation_mode"] == "hybrid"
+    assert result["translation_fallback_used"] is True
+    assert result["primary_provider"] == "deterministic"
+    assert result["fallback_provider"] == "openai"
+    assert result["deterministic_attempted"] is True
+    assert result["openai_attempted"] is True
+    assert fake_client.responses.calls
+
+
+def test_hybrid_missing_openai_key_returns_deterministic_guidance(monkeypatch):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            openai_api_key=None,
+        ),
+    )
+    req = StrategyBuilderGenerateRequest(prompt="Create something unsupported.")
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = HybridStrategyTranslationProvider(
+        primary_provider=_GuidanceOnlyProvider(),
+        fallback_provider=OpenAIStrategyTranslationProvider(api_key=None),
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "VALIDATION_ERROR"
+    assert result["translation_provider"] == "deterministic"
+    assert result["translation_mode"] == "hybrid"
+    assert result["translation_fallback_used"] is False
+    assert result["openai_attempted"] is False
+    assert "AI fallback is unavailable" in result["message"]
+    assert any("AI fallback is unavailable" in warning for warning in result["warnings"])
+
+
+def test_hybrid_does_not_call_openai_for_plan_limit_response():
+    req = StrategyBuilderGenerateRequest(prompt="Create a strategy outside my plan.")
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = HybridStrategyTranslationProvider(
+        primary_provider=_PlanLimitProvider(),
+        fallback_provider=_FailIfCalledProvider(),
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "VALIDATION_ERROR"
+    assert result["validation_data"]["validation_type"] == "PLAN_LIMIT"
+    assert result["translation_provider"] == "deterministic"
+    assert result["translation_mode"] == "hybrid"
+    assert result["translation_fallback_used"] is False
+    assert result["openai_attempted"] is False
 
 
 def test_disabled_llm_provider_returns_guidance_without_external_call():

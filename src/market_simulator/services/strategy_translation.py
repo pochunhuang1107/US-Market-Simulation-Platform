@@ -13,9 +13,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from market_simulator.api.schemas.strategy_builder import (
+    StrategyBuilderAnswerType,
     StrategyBuilderGenerateRequest,
     StrategyBuilderGuidanceType,
     StrategyBuilderResponseType,
+    StrategyBuilderValidationType,
 )
 from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.services.draft_validation import collect_draft_config_warnings
@@ -31,6 +33,7 @@ from market_simulator.settings import get_settings
 
 
 DETERMINISTIC_PROVIDER = "deterministic"
+HYBRID_PROVIDER = "hybrid"
 LLM_PROVIDER = "llm"
 OPENAI_PROVIDER = "openai"
 
@@ -104,6 +107,15 @@ class StrategyTranslationResult:
         payload.setdefault("translation_provider", self.translation_provider)
         payload.setdefault("translation_mode", self.translation_mode)
         payload.setdefault("llm_enabled", self.llm_enabled)
+        payload.setdefault("translation_fallback_used", False)
+        payload.setdefault(
+            "deterministic_attempted",
+            self.translation_provider == DETERMINISTIC_PROVIDER,
+        )
+        payload.setdefault(
+            "openai_attempted",
+            self.translation_provider == OPENAI_PROVIDER,
+        )
         return payload
 
 
@@ -604,6 +616,150 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
         )
 
 
+class HybridStrategyTranslationProvider(StrategyTranslationProvider):
+    name = HYBRID_PROVIDER
+    mode = HYBRID_PROVIDER
+    llm_enabled = False
+
+    def __init__(
+        self,
+        *,
+        primary_provider: StrategyTranslationProvider | None = None,
+        fallback_provider: StrategyTranslationProvider | None = None,
+    ) -> None:
+        self.primary_provider = primary_provider or DeterministicTranslationProvider()
+        self.fallback_provider = fallback_provider or OpenAIStrategyTranslationProvider()
+        self.llm_enabled = bool(getattr(self.fallback_provider, "llm_enabled", False))
+
+    def translate(self, request: StrategyTranslationRequest) -> StrategyTranslationResult:
+        hybrid_start = time.perf_counter()
+        deterministic_result = self.primary_provider.translate(request)
+        deterministic_success, deterministic_error = _is_successful_deterministic_result(
+            deterministic_result,
+            request=request,
+        )
+        deterministic_ms = deterministic_result.diagnostics.get("deterministic_ms")
+
+        if deterministic_success:
+            total_ms = _elapsed_ms(hybrid_start)
+            diagnostics = {
+                **deterministic_result.diagnostics,
+                "hybrid_total_ms": total_ms,
+                "deterministic_success": True,
+                "openai_attempted": False,
+            }
+            log_strategy_builder_timing(
+                "strategy_builder.hybrid_provider",
+                provider=self.name,
+                mode=self.mode,
+                deterministic_ms=deterministic_ms,
+                deterministic_success=True,
+                openai_fallback_called=False,
+                openai_provider_ms=None,
+                total_ms=total_ms,
+                prompt_chars=len(request.prompt),
+            )
+            return _with_hybrid_metadata(
+                deterministic_result,
+                fallback_used=False,
+                openai_attempted=False,
+                diagnostics=diagnostics,
+            )
+
+        if _is_non_fallbackable_deterministic_result(deterministic_result):
+            total_ms = _elapsed_ms(hybrid_start)
+            diagnostics = {
+                **deterministic_result.diagnostics,
+                "hybrid_total_ms": total_ms,
+                "deterministic_success": False,
+                "deterministic_error": deterministic_error,
+                "openai_attempted": False,
+                "fallback_blocked_by_policy": True,
+            }
+            log_strategy_builder_timing(
+                "strategy_builder.hybrid_provider",
+                provider=self.name,
+                mode=self.mode,
+                deterministic_ms=deterministic_ms,
+                deterministic_success=False,
+                openai_fallback_called=False,
+                openai_provider_ms=None,
+                total_ms=total_ms,
+                prompt_chars=len(request.prompt),
+            )
+            return _with_hybrid_metadata(
+                deterministic_result,
+                fallback_used=False,
+                openai_attempted=False,
+                diagnostics=diagnostics,
+            )
+
+        if not getattr(self.fallback_provider, "llm_enabled", False):
+            total_ms = _elapsed_ms(hybrid_start)
+            deterministic_response = _with_ai_unavailable_note(
+                deterministic_result.response,
+            )
+            diagnostics = {
+                **deterministic_result.diagnostics,
+                "hybrid_total_ms": total_ms,
+                "deterministic_success": False,
+                "deterministic_error": deterministic_error,
+                "openai_attempted": False,
+            }
+            log_strategy_builder_timing(
+                "strategy_builder.hybrid_provider",
+                provider=self.name,
+                mode=self.mode,
+                deterministic_ms=deterministic_ms,
+                deterministic_success=False,
+                openai_fallback_called=False,
+                openai_provider_ms=None,
+                total_ms=total_ms,
+                prompt_chars=len(request.prompt),
+            )
+            return _with_hybrid_metadata(
+                StrategyTranslationResult(
+                    response=deterministic_response,
+                    translation_provider=deterministic_result.translation_provider,
+                    translation_mode=deterministic_result.translation_mode,
+                    llm_enabled=False,
+                    validation_errors=deterministic_result.validation_errors,
+                    diagnostics=diagnostics,
+                ),
+                fallback_used=False,
+                openai_attempted=False,
+                diagnostics=diagnostics,
+            )
+
+        fallback_result = self.fallback_provider.translate(request)
+        total_ms = _elapsed_ms(hybrid_start)
+        diagnostics = {
+            **deterministic_result.diagnostics,
+            **fallback_result.diagnostics,
+            "hybrid_total_ms": total_ms,
+            "deterministic_success": False,
+            "deterministic_error": deterministic_error,
+            "openai_attempted": True,
+        }
+        log_strategy_builder_timing(
+            "strategy_builder.hybrid_provider",
+            provider=self.name,
+            mode=self.mode,
+            deterministic_ms=deterministic_ms,
+            deterministic_success=False,
+            openai_fallback_called=True,
+            openai_provider_ms=diagnostics.get("openai_provider_ms"),
+            total_ms=total_ms,
+            prompt_chars=len(request.prompt),
+        )
+        return _with_hybrid_metadata(
+            fallback_result,
+            fallback_used=True,
+            openai_attempted=True,
+            diagnostics=diagnostics,
+        )
+
+
 def build_strategy_translation_request(
     req: StrategyBuilderGenerateRequest,
     *,
@@ -635,6 +791,9 @@ def select_strategy_translation_provider(
 
     if configured_provider == OPENAI_PROVIDER:
         return OpenAIStrategyTranslationProvider()
+
+    if configured_provider == HYBRID_PROVIDER:
+        return HybridStrategyTranslationProvider()
 
     if configured_provider == LLM_PROVIDER and settings.strategy_builder_llm_enabled:
         return LlmTranslationProvider(enabled=True)
@@ -1297,6 +1456,109 @@ def _extract_response_text(response: Any) -> str:
     return "\n".join(texts).strip()
 
 
+def _is_successful_deterministic_result(
+    result: StrategyTranslationResult,
+    *,
+    request: StrategyTranslationRequest,
+) -> tuple[bool, str | None]:
+    response = result.response
+    response_type = response.get("response_type")
+    if isinstance(response_type, StrategyBuilderResponseType):
+        response_type_value = response_type.value
+    else:
+        response_type_value = str(response_type)
+    if response_type_value not in {
+        StrategyBuilderResponseType.CREATE_DRAFT.value,
+        StrategyBuilderResponseType.UPDATE_DRAFT.value,
+    }:
+        return False, f"response_type={response_type_value}"
+
+    config = response.get("config")
+    if not isinstance(config, dict):
+        return False, "missing_config"
+
+    try:
+        validate_strategy_builder_request(
+            prompt=request.prompt,
+            config=config,
+            max_backtest_years=request.max_backtest_years,
+        )
+        StrategyV2.model_validate(config)
+    except (ValidationError, ValueError) as exc:
+        return False, _format_translation_error(exc)
+
+    return True, None
+
+
+def _is_non_fallbackable_deterministic_result(
+    result: StrategyTranslationResult,
+) -> bool:
+    response = result.response
+    validation_data = response.get("validation_data")
+    if isinstance(validation_data, dict):
+        validation_type = validation_data.get("validation_type")
+        if isinstance(validation_type, StrategyBuilderValidationType):
+            validation_type = validation_type.value
+        if validation_type == StrategyBuilderValidationType.PLAN_LIMIT.value:
+            return True
+
+    answer_data = response.get("answer_data")
+    if isinstance(answer_data, dict):
+        answer_type = answer_data.get("answer_type")
+        if isinstance(answer_type, StrategyBuilderAnswerType):
+            answer_type = answer_type.value
+        if answer_type == StrategyBuilderAnswerType.PLAN_LIMITS.value:
+            return True
+
+    return False
+
+
+def _with_ai_unavailable_note(response: dict[str, Any]) -> dict[str, Any]:
+    noted = deepcopy(response)
+    note = (
+        "AI fallback is unavailable because OpenAI is not configured. "
+        "The deterministic Strategy Builder response is shown instead."
+    )
+    warnings = noted.get("warnings")
+    if isinstance(warnings, list):
+        if note not in warnings:
+            warnings.append(note)
+    else:
+        noted["warnings"] = [note]
+
+    message = noted.get("message")
+    if isinstance(message, str) and note not in message:
+        noted["message"] = f"{message} {note}"
+    return noted
+
+
+def _with_hybrid_metadata(
+    result: StrategyTranslationResult,
+    *,
+    fallback_used: bool,
+    openai_attempted: bool,
+    diagnostics: dict[str, Any],
+) -> StrategyTranslationResult:
+    response = result.response_payload()
+    response["translation_mode"] = HYBRID_PROVIDER
+    response["translation_fallback_used"] = fallback_used
+    response["primary_provider"] = DETERMINISTIC_PROVIDER
+    response["deterministic_attempted"] = True
+    response["openai_attempted"] = openai_attempted
+    if fallback_used:
+        response["fallback_provider"] = OPENAI_PROVIDER
+    else:
+        response.pop("fallback_provider", None)
+    return StrategyTranslationResult(
+        response=response,
+        translation_provider=result.translation_provider,
+        translation_mode=HYBRID_PROVIDER,
+        llm_enabled=result.llm_enabled,
+        validation_errors=result.validation_errors,
+        diagnostics=diagnostics,
+    )
+
+
 def _with_provider_metadata(result: StrategyTranslationResult) -> StrategyTranslationResult:
     response = result.response_payload()
     return StrategyTranslationResult(
@@ -1319,9 +1581,11 @@ def _entitlements_snapshot(entitlements: Any) -> dict[str, Any]:
 
 __all__ = [
     "DETERMINISTIC_PROVIDER",
+    "HYBRID_PROVIDER",
     "LLM_PROVIDER",
     "OPENAI_PROVIDER",
     "DeterministicTranslationProvider",
+    "HybridStrategyTranslationProvider",
     "LlmStructuredTranslationOutput",
     "LlmTranslationProvider",
     "OpenAIStrategyTranslationProvider",

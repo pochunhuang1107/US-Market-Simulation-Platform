@@ -333,6 +333,9 @@ def test_generate_strategy_builder_response_includes_translation_metadata(client
     assert body["config"]["tradable_symbol"] == "QQQ"
     assert body["translation_provider"] == "deterministic"
     assert body["translation_mode"] == "deterministic"
+    assert body["translation_fallback_used"] is False
+    assert body["deterministic_attempted"] is True
+    assert body["openai_attempted"] is False
     assert body["llm_enabled"] is False
 
 

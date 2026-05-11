@@ -74,6 +74,21 @@ def test_strategy_draft_actions_are_shared_and_stacked():
     assert "state={modifyBuilderState}" in run_header_source
 
 
+def test_strategy_draft_superseded_badge_stays_compact():
+    draft_source = (
+        ROOT / "frontend/src/components/strategy-chat/StrategyDraftCard.tsx"
+    ).read_text()
+    sweep_source = (
+        ROOT / "frontend/src/components/strategy-chat/ParameterSweepDraftCard.tsx"
+    ).read_text()
+
+    for source in [draft_source, sweep_source]:
+        assert "Superseded by newer draft" in source
+        assert "Superseded by a newer draft" not in source
+        assert "max-w-[11.5rem]" in source
+        assert "px-3 py-2 text-sm font-medium leading-5" in source
+
+
 def test_strategy_behavior_summary_helper_keeps_position_copy_compact():
     helper_source = (ROOT / "frontend/src/lib/strategyBehaviorSummary.ts").read_text()
     draft_source = (

@@ -13,12 +13,20 @@ provider wraps the existing parser-based builder used by
 drafts, parameter sweep drafts, follow-up edits, answer responses, and guidance
 responses.
 
+`STRATEGY_BUILDER_PROVIDER=hybrid` is the recommended product-like mode when AI
+fallback is desired. It runs deterministic parsing first and returns immediately
+when the result is a valid Strategy V2 draft. OpenAI is used only when
+deterministic parsing returns guidance, an unsupported request, a validation
+error, or no valid config. This keeps common RSI, trend/SMA, VIX/reference,
+rotation, and follow-up edit prompts fast and cheaper while still allowing AI to
+help with messier unsupported prompts.
+
 `STRATEGY_BUILDER_PROVIDER=openai` enables the optional OpenAI adapter. It is
-disabled by default, is not required by CI or beta release checks, and must be
-configured only in a private local/deployment environment. If OpenAI is selected
-without `OPENAI_API_KEY`, the builder returns provider-unavailable guidance; it
-does not expose stack traces, require a key for deterministic behavior, or let
-provider output skip validation.
+for direct provider testing, is disabled by default, is not required by CI or
+beta release checks, and must be configured only in a private local/deployment
+environment. If OpenAI is selected without `OPENAI_API_KEY`, the builder returns
+provider-unavailable guidance; it does not expose stack traces, require a key
+for deterministic behavior, or let provider output skip validation.
 
 The API response remains compatible with the existing frontend shape:
 
@@ -35,6 +43,11 @@ Provider metadata is additive:
 
 - `translation_provider`
 - `translation_mode`
+- `translation_fallback_used`
+- `primary_provider`
+- `fallback_provider`
+- `deterministic_attempted`
+- `openai_attempted`
 - `llm_enabled`
 
 ## Structured Contract
@@ -100,19 +113,28 @@ OPENAI_TIMEOUT_SECONDS=20
 OPENAI_MAX_RETRIES=1
 ```
 
+Provider options:
+
+- `deterministic`: default, fastest path, no OpenAI key required.
+- `hybrid`: deterministic first, OpenAI fallback only when needed.
+- `openai`: direct OpenAI provider testing.
+
 OpenAI setup for local private testing:
 
 1. Install the optional SDK in your local environment, for example
    `pip install -e ".[openai]"`.
-2. Put `STRATEGY_BUILDER_PROVIDER=openai` in your uncommitted local `.env`.
-3. Put `OPENAI_API_KEY=<your private key>` in the same uncommitted env.
+2. Put `STRATEGY_BUILDER_PROVIDER=openai` or
+   `STRATEGY_BUILDER_PROVIDER=hybrid` in your uncommitted local `.env`.
+3. Put `OPENAI_API_KEY=<your private key>` in the same uncommitted env. The key
+   is required when `provider=openai`; in `provider=hybrid`, it is required only
+   when a deterministic miss actually needs fallback.
 4. Optionally set `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS`, or
    `OPENAI_MAX_RETRIES`.
 5. Run tests with mocked clients; no test should call the real OpenAI API.
 
 Do not commit real keys. The beta preflight requires `OPENAI_API_KEY` only when
-`STRATEGY_BUILDER_PROVIDER=openai`; deterministic beta releases do not require
-any OpenAI variables.
+`STRATEGY_BUILDER_PROVIDER=openai`; deterministic and hybrid beta releases do
+not require any OpenAI variables at preflight time.
 
 ## Testing Notes
 
@@ -120,6 +142,8 @@ Provider tests should mock the OpenAI client or adapter method. Required safety
 coverage includes:
 
 - deterministic remains the default
+- hybrid returns valid deterministic drafts without calling OpenAI
+- hybrid falls back to mocked OpenAI only for deterministic misses
 - OpenAI is selected only when configured
 - missing keys return safe guidance
 - valid mocked structured output is normalized and returned

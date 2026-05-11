@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -60,6 +61,11 @@ def _structured_builder_limit_response(
     max_backtest_years: int,
     translation_provider: str = "deterministic",
     translation_mode: str = "deterministic",
+    translation_fallback_used: bool = False,
+    primary_provider: str | None = None,
+    fallback_provider: str | None = None,
+    deterministic_attempted: bool = False,
+    openai_attempted: bool = False,
     llm_enabled: bool = False,
 ) -> JSONResponse:
     return JSONResponse(
@@ -83,10 +89,32 @@ def _structured_builder_limit_response(
                 "sweep_draft": None,
                 "translation_provider": translation_provider,
                 "translation_mode": translation_mode,
+                "translation_fallback_used": translation_fallback_used,
+                "primary_provider": primary_provider,
+                "fallback_provider": fallback_provider,
+                "deterministic_attempted": deterministic_attempted,
+                "openai_attempted": openai_attempted,
                 "llm_enabled": llm_enabled,
             }
         ),
     )
+
+
+def _translation_metadata(result: dict) -> dict[str, Any]:
+    return {
+        "translation_provider": result.get("translation_provider", "deterministic"),
+        "translation_mode": result.get("translation_mode", "deterministic"),
+        "translation_fallback_used": bool(
+            result.get("translation_fallback_used", False)
+        ),
+        "primary_provider": result.get("primary_provider"),
+        "fallback_provider": result.get("fallback_provider"),
+        "deterministic_attempted": bool(
+            result.get("deterministic_attempted", False)
+        ),
+        "openai_attempted": bool(result.get("openai_attempted", False)),
+        "llm_enabled": bool(result.get("llm_enabled", False)),
+    }
 
 
 @router.post("/generate", response_model=StrategyBuilderGenerateResponse)
@@ -202,9 +230,7 @@ def generate_strategy_draft_api(
                 status_code=403,
                 message=message,
                 max_backtest_years=entitlements.max_backtest_years,
-                translation_provider=result.get("translation_provider", "deterministic"),
-                translation_mode=result.get("translation_mode", "deterministic"),
-                llm_enabled=bool(result.get("llm_enabled", False)),
+                **_translation_metadata(result),
             )
 
     sweep_draft = result.get("sweep_draft") if isinstance(result.get("sweep_draft"), dict) else None
@@ -229,6 +255,7 @@ def generate_strategy_draft_api(
                 status_code=403,
                 message=message,
                 max_backtest_years=entitlements.max_backtest_years,
+                **_translation_metadata(result),
             )
 
     if (
@@ -249,9 +276,7 @@ def generate_strategy_draft_api(
             status_code=403,
             message=message,
             max_backtest_years=entitlements.max_backtest_years,
-            translation_provider=result.get("translation_provider", "deterministic"),
-            translation_mode=result.get("translation_mode", "deterministic"),
-            llm_enabled=bool(result.get("llm_enabled", False)),
+            **_translation_metadata(result),
         )
 
     if (
@@ -308,15 +333,7 @@ def generate_strategy_draft_api(
                         ),
                         "guidance_data": None,
                         "sweep_draft": None,
-                        "translation_provider": result.get(
-                            "translation_provider",
-                            "deterministic",
-                        ),
-                        "translation_mode": result.get(
-                            "translation_mode",
-                            "deterministic",
-                        ),
-                        "llm_enabled": bool(result.get("llm_enabled", False)),
+                        **_translation_metadata(result),
                     }
                 ),
             )
@@ -371,15 +388,7 @@ def generate_strategy_draft_api(
                             ),
                             "guidance_data": None,
                             "sweep_draft": None,
-                            "translation_provider": result.get(
-                                "translation_provider",
-                                "deterministic",
-                            ),
-                            "translation_mode": result.get(
-                                "translation_mode",
-                                "deterministic",
-                            ),
-                            "llm_enabled": bool(result.get("llm_enabled", False)),
+                            **_translation_metadata(result),
                         }
                     ),
                 )

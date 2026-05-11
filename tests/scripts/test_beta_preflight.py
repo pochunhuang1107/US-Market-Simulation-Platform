@@ -139,6 +139,19 @@ def test_preflight_requires_openai_key_only_when_provider_is_openai(tmp_path):
 
     assert result.returncode == 0
 
+    backend["STRATEGY_BUILDER_PROVIDER"] = "hybrid"
+    backend["OPENAI_API_KEY"] = ""
+    write_env(backend_path, backend)
+
+    result = run_preflight(
+        "--backend-env",
+        str(backend_path),
+        "--frontend-env",
+        str(frontend_path),
+    )
+
+    assert result.returncode == 0
+
 
 def test_preflight_does_not_print_secret_values(tmp_path):
     backend = valid_backend_values()
