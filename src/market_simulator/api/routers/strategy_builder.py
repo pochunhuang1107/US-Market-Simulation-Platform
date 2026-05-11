@@ -26,8 +26,8 @@ from market_simulator.services.strategy_builder_guardrails import (
 from market_simulator.services.strategy_builder_service import (
     build_validation_data,
     detect_custom_rotation_builder_intent,
-    generate_strategy_builder_response,
 )
+from market_simulator.services.strategy_translation import translate_strategy_builder_request
 
 router = APIRouter(prefix="/strategy-builder", tags=["strategy-builder"])
 
@@ -73,6 +73,9 @@ def _structured_builder_limit_response(
                 ),
                 "guidance_data": None,
                 "sweep_draft": None,
+                "translation_provider": "deterministic",
+                "translation_mode": "deterministic",
+                "llm_enabled": False,
             }
         ),
     )
@@ -153,10 +156,12 @@ def generate_strategy_draft_api(
                 max_backtest_years=entitlements.max_backtest_years,
             )
 
-    result = generate_strategy_builder_response(
+    translation_result = translate_strategy_builder_request(
         req,
+        entitlements=entitlements,
         max_backtest_years=entitlements.max_backtest_years,
     )
+    result = translation_result.response_payload()
 
     result_config = result.get("config") if isinstance(result.get("config"), dict) else None
     current_config = req.context.current_config if req.context else None
@@ -269,6 +274,15 @@ def generate_strategy_draft_api(
                         ),
                         "guidance_data": None,
                         "sweep_draft": None,
+                        "translation_provider": result.get(
+                            "translation_provider",
+                            "deterministic",
+                        ),
+                        "translation_mode": result.get(
+                            "translation_mode",
+                            "deterministic",
+                        ),
+                        "llm_enabled": bool(result.get("llm_enabled", False)),
                     }
                 ),
             )
@@ -312,6 +326,15 @@ def generate_strategy_draft_api(
                             ),
                             "guidance_data": None,
                             "sweep_draft": None,
+                            "translation_provider": result.get(
+                                "translation_provider",
+                                "deterministic",
+                            ),
+                            "translation_mode": result.get(
+                                "translation_mode",
+                                "deterministic",
+                            ),
+                            "llm_enabled": bool(result.get("llm_enabled", False)),
                         }
                     ),
                 )

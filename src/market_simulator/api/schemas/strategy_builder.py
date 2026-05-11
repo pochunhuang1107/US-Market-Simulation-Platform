@@ -96,3 +96,6 @@ class StrategyBuilderGenerateResponse(BaseModel):
     validation_data: StrategyBuilderValidationData | None = None
     guidance_data: StrategyBuilderGuidanceData | None = None
     sweep_draft: StrategyBuilderParameterSweepDraftData | None = None
+    translation_provider: str = "deterministic"
+    translation_mode: str = "deterministic"
+    llm_enabled: bool = False

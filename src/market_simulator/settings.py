@@ -161,6 +161,14 @@ class Settings(BaseModel):
         "SUPPORTED_REFERENCE_SERIES_SYMBOLS",
         DEFAULT_SUPPORTED_REFERENCE_SERIES_SYMBOLS,
     )
+    strategy_builder_provider: str = os.getenv(
+        "STRATEGY_BUILDER_PROVIDER",
+        "deterministic",
+    )
+    strategy_builder_llm_enabled: bool = os.getenv(
+        "STRATEGY_BUILDER_LLM_ENABLED",
+        "false",
+    ).lower() in {"1", "true", "yes", "on"}
     queue_oldest_warning_seconds: int = int(
         os.getenv("QUEUE_OLDEST_WARNING_SECONDS", "600")
     )

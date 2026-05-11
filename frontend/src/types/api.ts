@@ -601,6 +601,9 @@ export interface StrategyBuilderGenerateResponse {
   validation_data?: StrategyBuilderValidationData | null;
   guidance_data?: StrategyBuilderGuidanceData | null;
   sweep_draft?: StrategyBuilderParameterSweepDraftData | null;
+  translation_provider?: string;
+  translation_mode?: string;
+  llm_enabled?: boolean;
 }
 
 export interface MeUserResponse {
