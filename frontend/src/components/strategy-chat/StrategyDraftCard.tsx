@@ -145,8 +145,8 @@ function StrategyDraftActions({
           {isRunning ? 'Running...' : 'Run Simulation'}
         </button>
       ) : (
-        <div className="app-surface-soft rounded-2xl border px-4 py-2 text-sm font-medium app-text-muted">
-          Superseded by a newer draft
+        <div className="app-surface-soft max-w-[11.5rem] rounded-2xl border px-3 py-2 text-sm font-medium leading-5 app-text-muted">
+          Superseded by newer draft
         </div>
       )}
     </div>

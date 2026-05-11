@@ -603,6 +603,11 @@ export interface StrategyBuilderGenerateResponse {
   sweep_draft?: StrategyBuilderParameterSweepDraftData | null;
   translation_provider?: string;
   translation_mode?: string;
+  translation_fallback_used?: boolean;
+  primary_provider?: string | null;
+  fallback_provider?: string | null;
+  deterministic_attempted?: boolean;
+  openai_attempted?: boolean;
   llm_enabled?: boolean;
 }
 

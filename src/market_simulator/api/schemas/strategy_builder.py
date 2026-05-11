@@ -98,4 +98,9 @@ class StrategyBuilderGenerateResponse(BaseModel):
     sweep_draft: StrategyBuilderParameterSweepDraftData | None = None
     translation_provider: str = "deterministic"
     translation_mode: str = "deterministic"
+    translation_fallback_used: bool = False
+    primary_provider: str | None = None
+    fallback_provider: str | None = None
+    deterministic_attempted: bool = False
+    openai_attempted: bool = False
     llm_enabled: bool = False

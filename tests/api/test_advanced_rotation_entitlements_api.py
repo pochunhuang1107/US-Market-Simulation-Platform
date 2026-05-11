@@ -231,6 +231,57 @@ def test_free_cannot_create_custom_rotation_via_builder(
     assert metadata_calls == []
 
 
+def test_hybrid_provider_does_not_call_openai_for_blocked_custom_rotation(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+    monkeypatch,
+):
+    user = create_user(user_id=current_user_ctx["id"], with_default_plan=False)
+    plan = _create_plan(
+        db_session,
+        code="FREE",
+        allow_rotation_templates=True,
+        allow_custom_rotation=False,
+        allow_rotation_edit=False,
+        allow_advanced_builder=False,
+    )
+    _attach_plan(db_session, user_id=str(user.id), plan=plan)
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="hybrid",
+            openai_api_key="test-key",
+        ),
+    )
+
+    def fail_if_openai_is_called(self, request):
+        raise AssertionError("blocked custom rotation should not call OpenAI")
+
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_translation.OpenAIStrategyTranslationProvider._request_contract",
+        fail_if_openai_is_called,
+    )
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a monthly rotation between QQQ, SPY, XLK, and TLT using 3-month momentum."
+        },
+    )
+
+    _assert_rotation_plan_limit(response)
+    body = response.json()
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["validation_data"]["validation_type"] == "PLAN_LIMIT"
+    assert body["openai_attempted"] is False
+
+
 def test_openai_provider_cannot_bypass_custom_rotation_builder_gate(
     client,
     db_session,

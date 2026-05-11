@@ -153,8 +153,10 @@ def check_backend(ctx: CheckContext) -> None:
 
     strategy_provider = normalized(backend, "STRATEGY_BUILDER_PROVIDER", "deterministic")
     ctx.note_check()
-    if strategy_provider not in {"deterministic", "openai", "llm"}:
-        ctx.error("STRATEGY_BUILDER_PROVIDER must be deterministic, openai, or llm.")
+    if strategy_provider not in {"deterministic", "hybrid", "openai", "llm"}:
+        ctx.error(
+            "STRATEGY_BUILDER_PROVIDER must be deterministic, hybrid, openai, or llm."
+        )
 
     if strategy_provider == "openai":
         require_key(
