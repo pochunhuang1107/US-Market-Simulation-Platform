@@ -3,7 +3,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from datetime import timedelta
 import json
+import logging
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -29,6 +32,8 @@ from market_simulator.settings import get_settings
 DETERMINISTIC_PROVIDER = "deterministic"
 LLM_PROVIDER = "llm"
 OPENAI_PROVIDER = "openai"
+
+logger = logging.getLogger(__name__)
 
 
 class StrategyTranslationProviderUnavailable(RuntimeError):
@@ -183,6 +188,7 @@ class LlmTranslationProvider(StrategyTranslationProvider):
                 if isinstance(self._contract_output, LlmStructuredTranslationOutput)
                 else LlmStructuredTranslationOutput.model_validate(self._contract_output)
             )
+            contract.provider_metadata.setdefault("provider", self.name)
             response = build_strategy_builder_response_from_llm_contract(
                 contract,
                 request=request,
@@ -266,6 +272,7 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
 
         try:
             contract = self._request_contract(request)
+            contract.provider_metadata.setdefault("provider", self.name)
         except StrategyTranslationProviderUnavailable as exc:
             message = str(exc)
             return _provider_guidance_result(
@@ -369,7 +376,15 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
         output_text = _extract_response_text(response)
         if not output_text:
             raise StrategyTranslationProviderError("OpenAI response did not include JSON output.")
-        return LlmStructuredTranslationOutput.model_validate_json(output_text)
+        try:
+            return LlmStructuredTranslationOutput.model_validate_json(output_text)
+        except ValidationError as exc:
+            _log_provider_validation_failure(
+                provider=self.name,
+                exc=exc,
+                provider_output=output_text,
+            )
+            raise
 
     def _build_client(self) -> Any:
         try:
@@ -466,11 +481,20 @@ def build_strategy_builder_response_from_llm_contract(
         )
 
     candidate_config = _candidate_config_from_contract(contract, request=request)
-    normalized_config = normalize_translated_strategy_config(
-        candidate_config,
-        prompt=request.prompt,
-        max_backtest_years=request.max_backtest_years,
-    )
+    try:
+        normalized_config = normalize_translated_strategy_config(
+            candidate_config,
+            prompt=request.prompt,
+            max_backtest_years=request.max_backtest_years,
+        )
+    except (ValidationError, ValueError) as exc:
+        provider = _contract_provider_name(contract)
+        _log_provider_validation_failure(
+            provider=provider,
+            exc=exc,
+            provider_output=contract.model_dump(mode="json", exclude_none=True),
+        )
+        raise
 
     summary = _summary_from_contract(contract, normalized_config)
     warnings = list(contract.warnings)
@@ -514,6 +538,10 @@ def normalize_translated_strategy_config(
     prompt: str,
     max_backtest_years: int,
 ) -> dict[str, Any]:
+    config = _repair_rotation_config_defaults(
+        config,
+        max_backtest_years=max_backtest_years,
+    )
     validate_strategy_builder_request(
         prompt=prompt,
         config=config,
@@ -521,6 +549,186 @@ def normalize_translated_strategy_config(
     )
     strategy = StrategyV2.model_validate(config)
     return strategy.model_dump(mode="json", exclude_none=True)
+
+
+def _repair_rotation_config_defaults(
+    config: dict[str, Any],
+    *,
+    max_backtest_years: int,
+) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return config
+
+    repaired = deepcopy(config)
+    if _looks_like_standalone_rotation_block(repaired):
+        repaired = {"rotation": repaired}
+
+    rotation = repaired.get("rotation")
+    if not isinstance(rotation, dict) or rotation.get("enabled") is not True:
+        return repaired
+
+    universe = _normalized_symbol_list(rotation.get("universe"))
+    if not universe:
+        return repaired
+
+    rotation["universe"] = universe
+    settings = get_settings()
+
+    repaired.setdefault("schema_version", "2.0")
+    if not _non_empty_string(repaired.get("tradable_symbol")):
+        repaired["tradable_symbol"] = universe[0]
+    else:
+        repaired["tradable_symbol"] = str(repaired["tradable_symbol"]).upper()
+
+    if not _non_empty_string(repaired.get("benchmark_symbol")):
+        repaired["benchmark_symbol"] = (
+            "SPY" if "SPY" in settings.supported_etf_symbols else universe[0]
+        )
+    else:
+        repaired["benchmark_symbol"] = str(repaired["benchmark_symbol"]).upper()
+
+    if not _non_empty_string(repaired.get("name")):
+        repaired["name"] = _derive_rotation_strategy_name(rotation)
+
+    start_date, end_date = _platform_default_date_range(
+        max_backtest_years=max_backtest_years,
+    )
+    repaired.setdefault("start_date", start_date)
+    repaired.setdefault("end_date", end_date)
+    repaired.setdefault("initial_capital", 100000)
+    repaired.setdefault("transaction_cost_bps", 5)
+
+    if not isinstance(repaired.get("risk"), dict):
+        repaired["risk"] = {"cooldown_bars": 0}
+    else:
+        repaired["risk"].setdefault("cooldown_bars", 0)
+
+    if not isinstance(repaired.get("core_overlay"), dict):
+        repaired["core_overlay"] = {"enabled": False, "core_allocation_pct": 0.0}
+    else:
+        repaired["core_overlay"].setdefault("enabled", False)
+        repaired["core_overlay"].setdefault("core_allocation_pct", 0.0)
+
+    repaired["reference_symbols"] = _derive_rotation_reference_symbols(repaired)
+    return repaired
+
+
+def _looks_like_standalone_rotation_block(config: dict[str, Any]) -> bool:
+    return (
+        config.get("enabled") is True
+        and "rotation" not in config
+        and any(key in config for key in ("universe", "ranking", "rebalance", "selection"))
+    )
+
+
+def _non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _normalized_symbol_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    symbols: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        symbol = item.strip().upper()
+        if symbol not in symbols:
+            symbols.append(symbol)
+    return symbols
+
+
+def _platform_default_date_range(*, max_backtest_years: int) -> tuple[str, str]:
+    settings = get_settings()
+    end_date = settings.supported_data_end
+    approx_days = int(max_backtest_years * 365.25)
+    candidate_start = end_date - timedelta(days=approx_days)
+    start_date = max(settings.supported_data_start, candidate_start)
+    return start_date.isoformat(), end_date.isoformat()
+
+
+def _derive_rotation_strategy_name(rotation: dict[str, Any]) -> str:
+    universe = _normalized_symbol_list(rotation.get("universe"))
+    ranking = rotation.get("ranking") if isinstance(rotation.get("ranking"), dict) else {}
+    selection = (
+        rotation.get("selection")
+        if isinstance(rotation.get("selection"), dict)
+        else {}
+    )
+    lookback = ranking.get("lookback")
+    top_n = selection.get("top_n")
+
+    universe_label = "/".join(universe[:4]) if universe else "ETF"
+    lookback_label = f"{lookback}-day " if isinstance(lookback, int) else ""
+    top_label = f"Top {top_n} " if isinstance(top_n, int) else ""
+    return f"{universe_label} {lookback_label}{top_label}Rotation".strip()
+
+
+def _derive_rotation_reference_symbols(config: dict[str, Any]) -> list[str]:
+    rotation = config.get("rotation") if isinstance(config.get("rotation"), dict) else {}
+    tradable_symbol = (
+        str(config.get("tradable_symbol")).upper()
+        if _non_empty_string(config.get("tradable_symbol"))
+        else None
+    )
+
+    symbols: list[str] = []
+    existing = config.get("reference_symbols")
+    if isinstance(existing, list):
+        for symbol in existing:
+            _append_reference_symbol(symbols, symbol, tradable_symbol)
+
+    for symbol in rotation.get("universe") or []:
+        _append_reference_symbol(symbols, symbol, tradable_symbol)
+
+    _append_reference_symbol(symbols, config.get("benchmark_symbol"), tradable_symbol)
+    for symbol in _collect_rule_symbols(rotation.get("risk_filter")):
+        _append_reference_symbol(symbols, symbol, tradable_symbol)
+
+    fallback = rotation.get("fallback") if isinstance(rotation.get("fallback"), dict) else {}
+    if fallback.get("type") == "asset":
+        _append_reference_symbol(symbols, fallback.get("symbol"), tradable_symbol)
+
+    return symbols
+
+
+def _append_reference_symbol(
+    symbols: list[str],
+    value: Any,
+    tradable_symbol: str | None,
+) -> None:
+    if not isinstance(value, str) or not value.strip():
+        return
+    symbol = value.strip().upper()
+    if symbol == tradable_symbol or symbol in symbols:
+        return
+    symbols.append(symbol)
+
+
+def _collect_rule_symbols(rule: Any) -> list[str]:
+    if not isinstance(rule, dict):
+        return []
+
+    kind = rule.get("kind")
+    if kind == "atomic":
+        symbols: list[str] = []
+        for field_name in ("symbol", "reference_symbol"):
+            value = rule.get(field_name)
+            if isinstance(value, str):
+                symbols.append(value.upper())
+        return symbols
+    if kind == "not":
+        return _collect_rule_symbols(rule.get("rule"))
+    if kind in {"group", "sequence"}:
+        child_key = "rules" if kind == "group" else "steps"
+        symbols: list[str] = []
+        for child in rule.get(child_key) or []:
+            symbols.extend(_collect_rule_symbols(child))
+        return symbols
+    if kind == "window":
+        return _collect_rule_symbols(rule.get("rule"))
+    return []
 
 
 def _candidate_config_from_contract(
@@ -599,6 +807,55 @@ def _format_translation_error(exc: Exception) -> str:
     return str(exc)
 
 
+def _contract_provider_name(contract: LlmStructuredTranslationOutput) -> str:
+    provider = contract.provider_metadata.get("provider")
+    return str(provider) if provider else LLM_PROVIDER
+
+
+def _log_provider_validation_failure(
+    *,
+    provider: str,
+    exc: Exception,
+    provider_output: Any | None = None,
+) -> None:
+    location = _validation_error_location(exc)
+    logger.warning(
+        "Strategy translation provider output failed validation provider=%s location=%s error=%s output=%s",
+        provider,
+        location or "<unknown>",
+        _truncate_for_log(str(exc)),
+        _truncate_for_log(_json_for_log(provider_output)) if provider_output is not None else "<none>",
+    )
+
+
+def _validation_error_location(exc: Exception) -> str | None:
+    if isinstance(exc, ValidationError):
+        first_error = exc.errors()[0]
+        loc = first_error.get("loc", [])
+        return ".".join(str(part) for part in loc) if loc else None
+
+    match = re.search(r"because (?P<location>.+?) was invalid:", str(exc))
+    if match:
+        return match.group("location")
+    return None
+
+
+def _json_for_log(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, sort_keys=True, default=str)
+    except TypeError:
+        return str(value)
+
+
+def _truncate_for_log(value: str, *, limit: int = 2000) -> str:
+    sanitized = value.replace("\n", "\\n")
+    if len(sanitized) <= limit:
+        return sanitized
+    return sanitized[: limit - 3] + "..."
+
+
 def _provider_guidance_result(
     *,
     message: str,
@@ -637,17 +894,33 @@ def _openai_translation_instructions() -> str:
         "fields, assets, or strategy semantics. If the request needs unsupported "
         "features or unsupported symbols, return action='guidance' or include them in "
         "unsupported_features instead of inventing config fields. For create_config, "
-        "return a complete Strategy V2 full_config. For edit_config, return either a "
-        "complete full_config or a minimal config_patch against current_config."
+        "return a COMPLETE Strategy V2 full_config; do not return only a rotation "
+        "block. tradable_symbol is required even for rotation configs; use the first "
+        "rotation universe symbol if needed. benchmark_symbol is required; default "
+        "to SPY for multi-asset rotation unless the user says otherwise. "
+        "reference_symbols should include rotation universe symbols except "
+        "tradable_symbol, plus benchmark, fallback, and risk-filter symbols when "
+        "needed. start_date and end_date are required; use the platform default "
+        "date range in context if the user does not specify dates. risk and "
+        "core_overlay are required; use safe disabled/default values. Use no "
+        "unsupported fields. For edit_config, return either a complete full_config "
+        "or a minimal config_patch against current_config."
     )
 
 
 def _openai_translation_context(request: StrategyTranslationRequest) -> dict[str, Any]:
+    default_start_date, default_end_date = _platform_default_date_range(
+        max_backtest_years=request.max_backtest_years,
+    )
     return {
         "prompt": request.prompt,
         "current_config": request.current_config,
         "context_mode": request.context_mode,
         "max_backtest_years": request.max_backtest_years,
+        "platform_default_date_range": {
+            "start_date": default_start_date,
+            "end_date": default_end_date,
+        },
         "user_entitlements": request.user_entitlements,
         "supported_symbols": list(request.supported_symbols),
         "supported_reference_symbols": list(request.supported_reference_symbols),
@@ -655,6 +928,68 @@ def _openai_translation_context(request: StrategyTranslationRequest) -> dict[str
             "actions": ["create_config", "edit_config", "guidance"],
             "config_rule": "Return declarative Strategy V2 JSON only; backend validation is mandatory.",
             "unsupported_rule": "Unsupported requests should become guidance, not invented fields.",
+            "create_config_required_fields": [
+                "schema_version",
+                "name",
+                "tradable_symbol",
+                "benchmark_symbol",
+                "reference_symbols",
+                "start_date",
+                "end_date",
+                "initial_capital",
+                "transaction_cost_bps",
+                "risk",
+                "core_overlay",
+            ],
+            "rotation_required_fields": [
+                "rotation.enabled=true",
+                "rotation.universe",
+                "rotation.ranking",
+                "rotation.rebalance",
+                "rotation.selection",
+                "rotation.allocation",
+                "rotation.risk_filter",
+                "rotation.fallback",
+            ],
+            "compact_rotation_example": {
+                "schema_version": "2.0",
+                "name": "QQQ SPY XLK TLT 63-day Top 1 Rotation",
+                "tradable_symbol": "QQQ",
+                "benchmark_symbol": "SPY",
+                "reference_symbols": ["SPY", "XLK", "TLT"],
+                "start_date": default_start_date,
+                "end_date": default_end_date,
+                "initial_capital": 100000,
+                "transaction_cost_bps": 5,
+                "risk": {"cooldown_bars": 0},
+                "core_overlay": {"enabled": False, "core_allocation_pct": 0.0},
+                "rotation": {
+                    "enabled": True,
+                    "universe": ["QQQ", "SPY", "XLK", "TLT"],
+                    "ranking": {
+                        "type": "relative_return",
+                        "lookback": 63,
+                        "descending": True,
+                    },
+                    "rebalance": {
+                        "frequency": "monthly",
+                        "day": "first_trading_day",
+                    },
+                    "selection": {"top_n": 1},
+                    "allocation": {
+                        "weighting": "equal_weight",
+                        "max_position_pct": 1.0,
+                    },
+                    "risk_filter": {
+                        "kind": "atomic",
+                        "type": "sma_above",
+                        "symbol": "SPY",
+                        "fast_window": 1,
+                        "slow_window": 200,
+                    },
+                    "fallback": {"type": "asset", "symbol": "TLT"},
+                },
+            },
         },
     }
 
