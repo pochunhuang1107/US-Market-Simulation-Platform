@@ -8337,6 +8337,8 @@ def test_generate_strategy_builder_returns_validation_error_for_unsupported_edit
     body = response.json()
     assert body["response_type"] == "VALIDATION_ERROR"
     assert "not supported yet" in body["message"]
+    assert "You can ask me to change RSI thresholds" in body["message"]
+    assert "rotation lookback, top N, fallback, or risk filter" in body["message"]
     assert "benchmark" in body["message"]
 
 

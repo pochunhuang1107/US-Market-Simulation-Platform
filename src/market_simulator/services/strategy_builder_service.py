@@ -383,7 +383,7 @@ def _looks_like_rotation_create_prompt(prompt: str) -> bool:
 def _looks_like_rotation_edit_prompt(prompt: str) -> bool:
     return bool(
         re.search(
-            r"\b(lookback|momentum|top\s*\d+|top_n|rebalance|weekly|monthly|quarterly|"
+            r"\b(lookback|momentum|top\s*(?:\d+|n\b)|top_n|rebalance|weekly|monthly|quarterly|"
             r"fallback|risk\s+filter|sma\s*\d+|\d+\s*[-\s]?day\s+sma|universe|"
             r"add\s+[A-Z]{2,5}|remove\s+[A-Z]{2,5}|benchmark)\b",
             prompt,
@@ -896,7 +896,11 @@ def _apply_rotation_edits(
             rotation["ranking"] = ranking
             edited = True
 
-    if re.search(r"\btop\s*[-_ ]?\s*(\d+|one|two|three)\b|\btop_n\b", prompt, flags=re.IGNORECASE):
+    if re.search(
+        r"\btop\s*[-_ ]?\s*(?:n\s+(?:to\s+)?)?(\d+|one|two|three)\b|\btop_n\b",
+        prompt,
+        flags=re.IGNORECASE,
+    ):
         universe = rotation.get("universe") if isinstance(rotation.get("universe"), list) else []
         selection = dict(rotation.get("selection") or {})
         top_n = _extract_rotation_top_n(
@@ -1128,6 +1132,7 @@ def _extract_risk_and_position_inputs(
         prompt,
         [
             r"stop\s+loss\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
+            r"(?:add|set|use)\s+stop\s+loss\s+(\d+(?:\.\d+)?)%",
             r"(\d+(?:\.\d+)?)%\s+stop\s+loss",
         ],
     )
@@ -1139,6 +1144,7 @@ def _extract_risk_and_position_inputs(
         prompt,
         [
             r"(?<!partial\s)take\s+profit\s+(?:at\s+|to\s+)?(\d+(?:\.\d+)?)%",
+            r"(?:add|set|use)\s+take\s+profit\s+(\d+(?:\.\d+)?)%",
             r"(\d+(?:\.\d+)?)%\s+take\s+profit",
         ],
     )

@@ -287,6 +287,7 @@ def _extract_benchmark_symbol(text: str, default_symbol: str) -> tuple[str, list
 
     patterns = [
         r"benchmark(?:\s+(?:to|as|=|is))?\s+([A-Z]{2,5})",
+        r"benchmark\s+should\s+be\s+([A-Z]{2,5})",
         r"use\s+([A-Z]{2,5})\s+as\s+benchmark",
         r"using\s+([A-Z]{2,5})\s+as\s+benchmark",
         r"with\s+([A-Z]{2,5})\s+as\s+benchmark",
@@ -506,6 +507,14 @@ def _is_supported_edit_request(text: str) -> bool:
         r"\bfee\b",
         r"\bfees\b",
         r"\bcapital\b",
+        r"\brotation\s+lookback\b",
+        r"\btop\s*(?:n|\d+|one|two|three)\b",
+        r"\bfallback\b",
+        r"\brisk\s+filter\b",
+        r"\brebalance\b",
+        r"\bweekly\b",
+        r"\bmonthly\b",
+        r"\bquarterly\b",
         r"\b(entry|exit)\s+(?:rule\s+)?(fast|slow)\s+window\b",
         r"\b(entry|exit)\s+rule\b",
         r"\bfast\s+window\b",

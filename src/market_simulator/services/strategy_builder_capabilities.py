@@ -53,6 +53,11 @@ DEFAULT_GUIDANCE_ACTIONS = [
     "Enable / disable core allocation",
     "Change capital",
     "Change dates",
+    "Change rotation lookback",
+    "Change rotation top N",
+    "Change rotation fallback",
+    "Add / remove rotation risk filter",
+    "Change rotation rebalance",
 ]
 
 SUPPORTED_STRATEGY_TYPES_MESSAGE = (
@@ -63,34 +68,15 @@ SUPPORTED_STRATEGY_TYPES_MESSAGE = (
 )
 
 UNSUPPORTED_EDIT_SUGGESTED_ACTION = (
-    "Try changing the tradable symbol, benchmark, stop loss, take profit, partial take profit, "
-    "allocation, entry size, max position, transaction cost, cooldown, RSI, nested RSI edits, moving averages, "
-    "nested moving-average window edits, SMA above, MACD, KD/stochastic, seasonality by month, "
-    "editing seasonality months, relative strength, nested relative strength edits, realized volatility, "
-    "add/remove confirmation filters, combined AND/OR rules, group operator or condition edits, "
-    "composite group-condition replacements, removing group conditions, any/all within N bars, "
-    "NOT inner-rule edits, removing a NOT wrapper, window inner-rule edits, removing a window wrapper, "
-    "X then Y sequence rules, window/sequence bars and modes, sequence step edits, "
-    "composite sequence-step replacements, removing sequence steps, "
-    "position management, scale-in fraction, max scale-in entries, bars between adds, "
-    "minimum trade size, sell-all or scale-out exit behavior, removing scale-in policy, "
-    "core allocation, capital, or dates. Examples: 'change RSI entry to 30', "
-    "'set stop loss to 8%', 'minimum trade size 1%', or 'sell all when RSI above 70'."
+    "You can ask me to change RSI thresholds, stop loss, take profit, cooldown, "
+    "entry size, max position, benchmark, rotation lookback, top N, fallback, "
+    "risk filter, MACD, KD/stochastic, seasonality, or relative strength."
 )
 
 UNSUPPORTED_EDIT_MESSAGE = (
     "I understood this as a requested strategy edit, but that edit type is not supported yet. "
-    "Right now I can help with tradable symbol changes, benchmark, stop loss, take profit, "
-    "partial take profit, allocation, entry size, max position, transaction cost, cooldown, RSI thresholds, "
-    "nested RSI edits, moving-average rules, nested moving-average window edits, SMA above, MACD, "
-    "KD/stochastic, seasonality by month, editing seasonality months, relative strength, "
-    "nested relative strength edits, realized volatility, add/remove confirmation filters, combined AND/OR rules, "
-    "group operator and condition edits, composite group-condition replacements, removing group conditions, "
-    "any/all within N bars, NOT inner-rule edits, removing a NOT wrapper, "
-    "window inner-rule edits, removing a window wrapper, X then Y sequence rules, "
-    "window/sequence bars and modes, sequence step edits, composite sequence-step replacements, "
-    "removing sequence steps, position management, scale-in fraction, max scale-in entries, "
-    "bars between adds, removing scale-in policy, core allocation, capital, and dates."
+    "You can ask me to change RSI thresholds, stop loss, take profit, cooldown, "
+    "entry size, max position, benchmark, rotation lookback, top N, fallback, or risk filter."
 )
 
 NO_CHANGE_MESSAGE = (

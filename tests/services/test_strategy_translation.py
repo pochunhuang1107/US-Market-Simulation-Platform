@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 
+import pytest
+
 from market_simulator.api.schemas.strategy_builder import (
     StrategyBuilderContext,
     StrategyBuilderGenerateRequest,
@@ -473,6 +475,168 @@ def test_hybrid_supported_follow_up_edit_uses_deterministic_without_openai(
     assert result["translation_fallback_used"] is False
     assert result["openai_attempted"] is False
     assert result["config"]["allocation"]["max_position_pct"] == 0.5
+
+
+@pytest.mark.parametrize(
+    ("prompt", "section", "key", "expected"),
+    [
+        ("remove cooldown", "risk", "cooldown_bars", 0),
+        ("no cooldown", "risk", "cooldown_bars", 0),
+        ("set cooldown to 3 bars", "risk", "cooldown_bars", 3),
+        ("wait 4 bars before re-entering", "risk", "cooldown_bars", 4),
+        ("remove stop loss", "risk", "stop_loss_pct", None),
+        ("no stop loss", "risk", "stop_loss_pct", None),
+        ("add stop loss to 12%", "risk", "stop_loss_pct", 0.12),
+        ("add 12% stop loss", "risk", "stop_loss_pct", 0.12),
+        ("remove take profit", "risk", "take_profit_pct", None),
+        ("no take profit", "risk", "take_profit_pct", None),
+        ("add take profit 15%", "risk", "take_profit_pct", 0.15),
+        ("set max position to 50%", "allocation", "max_position_pct", 0.5),
+        ("max position 75%", "allocation", "max_position_pct", 0.75),
+        ("set entry size to 25%", "allocation", "entry_value", 0.25),
+        ("change benchmark to SPY", None, "benchmark_symbol", "SPY"),
+        ("use QQQ as benchmark", None, "benchmark_symbol", "QQQ"),
+        ("benchmark should be SPY", None, "benchmark_symbol", "SPY"),
+    ],
+)
+def test_hybrid_short_single_symbol_edits_stay_deterministic(
+    monkeypatch,
+    prompt,
+    section,
+    key,
+    expected,
+):
+    current_config = _valid_single_etf_config(
+        benchmark_symbol="QQQ",
+        allocation={
+            "entry_mode": "percent_of_equity",
+            "entry_value": 0.4,
+            "max_position_pct": 0.8,
+        },
+        risk={
+            "stop_loss_pct": 0.08,
+            "take_profit_pct": 0.2,
+            "cooldown_bars": 5,
+        },
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_builder_parsers.get_etf_history_range",
+        lambda symbol: None,
+    )
+    translation_request = build_strategy_translation_request(
+        StrategyBuilderGenerateRequest(
+            prompt=prompt,
+            context=StrategyBuilderContext(current_config=current_config),
+        ),
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = HybridStrategyTranslationProvider(
+        fallback_provider=_FailIfCalledProvider(),
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "UPDATE_DRAFT"
+    assert result["translation_provider"] == "deterministic"
+    assert result["translation_fallback_used"] is False
+    assert result["openai_attempted"] is False
+    if section is None:
+        assert result["config"][key] == expected
+    else:
+        assert result["config"][section].get(key) == expected
+    assert result["config"]["entry_rule"] == current_config["entry_rule"]
+    assert result["config"]["exit_rule"] == current_config["exit_rule"]
+
+
+@pytest.mark.parametrize(
+    ("prompt", "path", "expected", "overrides"),
+    [
+        ("change top 2", ("rotation", "selection", "top_n"), 2, {}),
+        ("change top N to 3", ("rotation", "selection", "top_n"), 3, {}),
+        ("change lookback to 21 days", ("rotation", "ranking", "lookback"), 21, {}),
+        (
+            "change lookback to 63 days",
+            ("rotation", "ranking", "lookback"),
+            63,
+            {
+                "rotation": _valid_rotation_block(
+                    ranking={
+                        "type": "relative_return",
+                        "lookback": 21,
+                        "descending": True,
+                    }
+                )
+            },
+        ),
+        ("change lookback to 126 days", ("rotation", "ranking", "lookback"), 126, {}),
+        ("change lookback to 252 days", ("rotation", "ranking", "lookback"), 252, {}),
+        ("change fallback to cash", ("rotation", "fallback"), {"type": "cash"}, {}),
+        (
+            "change fallback to TLT",
+            ("rotation", "fallback"),
+            {"type": "asset", "symbol": "TLT"},
+            {"rotation": _valid_rotation_block(fallback={"type": "cash"})},
+        ),
+        ("change fallback to IEF", ("rotation", "fallback"), {"type": "asset", "symbol": "IEF"}, {}),
+        (
+            "add SPY 100-day SMA risk filter",
+            ("rotation", "risk_filter", "slow_window"),
+            100,
+            {"rotation": _valid_rotation_block(risk_filter=None)},
+        ),
+        (
+            "add SPY 200-day SMA risk filter",
+            ("rotation", "risk_filter", "slow_window"),
+            200,
+            {"rotation": _valid_rotation_block(risk_filter=None)},
+        ),
+        ("remove risk filter", ("rotation", "risk_filter"), None, {}),
+        ("change rebalance to weekly", ("rotation", "rebalance", "frequency"), "weekly", {}),
+        ("change rebalance to quarterly", ("rotation", "rebalance", "frequency"), "quarterly", {}),
+    ],
+)
+def test_hybrid_short_rotation_edits_stay_deterministic(
+    prompt,
+    path,
+    expected,
+    overrides,
+):
+    current_config = _valid_rotation_config(**overrides)
+    original_universe = list(current_config["rotation"]["universe"])
+    original_fallback = dict(current_config["rotation"]["fallback"])
+    original_risk_filter = (
+        dict(current_config["rotation"]["risk_filter"])
+        if isinstance(current_config["rotation"].get("risk_filter"), dict)
+        else None
+    )
+    translation_request = build_strategy_translation_request(
+        StrategyBuilderGenerateRequest(
+            prompt=prompt,
+            context=StrategyBuilderContext(current_config=current_config),
+        ),
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    provider = HybridStrategyTranslationProvider(
+        fallback_provider=_FailIfCalledProvider(),
+    )
+
+    result = provider.translate(translation_request).response_payload()
+
+    assert result["response_type"] == "UPDATE_DRAFT"
+    assert result["translation_provider"] == "deterministic"
+    assert result["translation_fallback_used"] is False
+    assert result["openai_attempted"] is False
+    value = result["config"]
+    for segment in path:
+        value = value.get(segment) if isinstance(value, dict) else None
+    assert value == expected
+    assert result["config"]["rotation"]["universe"] == original_universe
+    if "fallback" not in prompt:
+        assert result["config"]["rotation"]["fallback"] == original_fallback
+    if "risk filter" not in prompt:
+        assert result["config"]["rotation"].get("risk_filter") == original_risk_filter
 
 
 def test_hybrid_falls_back_to_mocked_openai_for_deterministic_guidance():
