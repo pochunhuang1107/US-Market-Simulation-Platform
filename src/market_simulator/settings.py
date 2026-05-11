@@ -169,6 +169,10 @@ class Settings(BaseModel):
         "STRATEGY_BUILDER_LLM_ENABLED",
         "false",
     ).lower() in {"1", "true", "yes", "on"}
+    openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    openai_timeout_seconds: float = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "20"))
+    openai_max_retries: int = int(os.getenv("OPENAI_MAX_RETRIES", "1"))
     queue_oldest_warning_seconds: int = int(
         os.getenv("QUEUE_OLDEST_WARNING_SECONDS", "600")
     )

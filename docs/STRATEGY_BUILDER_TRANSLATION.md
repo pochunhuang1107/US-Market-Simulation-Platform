@@ -5,13 +5,20 @@ language input is translated into declarative Strategy V2 JSON, then validated
 before the frontend can save or simulate it. LLM output must never execute
 trading logic, run code, call tools, or bypass backend validation.
 
-## Current Provider
+## Providers
 
 `STRATEGY_BUILDER_PROVIDER=deterministic` is the default. The deterministic
 provider wraps the existing parser-based builder used by
 `/strategy-builder/generate`, including single-symbol strategies, rotation
 drafts, parameter sweep drafts, follow-up edits, answer responses, and guidance
 responses.
+
+`STRATEGY_BUILDER_PROVIDER=openai` enables the optional OpenAI adapter. It is
+disabled by default, is not required by CI or beta release checks, and must be
+configured only in a private local/deployment environment. If OpenAI is selected
+without `OPENAI_API_KEY`, the builder returns provider-unavailable guidance; it
+does not expose stack traces, require a key for deterministic behavior, or let
+provider output skip validation.
 
 The API response remains compatible with the existing frontend shape:
 
@@ -30,10 +37,11 @@ Provider metadata is additive:
 - `translation_mode`
 - `llm_enabled`
 
-## Future LLM Contract
+## Structured Contract
 
-Future provider integrations must plug in behind
-`StrategyTranslationProvider`. A provider returns structured JSON matching
+Provider integrations plug in behind `StrategyTranslationProvider`. The OpenAI
+adapter uses the Responses API when the optional SDK is installed and requests
+structured JSON matching
 `LlmStructuredTranslationOutput`, not free-form text:
 
 ```json
@@ -47,7 +55,8 @@ Future provider integrations must plug in behind
   "assumptions": [],
   "warnings": [],
   "unsupported_features": [],
-  "validation_errors": []
+  "validation_errors": [],
+  "changes": []
 }
 ```
 
@@ -59,7 +68,9 @@ Allowed actions are:
 
 `create_config` must return a complete Strategy V2 config. `edit_config` may
 return a full config or a `config_patch` applied to `current_config`. `guidance`
-returns no executable draft.
+returns no executable draft. Unsupported requests should become guidance or
+`unsupported_features`; providers must not invent unsupported fields,
+indicators, symbols, or execution behavior.
 
 ## Validation Pipeline
 
@@ -83,23 +94,38 @@ Safe defaults:
 
 ```env
 STRATEGY_BUILDER_PROVIDER=deterministic
-STRATEGY_BUILDER_LLM_ENABLED=false
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_TIMEOUT_SECONDS=20
+OPENAI_MAX_RETRIES=1
 ```
 
-LLM translation is disabled in this branch. No provider keys, model names,
-secrets, or network clients are required or committed. If LLM mode is requested
-while disabled, the API falls back to the deterministic provider.
+OpenAI setup for local private testing:
 
-## Future Integration Notes
+1. Install the optional SDK in your local environment, for example
+   `pip install -e ".[openai]"`.
+2. Put `STRATEGY_BUILDER_PROVIDER=openai` in your uncommitted local `.env`.
+3. Put `OPENAI_API_KEY=<your private key>` in the same uncommitted env.
+4. Optionally set `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS`, or
+   `OPENAI_MAX_RETRIES`.
+5. Run tests with mocked clients; no test should call the real OpenAI API.
 
-To add OpenAI or another provider later:
+Do not commit real keys. The beta preflight requires `OPENAI_API_KEY` only when
+`STRATEGY_BUILDER_PROVIDER=openai`; deterministic beta releases do not require
+any OpenAI variables.
 
-1. Implement a concrete `StrategyTranslationProvider`.
-2. Keep provider calls outside deterministic builder logic.
-3. Return only `LlmStructuredTranslationOutput` JSON.
-4. Run the shared validation pipeline before returning any config.
-5. Keep API keys in deployment secret stores, never in committed files.
-6. Add provider tests that mock external calls and prove invalid output is
-   rejected before simulation.
+## Testing Notes
 
-Simulation engine behavior is intentionally outside this boundary.
+Provider tests should mock the OpenAI client or adapter method. Required safety
+coverage includes:
+
+- deterministic remains the default
+- OpenAI is selected only when configured
+- missing keys return safe guidance
+- valid mocked structured output is normalized and returned
+- invalid configs, unsupported symbols, and performance promises are rejected
+- entitlement gates still reject gated rotation or sweep configs
+- provider errors/timeouts return safe guidance without raw upstream details
+
+The LLM is translation-only. It does not run strategy logic, execute tools,
+simulate results, train ML models, or change simulation engine behavior.

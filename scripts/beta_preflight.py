@@ -151,6 +151,21 @@ def check_backend(ctx: CheckContext) -> None:
     else:
         ctx.error("ARTIFACT_STORAGE_BACKEND must be LOCAL or S3.")
 
+    strategy_provider = normalized(backend, "STRATEGY_BUILDER_PROVIDER", "deterministic")
+    ctx.note_check()
+    if strategy_provider not in {"deterministic", "openai", "llm"}:
+        ctx.error("STRATEGY_BUILDER_PROVIDER must be deterministic, openai, or llm.")
+
+    if strategy_provider == "openai":
+        require_key(
+            ctx,
+            backend,
+            "OPENAI_API_KEY",
+            "OPENAI_API_KEY is required only when STRATEGY_BUILDER_PROVIDER=openai.",
+        )
+    else:
+        ctx.note_check()
+
 
 def check_frontend(ctx: CheckContext) -> None:
     frontend = ctx.frontend

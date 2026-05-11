@@ -9,6 +9,7 @@ from market_simulator import settings as settings_module
 from market_simulator.db.enums import SubscriptionStatus
 from market_simulator.db.models.user import Plan, UserPlanSubscription
 from market_simulator.settings import Settings
+from market_simulator.services.strategy_translation import LlmStructuredTranslationOutput
 
 
 def _single_etf_config(*, name: str = "qqq-rsi") -> dict:
@@ -228,6 +229,61 @@ def test_free_cannot_create_custom_rotation_via_builder(
     assert body["validation_data"]["validation_type"] == "PLAN_LIMIT"
     assert body["config"] is None
     assert metadata_calls == []
+
+
+def test_openai_provider_cannot_bypass_custom_rotation_builder_gate(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+    monkeypatch,
+):
+    user = create_user(user_id=current_user_ctx["id"], with_default_plan=False)
+    plan = _create_plan(
+        db_session,
+        code="FREE",
+        allow_rotation_templates=True,
+        allow_custom_rotation=False,
+        allow_rotation_edit=False,
+        allow_advanced_builder=False,
+    )
+    _attach_plan(db_session, user_id=str(user.id), plan=plan)
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="openai",
+            openai_api_key="test-key",
+        ),
+    )
+
+    def mocked_openai_contract(self, request):
+        return LlmStructuredTranslationOutput(
+            action="create_config",
+            full_config=_rotation_config(),
+            summary="Translated a rotation Strategy V2 draft.",
+        )
+
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_translation.OpenAIStrategyTranslationProvider._request_contract",
+        mocked_openai_contract,
+    )
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create a QQQ strategy with a flexible allocation rule."},
+    )
+
+    _assert_rotation_plan_limit(response)
+    body = response.json()
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["validation_data"]["validation_type"] == "PLAN_LIMIT"
+    assert body["translation_provider"] == "openai"
+    assert body["translation_mode"] == "llm"
+    assert body["llm_enabled"] is True
 
 
 def test_free_can_create_normal_single_etf_strategy_via_builder(
