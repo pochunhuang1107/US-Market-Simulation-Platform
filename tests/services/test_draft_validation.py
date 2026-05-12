@@ -7,6 +7,8 @@ from market_simulator.services.draft_validation import (
     collect_draft_config_warnings,
     validate_draft_config,
 )
+from market_simulator import settings as settings_module
+from market_simulator.settings import Settings
 
 
 def test_validate_draft_config_rejects_unsupported_nested_symbols():
@@ -72,6 +74,57 @@ def test_validate_draft_config_rejects_unsupported_nested_symbols():
             config=config,
             max_backtest_years=5,
         )
+
+
+def test_validate_draft_config_rejects_reference_series_removed_from_settings(monkeypatch):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            supported_reference_series_symbols_csv="VIX",
+            supported_data_start_date="2021-01-01",
+            supported_data_end_date="2026-12-31",
+        ),
+    )
+    config = {
+        "schema_version": "2.0",
+        "name": "qqq-unsupported-reference-series",
+        "tradable_symbol": "QQQ",
+        "benchmark_symbol": "QQQ",
+        "reference_symbols": ["DGS10"],
+        "start_date": "2021-04-14",
+        "end_date": "2022-04-14",
+        "initial_capital": 100000,
+        "transaction_cost_bps": 5,
+        "allocation": {
+            "entry_mode": "percent_of_equity",
+            "entry_value": 1.0,
+            "max_position_pct": 1.0,
+        },
+        "entry_rule": {
+            "kind": "atomic",
+            "type": "series_below",
+            "symbol": "DGS10",
+            "threshold": 4.0,
+        },
+        "exit_rule": {
+            "kind": "atomic",
+            "type": "rsi_above",
+            "symbol": "QQQ",
+            "lookback": 14,
+            "threshold": 70,
+        },
+        "risk": {
+            "cooldown_bars": 0,
+        },
+        "core_overlay": {
+            "enabled": False,
+            "core_allocation_pct": 0.0,
+        },
+    }
+
+    with pytest.raises(ValueError, match="DGS10 is not supported yet"):
+        validate_draft_config(config=config, max_backtest_years=5)
 
 
 def test_collect_draft_config_warnings_flags_self_blocking_minimum_trade_pct():

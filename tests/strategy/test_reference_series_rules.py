@@ -224,6 +224,62 @@ def test_missing_reference_date_returns_false_without_forward_fill() -> None:
     assert evaluate_rule(rule, bundle, 2, "QQQ") is False
 
 
+def test_future_reference_date_is_not_used_when_current_date_is_missing() -> None:
+    bundle = _bundle(
+        dates=["2021-01-04", "2021-01-05", "2021-01-06"],
+        reference_df=_reference_series(
+            "VIX",
+            ["2021-01-04", "2021-01-06"],
+            values=[30.0, 10.0],
+        ),
+    )
+    rule = AtomicRule.model_validate(
+        {"kind": "atomic", "type": "series_below", "symbol": "VIX", "threshold": 25}
+    )
+
+    assert evaluate_rule(rule, bundle, 1, "QQQ") is False
+    assert evaluate_rule(rule, bundle, 2, "QQQ") is True
+
+
+def test_unavailable_reference_value_returns_false() -> None:
+    bundle = _bundle(
+        reference_df=_reference_series(
+            "VIX",
+            ["2021-01-04", "2021-01-05", "2021-01-06"],
+            values=[20.0, pd.NA, 10.0],
+        )
+    )
+    below = AtomicRule.model_validate(
+        {"kind": "atomic", "type": "series_below", "symbol": "VIX", "threshold": 25}
+    )
+    above = AtomicRule.model_validate(
+        {"kind": "atomic", "type": "series_above", "symbol": "VIX", "threshold": 25}
+    )
+
+    assert evaluate_rule(below, bundle, 1, "QQQ") is False
+    assert evaluate_rule(above, bundle, 1, "QQQ") is False
+
+
+def test_reference_series_that_starts_later_is_false_until_first_reference_date() -> None:
+    bundle = _bundle(
+        dates=["2021-01-04", "2021-01-05", "2021-01-06"],
+        reference_df=_reference_series(
+            "VIX",
+            ["2021-01-06"],
+            values=[10.0],
+        ),
+    )
+    rule = AtomicRule.model_validate(
+        {"kind": "atomic", "type": "series_below", "symbol": "VIX", "threshold": 25}
+    )
+
+    assert [evaluate_rule(rule, bundle, index, "QQQ") for index in range(3)] == [
+        False,
+        False,
+        True,
+    ]
+
+
 def test_missing_reference_symbol_raises_clear_market_data_error() -> None:
     bundle = MarketDataBundle(tradable=_tradable(), references={})
     rule = AtomicRule.model_validate(
@@ -232,6 +288,72 @@ def test_missing_reference_symbol_raises_clear_market_data_error() -> None:
 
     with pytest.raises(ValueError, match="Missing market data for reference symbol VIX"):
         evaluate_rule(rule, bundle, 0, "QQQ")
+
+
+def test_relative_return_above_uses_same_date_returns_without_future_reference_fill() -> None:
+    bundle = MarketDataBundle(
+        tradable=_tradable(
+            dates=["2021-01-04", "2021-01-05", "2021-01-06"],
+            closes=[100.0, 110.0, 111.0],
+        ),
+        references={
+            "SPY": _reference_series(
+                "SPY",
+                ["2021-01-04", "2021-01-06"],
+                closes=[100.0, 100.0],
+            )
+        },
+    )
+    rule = AtomicRule.model_validate(
+        {
+            "kind": "atomic",
+            "type": "relative_return_above",
+            "symbol": "QQQ",
+            "reference_symbol": "SPY",
+            "lookback": 1,
+            "threshold": 0.005,
+        }
+    )
+
+    assert evaluate_rule(rule, bundle, 1, "QQQ") is False
+    assert evaluate_rule(rule, bundle, 2, "QQQ") is True
+
+
+def test_realized_volatility_rules_can_target_reference_bars() -> None:
+    bundle = MarketDataBundle(
+        tradable=_tradable(dates=["2021-01-04", "2021-01-05", "2021-01-06"]),
+        references={
+            "SPY": _reference_series(
+                "SPY",
+                ["2021-01-04", "2021-01-05", "2021-01-06"],
+                closes=[100.0, 101.0, 102.0],
+            )
+        },
+    )
+    strategy = StrategyV2.model_validate(
+        _strategy_config(
+            {
+                "kind": "atomic",
+                "type": "realized_volatility_below",
+                "symbol": "SPY",
+                "lookback": 2,
+                "threshold": 0.01,
+            },
+            exit_rule={
+                "kind": "atomic",
+                "type": "realized_volatility_above",
+                "symbol": "SPY",
+                "lookback": 2,
+                "threshold": 10.0,
+            },
+        )
+    )
+
+    result = runner.run_simulation(bundle, strategy)
+
+    assert result.timeline[0].get("SPY_realized_volatility_2") is None
+    assert result.timeline[2]["SPY_realized_volatility_2"] < 0.01
+    assert result.trade_log[0]["date"] == "2021-01-06"
 
 
 def test_runner_combines_tradable_rsi_with_reference_series_rule() -> None:

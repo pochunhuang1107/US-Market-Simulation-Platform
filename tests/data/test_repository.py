@@ -127,3 +127,38 @@ def test_reference_series_missing_data_raises_clear_error(tmp_path) -> None:
             start_date="2021-01-04",
             end_date="2021-01-05",
         )
+
+
+def test_reference_series_starting_later_loads_only_available_curated_rows(tmp_path) -> None:
+    _write_parquet(
+        _etf_rows("QQQ", [100.0, 101.0, 102.0]),
+        tmp_path / "curated" / "etf_daily_prices" / "symbol=QQQ" / "year=2021" / "data.parquet",
+    )
+    _write_parquet(
+        pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2021-01-06"]),
+                "symbol": ["VIX"],
+                "value": [19.0],
+                "unit": ["index"],
+                "source": ["CBOE"],
+                "series_type": ["volatility_index"],
+            }
+        ),
+        tmp_path / "curated" / "reference_series" / "symbol=VIX" / "year=2021" / "data.parquet",
+    )
+
+    bundle = _repository(tmp_path).get_market_data(
+        tradable_symbol="QQQ",
+        reference_symbols=["VIX"],
+        start_date="2021-01-04",
+        end_date="2021-01-06",
+    )
+
+    assert bundle.tradable["date"].tolist() == list(
+        pd.to_datetime(["2021-01-04", "2021-01-05", "2021-01-06"])
+    )
+    assert bundle.references["VIX"]["date"].tolist() == [
+        pd.Timestamp("2021-01-06")
+    ]
+    assert bundle.references["VIX"]["close"].tolist() == [19.0]

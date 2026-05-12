@@ -7,6 +7,13 @@ import pandas as pd
 
 from market_simulator.engine.execution import transaction_cost
 from market_simulator.models.result import SimulationResult
+from market_simulator.models.strategy_v2 import (
+    AtomicRule,
+    GroupRule,
+    NotRule,
+    SequenceRule,
+    WindowRule,
+)
 from market_simulator.reporting.metrics import (
     build_overlay_diagnostics,
     build_sleeve_summary,
@@ -31,6 +38,149 @@ def _round(value: float | int | None) -> float | None:
     if value is None:
         return None
     return round(float(value), 6)
+
+
+def _safe_value(row, column: str):
+    if column not in row:
+        return None
+    value = row[column]
+    if pd.isna(value):
+        return None
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float):
+        return _round(value)
+    return value
+
+
+def _collect_atomic_rules(rule, out: list[AtomicRule]) -> None:
+    if isinstance(rule, AtomicRule):
+        out.append(rule)
+    elif isinstance(rule, NotRule):
+        _collect_atomic_rules(rule.rule, out)
+    elif isinstance(rule, WindowRule):
+        _collect_atomic_rules(rule.rule, out)
+    elif isinstance(rule, SequenceRule):
+        for step in rule.steps:
+            _collect_atomic_rules(step, out)
+    elif isinstance(rule, GroupRule):
+        for child in rule.rules:
+            _collect_atomic_rules(child, out)
+
+
+def _rule_symbol(rule: AtomicRule, strategy) -> str:
+    return (rule.symbol or strategy.tradable_symbol or "").upper()
+
+
+def _status_from_comparison(actual, operator: str | None, threshold) -> str:
+    if actual is None or threshold is None or operator not in {"below", "above"}:
+        return "unavailable"
+    try:
+        actual_float = float(actual)
+        threshold_float = float(threshold)
+    except (TypeError, ValueError):
+        return "unavailable"
+
+    matched = (
+        actual_float < threshold_float
+        if operator == "below"
+        else actual_float > threshold_float
+    )
+    return "matched" if matched else "not_matched"
+
+
+def _rule_text(operator: str | None, threshold) -> str | None:
+    if operator is None or threshold is None:
+        return None
+    symbol = "<" if operator == "below" else ">" if operator == "above" else operator
+    return f"{symbol} {threshold}"
+
+
+def _threshold_operator(rule: AtomicRule) -> str | None:
+    if rule.type.endswith("below"):
+        return "below"
+    if rule.type.endswith("above"):
+        return "above"
+    return None
+
+
+def _risk_signal_for_rule(
+    rule: AtomicRule,
+    bundle,
+    strategy,
+    index: int,
+) -> dict[str, Any] | None:
+    current_date = pd.Timestamp(bundle.tradable.iloc[index]["date"])
+    symbol = _rule_symbol(rule, strategy)
+    try:
+        target_df = resolve_market_dataframe(bundle, rule.symbol, strategy.tradable_symbol)
+    except ValueError:
+        return None
+
+    row_pos = row_position_for_date(target_df, current_date)
+    if row_pos is None:
+        operator = _threshold_operator(rule)
+        return {
+            "label": symbol or str(rule.symbol or "Series").upper(),
+            "actual": None,
+            "actual_value": None,
+            "rule": _rule_text(operator, rule.threshold),
+            "operator": operator,
+            "threshold": rule.threshold,
+            "status": "unavailable",
+            "source": "rotation_risk_filter",
+        }
+
+    row = target_df.iloc[row_pos]
+    operator: str | None = None
+    threshold = rule.threshold
+    actual_value = None
+    label = None
+
+    if rule.type in {"series_below", "series_above"}:
+        operator = "below" if rule.type == "series_below" else "above"
+        actual_value = _safe_value(row, "value")
+        if actual_value is None:
+            actual_value = _safe_value(row, "close")
+        label = symbol or str(rule.symbol or "Series").upper()
+    elif rule.type in {"sma_above", "sma_cross_above", "sma_cross_below"}:
+        operator = "above" if rule.type.endswith("above") else "below"
+        actual_value = _safe_value(row, f"sma_{rule.fast_window}")
+        threshold = _safe_value(row, f"sma_{rule.slow_window}")
+        label = f"{symbol} SMA({rule.fast_window})"
+    elif rule.type in {"realized_volatility_below", "realized_volatility_above"}:
+        operator = "below" if rule.type == "realized_volatility_below" else "above"
+        actual_value = _safe_value(row, f"realized_volatility_{rule.lookback}")
+        label = f"{symbol} realized volatility({rule.lookback})"
+    else:
+        return None
+
+    status = _status_from_comparison(actual_value, operator, threshold)
+    return {
+        "label": label,
+        "actual": actual_value,
+        "actual_value": actual_value,
+        "rule": _rule_text(operator, threshold),
+        "operator": operator,
+        "threshold": threshold,
+        "status": status,
+        "source": "rotation_risk_filter",
+    }
+
+
+def _risk_filter_signals(bundle, strategy, index: int) -> list[dict[str, Any]]:
+    rotation = strategy.rotation
+    if rotation is None or rotation.risk_filter is None:
+        return []
+
+    rules: list[AtomicRule] = []
+    _collect_atomic_rules(rotation.risk_filter, rules)
+    signals: list[dict[str, Any]] = []
+    for rule in rules:
+        signal = _risk_signal_for_rule(rule, bundle, strategy, index)
+        if signal is not None:
+            signals.append(signal)
+    return signals
 
 
 def _price_at(df: pd.DataFrame, date: pd.Timestamp) -> float | None:
@@ -145,6 +295,7 @@ def _target_weights(
             index,
             strategy.tradable_symbol,
         )
+    risk_signals = _risk_filter_signals(bundle, strategy, index)
 
     ranked_symbols, asset_returns, ranks = _rank_universe(bundle, strategy, date)
     selected_assets: list[str] = []
@@ -172,6 +323,7 @@ def _target_weights(
         "selected_assets": selected_assets,
         "asset_returns": {symbol: _round(value) for symbol, value in asset_returns.items()},
         "asset_ranks": ranks,
+        "risk_filter_signals": risk_signals,
     }
 
 
@@ -213,7 +365,8 @@ def _record_rotation_trade_snapshot(
                     if trade.get("symbol") in metadata.get("selected_assets", [])
                     else "rebalanced",
                 }
-            ],
+            ]
+            + list(metadata.get("risk_filter_signals", [])),
             "rotation": metadata,
         }
     )
@@ -357,6 +510,7 @@ def run_rotation_simulation(bundle, strategy) -> SimulationResult:
         "selected_assets": [],
         "asset_returns": {},
         "asset_ranks": {},
+        "risk_filter_signals": [],
     }
 
     for index, row in df.iterrows():
@@ -471,6 +625,7 @@ def run_rotation_simulation(bundle, strategy) -> SimulationResult:
             "asset_returns": current_metadata["asset_returns"],
             "asset_ranks": current_metadata["asset_ranks"],
             "risk_filter_passed": current_metadata["risk_filter_passed"],
+            "risk_filter_signals": current_metadata["risk_filter_signals"],
             "fallback_used": current_metadata["fallback_used"],
             "holdings": holdings_snapshot,
         }
