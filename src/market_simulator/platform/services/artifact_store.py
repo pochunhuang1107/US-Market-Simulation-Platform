@@ -11,7 +11,11 @@ from urllib.parse import urlparse
 import boto3
 
 from market_simulator.db.enums import ArtifactStorageType
-from market_simulator.platform.services.artifact_manifest import is_s3_uri
+from market_simulator.platform.services.artifact_manifest import (
+    RUN_ARTIFACT_FILES,
+    SWEEP_ARTIFACT_FILES,
+    is_s3_uri,
+)
 from market_simulator.settings import get_settings
 
 
@@ -44,15 +48,8 @@ class LocalArtifactStore:
     def finalize_simulation_artifacts(self, run_id: UUID | str) -> ArtifactWriteResult:
         run_dir = self.base_dir / "runs" / str(run_id)
         manifest = {
-            "summary": str(run_dir / "summary.json"),
-            "sleeve_summary": str(run_dir / "sleeve_summary.json"),
-            "yearly_report": str(run_dir / "yearly_report.csv"),
-            "trade_log": str(run_dir / "trade_log.csv"),
-            "timeline": str(run_dir / "timeline.csv"),
-            "trade_signal_snapshots": str(run_dir / "trade_signal_snapshots.json"),
-            "events": str(run_dir / "events.csv"),
-            "monthly_returns": str(run_dir / "monthly_returns.csv"),
-            "report_bundle": str(run_dir / "report_bundle.json"),
+            key: str(run_dir / filename)
+            for key, filename in RUN_ARTIFACT_FILES.items()
         }
         return ArtifactWriteResult(
             storage_type=ArtifactStorageType.LOCAL,
@@ -64,8 +61,8 @@ class LocalArtifactStore:
     def finalize_sweep_artifacts(self, run_id: UUID | str) -> ArtifactWriteResult:
         run_dir = self.base_dir / "runs" / str(run_id)
         manifest = {
-            "sweep_summary": str(run_dir / "sweep_summary.json"),
-            "sweep_results": str(run_dir / "sweep_results.csv"),
+            key: str(run_dir / filename)
+            for key, filename in SWEEP_ARTIFACT_FILES.items()
         }
         return ArtifactWriteResult(
             storage_type=ArtifactStorageType.LOCAL,
@@ -128,20 +125,8 @@ class S3ArtifactStore:
         run_dir = self.local_base_dir / "runs" / str(run_id)
         s3_root_prefix = f"{self.prefix}/runs/{run_id}"
 
-        expected_files = {
-            "summary": "summary.json",
-            "sleeve_summary": "sleeve_summary.json",
-            "yearly_report": "yearly_report.csv",
-            "trade_log": "trade_log.csv",
-            "timeline": "timeline.csv",
-            "trade_signal_snapshots": "trade_signal_snapshots.json",
-            "events": "events.csv",
-            "monthly_returns": "monthly_returns.csv",
-            "report_bundle": "report_bundle.json",
-        }
-
         manifest = {}
-        for manifest_key, filename in expected_files.items():
+        for manifest_key, filename in RUN_ARTIFACT_FILES.items():
             path = run_dir / filename
             if not path.exists() or not path.is_file():
                 continue
@@ -169,13 +154,8 @@ class S3ArtifactStore:
             artifact_root_uri=artifact_root_uri,
         )
 
-        expected_files = {
-            "sweep_summary": "sweep_summary.json",
-            "sweep_results": "sweep_results.csv",
-        }
-
         manifest = {}
-        for manifest_key, filename in expected_files.items():
+        for manifest_key, filename in SWEEP_ARTIFACT_FILES.items():
             path = run_dir / filename
             if not path.exists() or not path.is_file():
                 continue

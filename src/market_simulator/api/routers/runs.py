@@ -128,6 +128,28 @@ def _artifact_unavailable_exception(run, exc: Exception) -> HTTPException:
     )
 
 
+def _variant_artifact_unavailable_exception(run, variant_id: str, exc: Exception) -> HTTPException:
+    storage_type = str(getattr(run, "artifact_storage_type", "") or "")
+    if storage_type.upper() == "LOCAL":
+        message = (
+            "Sweep variant artifacts are unavailable. This variant references local "
+            "artifacts that are no longer present."
+        )
+    else:
+        message = "Sweep variant artifacts are unavailable. The recorded artifacts could not be read."
+
+    return HTTPException(
+        status_code=ARTIFACT_UNAVAILABLE_STATUS_CODE,
+        detail={
+            "code": ARTIFACT_UNAVAILABLE_CODE,
+            "message": message,
+            "artifact_storage_type": storage_type,
+            "variant_id": str(variant_id),
+            "error_type": exc.__class__.__name__,
+        },
+    )
+
+
 def _build_run_response(run) -> RunResponse:
     response = RunResponse.model_validate(run).enrich(
         artifact_url_resolver=artifact_store.generate_download_url
@@ -383,15 +405,19 @@ def _load_variant_chart_data(variant: dict) -> dict | None:
         return None
 
 
-def _load_variant_trade_events(variant: dict, config: dict | None) -> dict:
+def _load_variant_trade_events(run, variant_id: str, variant: dict, config: dict | None) -> dict:
     manifest = _variant_artifact_manifest(variant)
     if manifest is None:
-        return {"total_count": 0, "events": []}
+        raise _variant_artifact_unavailable_exception(
+            run,
+            variant_id,
+            FileNotFoundError("Sweep variant required artifacts are missing"),
+        )
 
     try:
         return trade_event_inspector.load_trade_events(manifest, config=config)
-    except Exception:
-        return {"total_count": 0, "events": []}
+    except ARTIFACT_UNAVAILABLE_EXCEPTIONS as exc:
+        raise _variant_artifact_unavailable_exception(run, variant_id, exc) from exc
 
 
 def _load_rotation_review(run) -> dict | None:
@@ -1219,7 +1245,7 @@ def get_sweep_variant_trade_events_api(
 
     config = _get_sweep_variant_config(run, variant, variant_id)
     variant = {**variant, "config": config}
-    return _load_variant_trade_events(variant, config)
+    return _load_variant_trade_events(run, variant_id, variant, config)
 
 
 @router.get("/{run_id}", response_model=RunResponse)

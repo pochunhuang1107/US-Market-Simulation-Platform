@@ -5,7 +5,12 @@ import io
 import json
 from pathlib import Path
 
-from market_simulator.platform.services.artifact_manifest import build_variant_artifact_manifest
+from market_simulator.platform.services.artifact_manifest import (
+    ARTIFACT_EXPECTATIONS_BY_RUN_TYPE,
+    RUN_ARTIFACT_FILES,
+    SWEEP_ARTIFACT_FILES,
+    build_variant_artifact_manifest,
+)
 from market_simulator.platform.services.artifact_store import S3ArtifactStore
 from market_simulator.platform.services.run_chart_service import RunChartService
 
@@ -152,6 +157,53 @@ def test_s3_finalize_simulation_artifacts_uploads_expected_manifest(tmp_path) ->
     assert chart_data["equity_curve"][-1]["strategy_equity"] == 110.0
     assert chart_data["monthly_returns"][0]["return_pct"] == 10.0
     assert chart_data["trade_markers"][0]["side"] == "BUY"
+
+
+def test_artifact_expectations_codify_required_and_optional_run_types() -> None:
+    assert ARTIFACT_EXPECTATIONS_BY_RUN_TYPE["SIMULATION"]["required"] == (
+        "summary",
+        "timeline",
+        "monthly_returns",
+        "trade_log",
+        "report_bundle",
+    )
+    assert "trade_signal_snapshots" in ARTIFACT_EXPECTATIONS_BY_RUN_TYPE["SIMULATION"]["optional"]
+    assert ARTIFACT_EXPECTATIONS_BY_RUN_TYPE["ROTATION"]["timeline_fields"] == (
+        "selected_assets",
+        "target_weights",
+        "asset_ranks",
+        "rebalance",
+    )
+    assert ARTIFACT_EXPECTATIONS_BY_RUN_TYPE["PARAMETER_SWEEP"]["required"] == (
+        "sweep_summary",
+        "sweep_results",
+    )
+    assert ARTIFACT_EXPECTATIONS_BY_RUN_TYPE["SWEEP_VARIANT"]["required"] == (
+        "timeline",
+        "monthly_returns",
+        "trade_log",
+    )
+
+
+def test_local_finalize_uses_local_paths_and_sweep_manifest_keys(tmp_path) -> None:
+    from market_simulator.platform.services.artifact_store import LocalArtifactStore
+
+    run_id = "run-local-123"
+    store = LocalArtifactStore(base_dir=str(tmp_path))
+
+    simulation_result = store.finalize_simulation_artifacts(run_id)
+    assert simulation_result.storage_type == "LOCAL"
+    assert set(simulation_result.manifest_json) == set(RUN_ARTIFACT_FILES)
+    assert all(not str(uri).startswith("s3://") for uri in simulation_result.manifest_json.values())
+    assert simulation_result.manifest_json["timeline"] == str(
+        tmp_path / "runs" / run_id / "timeline.csv"
+    )
+
+    sweep_result = store.finalize_sweep_artifacts(run_id)
+    assert set(sweep_result.manifest_json) == set(SWEEP_ARTIFACT_FILES)
+    assert sweep_result.manifest_json["sweep_summary"] == str(
+        tmp_path / "runs" / run_id / "sweep_summary.json"
+    )
 
 
 def test_s3_download_urls_only_presign_s3_artifact_uris(tmp_path) -> None:

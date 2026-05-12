@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { fetchRunTradeEvents, fetchSweepVariantTradeEvents } from '../../lib/api';
+import {
+  artifactUnavailableMessage,
+  fetchRunTradeEvents,
+  fetchSweepVariantTradeEvents,
+  isArtifactUnavailableError
+} from '../../lib/api';
 import { formatShortDate } from '../../lib/formatters';
 import type {
   TradeCapitalContext,
@@ -287,7 +292,13 @@ export function TradeEventInspector({ runId, variantId }: { runId: string; varia
         if (ignore) return;
         setData(null);
         setSelectedEventId(null);
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to load trade events');
+        setErrorMessage(
+          isArtifactUnavailableError(error)
+            ? artifactUnavailableMessage(error)
+            : error instanceof Error
+              ? error.message
+              : 'Failed to load trade events'
+        );
       } finally {
         if (!ignore) {
           setIsLoading(false);
