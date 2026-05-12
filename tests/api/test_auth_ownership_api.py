@@ -310,6 +310,44 @@ def test_protected_mode_rejects_x_user_id_only_for_high_risk_user_scoped_apis(
         assert response.json()["detail"] == PROVIDER_NOT_CONFIGURED_DETAIL
 
 
+def test_admin_recover_stale_is_limited_to_configured_local_dev_admins(
+    client,
+    create_user,
+    current_user_ctx,
+    monkeypatch,
+):
+    admin_id = DEV_USER_ID
+    non_admin_id = str(uuid.uuid4())
+    create_user(user_id=admin_id, email="recover-admin@example.com")
+    create_user(user_id=non_admin_id, email="recover-non-admin@example.com")
+    calls = []
+
+    def fake_recover(_db):
+        calls.append("recover")
+        return {"recovered_count": 0, "run_ids": []}
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.worker_service.recover_stale_runs",
+        fake_recover,
+    )
+
+    current_user_ctx["id"] = non_admin_id
+    denied_response = client.post("/runs/admin/recover-stale")
+
+    assert denied_response.status_code == 403
+    assert denied_response.json()["detail"] == (
+        "Stale run recovery is only available to configured local dev admins."
+    )
+    assert calls == []
+
+    current_user_ctx["id"] = admin_id
+    admin_response = client.post("/runs/admin/recover-stale")
+
+    assert admin_response.status_code == 200
+    assert admin_response.json() == {"recovered_count": 0, "run_ids": []}
+    assert calls == ["recover"]
+
+
 def test_current_user_rejects_invalid_x_user_id(real_auth_client, monkeypatch):
     _set_auth_settings(monkeypatch, env="local", auth_mode="dev")
 
