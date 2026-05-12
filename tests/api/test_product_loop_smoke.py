@@ -114,6 +114,7 @@ def _create_execute_and_load_run(
     db_session,
     tmp_path,
     config: dict,
+    request_payload: dict | None = None,
 ) -> tuple[str, dict]:
     create_response = client.post(
         "/runs",
@@ -121,7 +122,7 @@ def _create_execute_and_load_run(
             "draft_config": config,
             "run_type": "SIMULATION",
             "executor_type": "SIMULATION_EXECUTOR",
-            "request_payload": {"source": "strategy_chat_smoke"},
+            "request_payload": request_payload or {"source": "strategy_chat_smoke"},
             "max_attempts": 1,
         },
     )

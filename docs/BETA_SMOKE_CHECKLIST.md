@@ -6,6 +6,11 @@ Before switching between local dev, compose smoke, and Auth0 beta QA, read the [
 
 For the release gate before tester handoff, use [Beta Release Checklist](BETA_RELEASE_CHECKLIST.md).
 
+Automated local checks:
+
+- `bash scripts/beta_smoke_core_loop.sh` runs the focused synthetic-data product-loop smoke for Builder, Gallery, rotation review, run detail/chart/dashboard APIs, and compare.
+- `bash scripts/beta_release_gate.sh` remains the full local release gate and also runs the complete backend test suite plus frontend build and release preflight checks.
+
 ## Local Setup
 
 - [ ] Copy `.env.example` to `.env` and keep `ENV=local` with `AUTH_MODE=dev`.
@@ -180,6 +185,12 @@ curl -i \
 - [ ] Confirm the response is `401`; with OIDC configured, the body should report a missing bearer token, not accept `X-User-Id`.
 
 ## Release Gate
+
+- [ ] Focused beta core-loop smoke passes:
+
+```bash
+bash scripts/beta_smoke_core_loop.sh
+```
 
 - [ ] Backend tests pass:
 
