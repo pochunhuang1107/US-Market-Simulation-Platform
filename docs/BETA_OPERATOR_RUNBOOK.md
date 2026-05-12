@@ -6,6 +6,14 @@ Use this runbook when switching between normal local development, packaged Docke
 
 Use local dev mode for normal feature work and real local configuration, including your real local `.env` data paths and local or S3 artifact settings.
 
+For a quick automated product-loop check that does not start services or use external providers, run:
+
+```bash
+bash scripts/beta_smoke_core_loop.sh
+```
+
+Use this focused smoke while iterating on Builder, Gallery, run execution, artifacts, dashboards, rotation review, or compare. Use `bash scripts/beta_release_gate.sh` for the full local/code release gate before tester handoff.
+
 ### Ownership
 
 - Postgres: local Postgres container.

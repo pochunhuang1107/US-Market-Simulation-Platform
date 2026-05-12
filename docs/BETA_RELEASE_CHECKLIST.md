@@ -12,6 +12,14 @@ bash scripts/beta_release_gate.sh
 
 This command runs backend tests, the frontend production build, beta env template preflight, `docker-compose.beta-local.yml` config validation, tracked env-file safety checks, and the landing/workspace route split check. It does not require AWS/Auth0 secrets, print env values, create cloud resources, or start the compose stack.
 
+For a faster product-loop confidence check during feature work, run the focused beta smoke suite:
+
+```bash
+bash scripts/beta_smoke_core_loop.sh
+```
+
+The smoke suite uses synthetic local data to cover Builder, Gallery, rotation run review, run detail/chart/dashboard APIs, and compare. It is not a replacement for `scripts/beta_release_gate.sh`, which remains the full local release gate before tester handoff.
+
 - [ ] Review [Ownership And Authorization Checklist](OWNERSHIP_AUTHORIZATION.md) when adding or changing any user-scoped API route.
 - [ ] Review [Reference-Series And Regime Filters](REFERENCE_SERIES_REGIME_FILTERS.md) when changing reference-series data, regime rules, Gallery templates, or builder parsing.
 
@@ -109,6 +117,12 @@ python scripts/provision_user.py \
 - [ ] If the external subject is not known yet, only provision by email when `OIDC_ALLOW_EMAIL_LINKING=true` is intentionally enabled for first-login bootstrap.
 
 ## 7. Product Smoke
+
+- [ ] Run the automated focused product-loop smoke when changing Builder, Gallery, run execution, artifacts, dashboards, rotation review, or compare:
+
+```bash
+bash scripts/beta_smoke_core_loop.sh
+```
 
 - [ ] Open Gallery and start from a curated strategy.
 - [ ] Open Builder and create a simple draft strategy.
