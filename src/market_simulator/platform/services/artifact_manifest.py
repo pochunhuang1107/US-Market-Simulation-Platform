@@ -17,6 +17,43 @@ VARIANT_ARTIFACT_FILES = {
 
 REQUIRED_VARIANT_ARTIFACT_KEYS = ("timeline", "monthly_returns", "trade_log")
 
+RUN_ARTIFACT_FILES = {
+    "summary": "summary.json",
+    "sleeve_summary": "sleeve_summary.json",
+    "yearly_report": "yearly_report.csv",
+    "trade_log": "trade_log.csv",
+    "timeline": "timeline.csv",
+    "trade_signal_snapshots": "trade_signal_snapshots.json",
+    "events": "events.csv",
+    "monthly_returns": "monthly_returns.csv",
+    "report_bundle": "report_bundle.json",
+}
+
+SWEEP_ARTIFACT_FILES = {
+    "sweep_summary": "sweep_summary.json",
+    "sweep_results": "sweep_results.csv",
+}
+
+ARTIFACT_EXPECTATIONS_BY_RUN_TYPE = {
+    "SIMULATION": {
+        "required": ("summary", "timeline", "monthly_returns", "trade_log", "report_bundle"),
+        "optional": ("sleeve_summary", "yearly_report", "trade_signal_snapshots", "events"),
+    },
+    "ROTATION": {
+        "required": ("summary", "timeline", "monthly_returns", "trade_log", "report_bundle"),
+        "optional": ("sleeve_summary", "yearly_report", "trade_signal_snapshots", "events"),
+        "timeline_fields": ("selected_assets", "target_weights", "asset_ranks", "rebalance"),
+    },
+    "PARAMETER_SWEEP": {
+        "required": ("sweep_summary", "sweep_results"),
+        "optional": (),
+    },
+    "SWEEP_VARIANT": {
+        "required": REQUIRED_VARIANT_ARTIFACT_KEYS,
+        "optional": ("summary", "sleeve_summary", "yearly_report", "trade_signal_snapshots", "events", "report_bundle"),
+    },
+}
+
 
 def is_s3_uri(value: str) -> bool:
     return value.strip().startswith("s3://")

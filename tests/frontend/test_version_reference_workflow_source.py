@@ -46,6 +46,8 @@ def test_run_detail_uses_rotation_rebalance_inspector_for_rotation_runs():
     assert "import { RotationRebalanceInspector }" in page_source
     assert "data.rotation_review?.is_rotation" in page_source
     assert "<RotationRebalanceInspector review={data.rotation_review} />" in page_source
+    assert "isRotation ? (" in page_source
+    assert "Rotation rebalance artifacts are not available for this result." in page_source
     assert "<TradeEventInspector runId={data.run.id} />" in page_source
     assert "Rotation Rebalance Inspector" in inspector_source
     assert "Ranks / trailing returns" in inspector_source
@@ -100,6 +102,14 @@ def test_run_detail_stops_polling_when_succeeded_artifacts_are_unavailable():
     assert "RunInsightBreakdown run={run}" in source
     assert "ARTIFACT_UNAVAILABLE" in api_source
     assert "error.status !== 424" in api_source
+
+
+def test_trade_event_inspector_distinguishes_missing_artifacts_from_empty_trades():
+    source = (ROOT / "frontend/src/components/run-detail/TradeEventInspector.tsx").read_text()
+
+    assert "isArtifactUnavailableError" in source
+    assert "artifactUnavailableMessage(error)" in source
+    assert "No trade events were available for this result." in source
 
 
 def test_results_page_exposes_compact_artifact_storage_filter():

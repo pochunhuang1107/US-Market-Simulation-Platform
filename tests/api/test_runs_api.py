@@ -2227,6 +2227,65 @@ def test_compare_normal_run_and_sweep_variant_with_typed_results(
     assert chart_body["strategy_curves"][1]["points"][1]["value"] == 112.5
 
 
+def test_compare_sweep_variant_missing_chart_artifacts_returns_available_curves(
+    client,
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    monkeypatch,
+):
+    create_user(user_id=current_user_ctx["id"], email="compare-missing-variant-chart@example.com")
+    strategy, version = create_strategy_bundle(user_id=current_user_ctx["id"])
+    normal_run = _create_succeeded_run(
+        db_session,
+        user_id=current_user_ctx["id"],
+        strategy_id=str(strategy.id),
+        strategy_version_id=str(version.id),
+        note="compare normal plus missing variant chart",
+    )
+    sweep_run = _create_succeeded_sweep_with_variants(
+        db_session,
+        user_id=current_user_ctx["id"],
+    )
+
+    def fake_load_chart_data(manifest):
+        summary_ref = manifest["summary"]
+        if "variant-a" in summary_ref:
+            raise FileNotFoundError("missing variant timeline.csv")
+
+        return {
+            "equity_curve": [
+                {"date": "2024-01-01", "strategy_equity": 100.0, "benchmark_equity": 100.0},
+                {"date": "2024-01-02", "strategy_equity": 110.0, "benchmark_equity": 105.0},
+            ],
+            "drawdown_curve": [
+                {"date": "2024-01-01", "strategy_drawdown_pct": 0.0, "benchmark_drawdown_pct": 0.0},
+                {"date": "2024-01-02", "strategy_drawdown_pct": -4.0, "benchmark_drawdown_pct": -1.0},
+            ],
+            "monthly_returns": [],
+            "sleeve_equity_curve": [],
+            "sleeve_weight_curve": [],
+            "trade_markers": [],
+        }
+
+    monkeypatch.setattr(
+        "market_simulator.api.routers.runs.comparison_service.chart_service.load_chart_data",
+        fake_load_chart_data,
+    )
+
+    results = f"run:{normal_run.id},sweep_variant:{sweep_run.id}:variant-a"
+    summary_response = client.get(f"/runs/compare?results={results}")
+    chart_response = client.get(f"/runs/compare/chart?results={results}")
+
+    assert summary_response.status_code == 200
+    assert summary_response.json()["metadata"]["warning_message"] is not None
+    assert chart_response.status_code == 200
+    assert [curve["result_ref"] for curve in chart_response.json()["strategy_curves"]] == [
+        f"run:{normal_run.id}",
+    ]
+
+
 def test_compare_sweep_variant_against_sweep_variant_with_typed_results(
     client,
     db_session,
@@ -3614,6 +3673,66 @@ def test_get_sweep_variant_trade_events_loads_local_artifacts_and_enforces_paren
     current_user_ctx["id"] = other_user_id
     response = client.get(f"/runs/{run.id}/sweep/variants/variant-a/trade-events")
     assert response.status_code == 404
+
+
+def test_get_sweep_variant_trade_events_returns_artifact_unavailable_when_required_files_missing(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+    tmp_path,
+):
+    create_user(user_id=current_user_ctx["id"], email="sweep-trade-events-missing@example.com")
+    config = _strategy_v2_config()
+    variant_dir = tmp_path / "sweep-run" / "variants" / "variant-a"
+    variant_dir.mkdir(parents=True)
+    (variant_dir / "timeline.csv").write_text(
+        "date,entry_signal,exit_signal,signal_rsi_14\n2024-01-02,True,False,31.5\n",
+        encoding="utf-8",
+    )
+
+    run = create_run(
+        db_session,
+        current_user_ctx["id"],
+        None,
+        None,
+        "PARAMETER_SWEEP",
+        "SWEEP_EXECUTOR",
+        {"base_config": config, "grid": {"entry_rule.threshold": [35]}},
+        max_attempts=3,
+    )
+    run.status = RunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+    run = mark_run_succeeded(
+        db_session,
+        run,
+        summary_json={
+            "run_type": "PARAMETER_SWEEP",
+            "ranking_metric": "sharpe_ratio",
+            "results": [
+                {
+                    "variant_id": "variant-a",
+                    "variant_name": "variant-a",
+                    "parameters": {"entry_rule.threshold": 35},
+                    "status": "SUCCEEDED",
+                    "trade_count": 1,
+                    "artifact_dir": str(variant_dir),
+                    "config": config,
+                }
+            ],
+        },
+        artifact_dir=str(tmp_path / "sweep-run"),
+        artifact_manifest_json={"sweep_summary": str(tmp_path / "sweep-run" / "sweep_summary.json")},
+    )
+
+    response = client.get(f"/runs/{run.id}/sweep/variants/variant-a/trade-events")
+
+    assert response.status_code == 424
+    body = response.json()
+    assert body["detail"]["code"] == "ARTIFACT_UNAVAILABLE"
+    assert body["detail"]["variant_id"] == "variant-a"
+    assert body["detail"]["error_type"] == "FileNotFoundError"
 
 
 def test_compare_runs_chart_requires_at_least_two_runs(

@@ -10,6 +10,7 @@ import { RunMetaPanel } from '../components/run-detail/RunMetaPanel';
 import { RotationRebalanceInspector } from '../components/run-detail/RotationRebalanceInspector';
 import { SaveStrategyModal } from '../components/run-detail/SaveStrategyModal';
 import { TradeEventInspector } from '../components/run-detail/TradeEventInspector';
+import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
 import {
   artifactUnavailableMessage,
@@ -75,6 +76,18 @@ function formatSaveStrategyError(error: unknown): string {
   }
 
   return message;
+}
+
+function isRotationResult(run: RunResponse): boolean {
+  const summary = run.summary_json ?? {};
+  const draftConfig = getDraftConfig(run);
+  const rotationConfig = draftConfig?.rotation;
+
+  return Boolean(
+    summary.strategy_type === 'rotation' ||
+      Array.isArray(summary.rotation_universe) ||
+      (rotationConfig && typeof rotationConfig === 'object' && 'enabled' in rotationConfig && rotationConfig.enabled === true)
+  );
 }
 
 export function RunDetailPage() {
@@ -274,6 +287,7 @@ export function RunDetailPage() {
 
   const suggestedStrategyName = suggestStrategyNameFromConfig(run?.request_payload?.draft_config);
   const isParameterSweep = data?.run.run_type === 'PARAMETER_SWEEP';
+  const isRotation = data ? isRotationResult(data.run) : false;
   const canSaveDraftStrategy = Boolean(
     data?.run.status === 'SUCCEEDED' && !data.run.strategy_id && getDraftConfig(data.run)
   );
@@ -413,6 +427,15 @@ export function RunDetailPage() {
 
             {data.rotation_review?.is_rotation ? (
               <RotationRebalanceInspector review={data.rotation_review} />
+            ) : isRotation ? (
+              <SectionCard
+                title="Rotation Rebalance Inspector"
+                subtitle="Selection and allocation details from available rotation artifacts."
+              >
+                <div className="app-text-muted text-sm">
+                  Rotation rebalance artifacts are not available for this result.
+                </div>
+              </SectionCard>
             ) : (
               <TradeEventInspector runId={data.run.id} />
             )}
