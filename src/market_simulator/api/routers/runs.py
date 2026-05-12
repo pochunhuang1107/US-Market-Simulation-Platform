@@ -1392,6 +1392,17 @@ def _run_action_http_exception(exc: ValueError) -> HTTPException:
     return HTTPException(status_code=400, detail=detail)
 
 
+def _enforce_local_admin_recovery_access(user) -> None:
+    settings = get_settings()
+    if settings.is_dev_auth_enabled and user["id"] in settings.dev_admin_user_ids:
+        return
+
+    raise HTTPException(
+        status_code=403,
+        detail="Stale run recovery is only available to configured local dev admins.",
+    )
+
+
 @router.post("/{run_id}/enqueue", response_model=RunActionResponse)
 def enqueue_run_api(
     run_id: str,
@@ -1427,6 +1438,7 @@ def recover_stale_runs_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    _enforce_local_admin_recovery_access(user)
     try:
         result = worker_service.recover_stale_runs(db)
         return RecoverStaleRunsResponse.model_validate(result)
