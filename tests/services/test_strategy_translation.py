@@ -23,16 +23,22 @@ from market_simulator.services.strategy_translation import (
 
 
 class _FakeOpenAIResponses:
-    def __init__(self, payload=None, error: Exception | None = None):
+    def __init__(
+        self,
+        payload=None,
+        error: Exception | None = None,
+        usage: dict | None = None,
+    ):
         self.payload = payload
         self.error = error
+        self.usage = usage
         self.calls: list[dict] = []
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
         if self.error is not None:
             raise self.error
-        return {
+        response = {
             "output": [
                 {
                     "content": [
@@ -44,11 +50,19 @@ class _FakeOpenAIResponses:
                 }
             ]
         }
+        if self.usage is not None:
+            response["usage"] = self.usage
+        return response
 
 
 class _FakeOpenAIClient:
-    def __init__(self, payload=None, error: Exception | None = None):
-        self.responses = _FakeOpenAIResponses(payload=payload, error=error)
+    def __init__(
+        self,
+        payload=None,
+        error: Exception | None = None,
+        usage: dict | None = None,
+    ):
+        self.responses = _FakeOpenAIResponses(payload=payload, error=error, usage=usage)
 
 
 class _FailIfCalledProvider:
@@ -801,6 +815,68 @@ def test_openai_mocked_structured_response_is_validated_and_returned():
     call = fake_client.responses.calls[0]
     assert call["model"]
     assert call["text"]["format"]["type"] == "json_schema"
+
+
+def test_openai_missing_usage_metadata_keeps_token_fields_null():
+    req = StrategyBuilderGenerateRequest(prompt="Create a QQQ RSI strategy.")
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    fake_client = _FakeOpenAIClient(
+        payload={
+            "action": "create_config",
+            "full_config": _valid_single_etf_config(),
+            "summary": "Translated a QQQ RSI Strategy V2 draft.",
+        },
+    )
+    provider = OpenAIStrategyTranslationProvider(client=fake_client)
+
+    result = provider.translate(translation_request)
+
+    assert result.response_payload()["response_type"] == "CREATE_DRAFT"
+    assert result.diagnostics["input_tokens"] is None
+    assert result.diagnostics["output_tokens"] is None
+    assert result.diagnostics["total_tokens"] is None
+    assert result.diagnostics["estimated_cost_usd"] is None
+
+
+def test_openai_usage_metadata_and_configured_cost_are_captured(monkeypatch):
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            openai_cost_per_1k_input_tokens_usd=0.10,
+            openai_cost_per_1k_output_tokens_usd=0.20,
+        ),
+    )
+    req = StrategyBuilderGenerateRequest(prompt="Create a QQQ RSI strategy.")
+    translation_request = build_strategy_translation_request(
+        req,
+        entitlements={"plan_code": "TEST"},
+        max_backtest_years=10,
+    )
+    fake_client = _FakeOpenAIClient(
+        payload={
+            "action": "create_config",
+            "full_config": _valid_single_etf_config(),
+            "summary": "Translated a QQQ RSI Strategy V2 draft.",
+        },
+        usage={"input_tokens": 120, "output_tokens": 30, "total_tokens": 150},
+    )
+    provider = OpenAIStrategyTranslationProvider(client=fake_client)
+
+    result = provider.translate(translation_request)
+
+    assert result.response_payload()["response_type"] == "CREATE_DRAFT"
+    assert result.diagnostics["input_tokens"] == 120
+    assert result.diagnostics["output_tokens"] == 30
+    assert result.diagnostics["total_tokens"] == 150
+    assert result.diagnostics["estimated_cost_usd"] == 0.018
 
 
 def test_openai_mocked_structured_response_emits_size_and_latency_logs(

@@ -111,6 +111,9 @@ OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
 OPENAI_TIMEOUT_SECONDS=20
 OPENAI_MAX_RETRIES=1
+OPENAI_FALLBACK_DAILY_LIMIT_PER_USER=25
+OPENAI_FALLBACK_DAILY_LIMIT_BY_PLAN=FREE:0,BETA_TESTER:100,PRO:100,RESEARCH:100,DEV_ADMIN:unlimited
+OPENAI_FALLBACK_MAX_PROMPT_CHARS=4000
 ```
 
 Provider options:
@@ -130,11 +133,58 @@ OpenAI setup for local private testing:
    when a deterministic miss actually needs fallback.
 4. Optionally set `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS`, or
    `OPENAI_MAX_RETRIES`.
-5. Run tests with mocked clients; no test should call the real OpenAI API.
+5. Configure fallback guardrails if needed:
+   `OPENAI_FALLBACK_DAILY_LIMIT_PER_USER` is the default per-user daily cap;
+   `OPENAI_FALLBACK_DAILY_LIMIT_BY_PLAN` overrides that cap by plan code; and
+   `OPENAI_FALLBACK_MAX_PROMPT_CHARS` prevents unusually large prompts from
+   being sent to OpenAI. Use `unlimited`, `none`, or `-1` only for trusted
+   internal plans such as `DEV_ADMIN`.
+6. Optionally set `OPENAI_COST_PER_1K_INPUT_TOKENS_USD` and
+   `OPENAI_COST_PER_1K_OUTPUT_TOKENS_USD` to enable approximate cost estimates
+   from SDK usage metadata. Pricing is intentionally config-driven and should
+   be reviewed whenever the deployed model changes.
+7. Run tests with mocked clients; no test should call the real OpenAI API.
 
 Do not commit real keys. The beta preflight requires `OPENAI_API_KEY` only when
 `STRATEGY_BUILDER_PROVIDER=openai`; deterministic and hybrid beta releases do
 not require any OpenAI variables at preflight time.
+
+## Fallback Usage Tracking
+
+OpenAI usage is tracked separately from normal builder prompt usage in
+`openai_usage_events`. The normal `builder_prompt_events` table still controls
+builder access, accepted/rejected prompt counts, and prompt-length plan limits.
+
+Each OpenAI event records:
+
+- `user_id`
+- `provider=openai`
+- `mode=hybrid_fallback` or `openai_direct`
+- `model`
+- `prompt_chars`
+- `response_chars`
+- `status`: `success`, `validation_error`, `provider_error`, or `timeout`
+- `duration_ms`
+- `fallback_used`
+- `response_type`
+- `input_tokens`, `output_tokens`, and `total_tokens` when the SDK response
+  includes usage metadata
+- `estimated_cost_usd` when token usage and configured pricing are available
+- `created_at`
+
+Deterministic prompts do not create OpenAI usage events. In hybrid mode, the
+daily fallback cap is checked before translation but enforced only after the
+deterministic path misses, so a user who reaches the OpenAI cap can still use
+deterministic Strategy Builder prompts. If fallback is blocked, the response
+keeps the deterministic guidance and adds a user-safe note that the AI fallback
+limit was reached or the prompt was too large for fallback.
+
+The backend also emits concise structured logs named
+`strategy_builder.openai_usage`. These include internal `user_id`, provider,
+mode, model, fallback flag, status, duration, prompt/response character counts,
+token counts, and estimated cost when available. Logs intentionally omit API
+keys, raw headers, and full prompts. Existing translation timing logs continue
+to redact OpenAI keys and avoid raw provider payloads.
 
 ## Testing Notes
 
@@ -150,6 +200,12 @@ coverage includes:
 - invalid configs, unsupported symbols, and performance promises are rejected
 - entitlement gates still reject gated rotation or sweep configs
 - provider errors/timeouts return safe guidance without raw upstream details
+- deterministic prompts do not create OpenAI usage records
+- mocked hybrid fallback creates OpenAI usage records
+- fallback daily limits block OpenAI fallback without blocking deterministic
+  parsing
+- missing SDK usage metadata leaves token fields null
+- mocked token metadata is captured without real OpenAI calls
 
 The LLM is translation-only. It does not run strategy logic, execute tools,
 simulate results, train ML models, or change simulation engine behavior.

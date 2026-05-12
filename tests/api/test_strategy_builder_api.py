@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from datetime import date
 
 import pandas as pd
@@ -20,7 +21,8 @@ from market_simulator.platform.services.parameter_sweep import (
 from market_simulator.strategy.enricher import enrich_market_data
 from market_simulator.strategy.evaluator import evaluate_rule
 from market_simulator.settings import Settings, get_settings
-from market_simulator.db.models import Plan
+from market_simulator.services.strategy_translation import StrategyTranslationResult
+from market_simulator.db.models import OpenAIUsageEvent, Plan
 
 
 @pytest.fixture(autouse=True)
@@ -62,6 +64,88 @@ WORKSPACE_SAMPLE_PROMPTS = [
         id="spy-core-overlay",
     ),
 ]
+
+
+class _FakeOpenAIResponses:
+    def __init__(
+        self,
+        *,
+        payload: dict | None = None,
+        error: Exception | None = None,
+        usage: dict | None = None,
+    ) -> None:
+        self.payload = payload
+        self.error = error
+        self.usage = usage
+        self.calls: list[dict] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        response = {
+            "output": [
+                {
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": json.dumps(self.payload),
+                        }
+                    ]
+                }
+            ]
+        }
+        if self.usage is not None:
+            response["usage"] = self.usage
+        return response
+
+
+class _FakeOpenAIClient:
+    def __init__(
+        self,
+        *,
+        payload: dict | None = None,
+        error: Exception | None = None,
+        usage: dict | None = None,
+    ) -> None:
+        self.responses = _FakeOpenAIResponses(
+            payload=payload,
+            error=error,
+            usage=usage,
+        )
+
+
+def _guidance_only_translate(self, request):
+    return StrategyTranslationResult(
+        response={
+            "response_type": "VALIDATION_ERROR",
+            "message": "This request is not supported by deterministic parsing.",
+            "config": None,
+            "summary": None,
+            "warnings": [],
+            "assumptions": [],
+            "changes": [],
+            "answer_data": None,
+            "validation_data": {
+                "validation_type": "GENERAL",
+                "unsupported_symbols": [],
+                "supported_data_start": None,
+                "supported_data_end": None,
+                "max_backtest_years": request.max_backtest_years,
+                "suggested_action": None,
+            },
+            "guidance_data": {
+                "guidance_type": "GENERAL_GUIDANCE",
+                "suggested_actions": [],
+            },
+            "sweep_draft": None,
+        },
+        translation_provider="deterministic",
+        translation_mode="deterministic",
+        llm_enabled=False,
+        validation_errors=["unsupported"],
+        diagnostics={"deterministic_ms": 1.0},
+    )
 
 
 def _collect_rule_symbols(rule: dict | None) -> set[str]:
@@ -337,6 +421,177 @@ def test_generate_strategy_builder_response_includes_translation_metadata(client
     assert body["deterministic_attempted"] is True
     assert body["openai_attempted"] is False
     assert body["llm_enabled"] is False
+
+
+def test_deterministic_builder_prompt_does_not_create_openai_usage(
+    client,
+    db_session,
+):
+    response = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a QQQ RSI strategy that enters below 30 and exits above 70."
+        },
+    )
+
+    assert response.status_code == 200
+    assert db_session.query(OpenAIUsageEvent).count() == 0
+
+
+def test_hybrid_fallback_creates_openai_usage_record_with_tokens(
+    client,
+    db_session,
+    monkeypatch,
+):
+    fake_client = _FakeOpenAIClient(
+        payload={
+            "action": "create_config",
+            "full_config": _qqq_rsi_core_overlay_current_config(),
+            "summary": "Translated a QQQ RSI Strategy V2 draft.",
+        },
+        usage={"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+    )
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="hybrid",
+            openai_api_key="test-key",
+            openai_model="gpt-test",
+            openai_cost_per_1k_input_tokens_usd=0.10,
+            openai_cost_per_1k_output_tokens_usd=0.20,
+        ),
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_translation.OpenAIStrategyTranslationProvider._build_client",
+        lambda self: fake_client,
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_translation.DeterministicTranslationProvider.translate",
+        _guidance_only_translate,
+    )
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create a strategy from this messy unsupported description."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["translation_provider"] == "openai"
+    assert body["translation_fallback_used"] is True
+    event = db_session.query(OpenAIUsageEvent).one()
+    assert event.user_id
+    assert event.provider == "openai"
+    assert event.mode == "hybrid_fallback"
+    assert event.model == "gpt-test"
+    assert event.status == "success"
+    assert event.fallback_used is True
+    assert event.response_type == "CREATE_DRAFT"
+    assert event.input_tokens == 100
+    assert event.output_tokens == 20
+    assert event.total_tokens == 120
+    assert float(event.estimated_cost_usd) == 0.014
+
+
+def test_hybrid_provider_failure_records_safe_openai_usage_status(
+    client,
+    db_session,
+    monkeypatch,
+):
+    fake_client = _FakeOpenAIClient(error=RuntimeError("raw upstream failure"))
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="hybrid",
+            openai_api_key="test-key",
+        ),
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_translation.OpenAIStrategyTranslationProvider._build_client",
+        lambda self: fake_client,
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_translation.DeterministicTranslationProvider.translate",
+        _guidance_only_translate,
+    )
+
+    response = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create a strategy from this messy unsupported description."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert "raw upstream failure" not in body["message"]
+    event = db_session.query(OpenAIUsageEvent).one()
+    assert event.status == "provider_error"
+    assert event.mode == "hybrid_fallback"
+    assert event.fallback_used is True
+
+
+def test_openai_fallback_daily_limit_blocks_only_fallback(
+    client,
+    db_session,
+    monkeypatch,
+):
+    fake_client = _FakeOpenAIClient(
+        payload={
+            "action": "create_config",
+            "full_config": _qqq_rsi_core_overlay_current_config(),
+            "summary": "Translated a QQQ RSI Strategy V2 draft.",
+        },
+    )
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            artifact_storage_backend="LOCAL",
+            strategy_builder_provider="hybrid",
+            openai_api_key="test-key",
+            openai_fallback_daily_limit_by_plan="TEST_PRO:0",
+        ),
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_translation.OpenAIStrategyTranslationProvider._build_client",
+        lambda self: fake_client,
+    )
+
+    deterministic = client.post(
+        "/strategy-builder/generate",
+        json={
+            "prompt": "Create a QQQ RSI strategy that enters below 30 and exits above 70."
+        },
+    )
+    monkeypatch.setattr(
+        "market_simulator.services.strategy_translation.DeterministicTranslationProvider.translate",
+        _guidance_only_translate,
+    )
+    blocked = client.post(
+        "/strategy-builder/generate",
+        json={"prompt": "Create a strategy from this messy unsupported description."},
+    )
+
+    assert deterministic.status_code == 200
+    assert deterministic.json()["response_type"] == "CREATE_DRAFT"
+    assert blocked.status_code == 200
+    body = blocked.json()
+    assert body["response_type"] == "VALIDATION_ERROR"
+    assert body["translation_provider"] == "deterministic"
+    assert body["openai_attempted"] is False
+    assert "OpenAI fallback limit was reached" in body["message"]
+    assert fake_client.responses.calls == []
+    assert db_session.query(OpenAIUsageEvent).count() == 0
 
 
 def test_generate_strategy_builder_rotation_prompt_uses_deterministic_provider(client):

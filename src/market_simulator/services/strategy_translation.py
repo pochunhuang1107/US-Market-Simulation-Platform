@@ -73,6 +73,16 @@ def log_strategy_builder_timing(event: str, **fields: Any) -> None:
     logging.getLogger(TIMING_LOGGER_NAME).info("%s %s", event, safe_fields)
 
 
+def log_strategy_builder_openai_usage(**fields: Any) -> None:
+    safe_fields = " ".join(
+        f"{key}={_safe_log_value(value)}" for key, value in fields.items()
+    )
+    logging.getLogger(TIMING_LOGGER_NAME).info(
+        "strategy_builder.openai_usage %s",
+        safe_fields,
+    )
+
+
 class StrategyTranslationProviderUnavailable(RuntimeError):
     """Raised when an explicitly configured provider cannot be used safely."""
 
@@ -91,6 +101,10 @@ class StrategyTranslationRequest:
     supported_symbols: tuple[str, ...]
     supported_reference_symbols: tuple[str, ...]
     raw_request: StrategyBuilderGenerateRequest
+    openai_allowed: bool = True
+    openai_block_reason: str | None = None
+    openai_limit: int | None = None
+    openai_used_today: int | None = None
 
 
 @dataclass(frozen=True)
@@ -338,7 +352,14 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 mode=self.mode,
                 llm_enabled=False,
                 max_backtest_years=request.max_backtest_years,
-                diagnostics={"openai_provider_ms": provider_ms},
+                diagnostics={
+                    "openai_provider_ms": provider_ms,
+                    "openai_usage_status": "provider_error",
+                    "model": self.model,
+                    "provider": self.name,
+                    "mode": self.mode,
+                    "prompt_chars": len(request.prompt),
+                },
             )
 
         try:
@@ -367,6 +388,7 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 max_backtest_years=request.max_backtest_years,
                 diagnostics={
                     "openai_provider_ms": provider_ms,
+                    "openai_usage_status": "provider_error",
                     **self._last_request_diagnostics,
                 },
             )
@@ -390,6 +412,7 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 max_backtest_years=request.max_backtest_years,
                 diagnostics={
                     "openai_provider_ms": provider_ms,
+                    "openai_usage_status": "validation_error",
                     **self._last_request_diagnostics,
                 },
             )
@@ -416,6 +439,10 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 max_backtest_years=request.max_backtest_years,
                 diagnostics={
                     "openai_provider_ms": provider_ms,
+                    "openai_usage_status": self._last_request_diagnostics.get(
+                        "openai_usage_status",
+                        "provider_error",
+                    ),
                     **self._last_request_diagnostics,
                 },
             )
@@ -444,6 +471,7 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 validation_errors=[],
                 diagnostics={
                     "openai_provider_ms": provider_ms,
+                    "openai_usage_status": "success",
                     **request_diagnostics,
                     **validation_diagnostics,
                 },
@@ -470,6 +498,7 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                     "openai_provider_ms": provider_ms,
                     **request_diagnostics,
                     **validation_diagnostics,
+                    "openai_usage_status": "validation_error",
                 },
             )
 
@@ -499,6 +528,7 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
         extraction_ms: float | None = None
         contract_ms: float | None = None
         status = "ok"
+        usage_metadata: dict[str, Any] = {}
 
         try:
             request_start = time.perf_counter()
@@ -534,6 +564,7 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 },
             )
             api_ms = _elapsed_ms(request_start)
+            usage_metadata = _extract_openai_usage_metadata(response)
             extraction_start = time.perf_counter()
             output_text = _extract_response_text(response)
             extraction_ms = _elapsed_ms(extraction_start)
@@ -556,13 +587,14 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                     provider_output=output_text,
                 )
                 raise
-        except Exception:
+        except Exception as exc:
             if status == "ok":
-                status = "api_error" if api_ms is None else "error"
+                status = _openai_error_status(exc)
                 if api_ms is None:
                     api_ms = _elapsed_ms(request_start)
             raise
         finally:
+            estimated_cost_usd = _estimate_openai_cost_usd(usage_metadata)
             self._last_request_diagnostics = {
                 "api_ms": api_ms,
                 "extraction_ms": extraction_ms,
@@ -575,6 +607,11 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 "model": self.model,
                 "provider": self.name,
                 "mode": self.mode,
+                "openai_usage_status": _openai_usage_status_from_request_status(status),
+                "input_tokens": usage_metadata.get("input_tokens"),
+                "output_tokens": usage_metadata.get("output_tokens"),
+                "total_tokens": usage_metadata.get("total_tokens"),
+                "estimated_cost_usd": estimated_cost_usd,
             }
             log_strategy_builder_timing(
                 "strategy_builder.openai_request",
@@ -587,6 +624,9 @@ class OpenAIStrategyTranslationProvider(StrategyTranslationProvider):
                 system_chars=len(instructions),
                 context_chars=len(context_json),
                 schema_chars=len(schema_json),
+                input_tokens=usage_metadata.get("input_tokens"),
+                output_tokens=usage_metadata.get("output_tokens"),
+                total_tokens=usage_metadata.get("total_tokens"),
             )
             log_strategy_builder_timing(
                 "strategy_builder.openai_response",
@@ -731,6 +771,59 @@ class HybridStrategyTranslationProvider(StrategyTranslationProvider):
                 diagnostics=diagnostics,
             )
 
+        if not request.openai_allowed:
+            total_ms = _elapsed_ms(hybrid_start)
+            deterministic_response = _with_ai_fallback_blocked_note(
+                deterministic_result.response,
+                request=request,
+            )
+            diagnostics = {
+                **deterministic_result.diagnostics,
+                "hybrid_total_ms": total_ms,
+                "deterministic_success": False,
+                "deterministic_error": deterministic_error,
+                "openai_attempted": False,
+                "fallback_blocked_by_limit": True,
+                "openai_block_reason": request.openai_block_reason,
+                "openai_limit": request.openai_limit,
+                "openai_used_today": request.openai_used_today,
+            }
+            log_strategy_builder_timing(
+                "strategy_builder.hybrid_provider",
+                provider=self.name,
+                mode=self.mode,
+                deterministic_ms=deterministic_ms,
+                deterministic_success=False,
+                openai_fallback_called=False,
+                openai_provider_ms=None,
+                total_ms=total_ms,
+                prompt_chars=len(request.prompt),
+                fallback_blocked_by_limit=True,
+            )
+            log_strategy_builder_openai_usage(
+                provider=OPENAI_PROVIDER,
+                mode="hybrid_fallback",
+                status="limit_blocked",
+                fallback_used=False,
+                prompt_chars=len(request.prompt),
+                openai_limit=request.openai_limit,
+                openai_used_today=request.openai_used_today,
+                reason=request.openai_block_reason,
+            )
+            return _with_hybrid_metadata(
+                StrategyTranslationResult(
+                    response=deterministic_response,
+                    translation_provider=deterministic_result.translation_provider,
+                    translation_mode=deterministic_result.translation_mode,
+                    llm_enabled=False,
+                    validation_errors=deterministic_result.validation_errors,
+                    diagnostics=diagnostics,
+                ),
+                fallback_used=False,
+                openai_attempted=False,
+                diagnostics=diagnostics,
+            )
+
         fallback_result = self.fallback_provider.translate(request)
         total_ms = _elapsed_ms(hybrid_start)
         diagnostics = {
@@ -765,6 +858,10 @@ def build_strategy_translation_request(
     *,
     entitlements: Any,
     max_backtest_years: int,
+    openai_allowed: bool = True,
+    openai_block_reason: str | None = None,
+    openai_limit: int | None = None,
+    openai_used_today: int | None = None,
 ) -> StrategyTranslationRequest:
     settings = get_settings()
     current_config = req.context.current_config if req.context else None
@@ -777,6 +874,10 @@ def build_strategy_translation_request(
         supported_symbols=settings.supported_etf_symbols,
         supported_reference_symbols=settings.supported_reference_series_symbols,
         raw_request=req,
+        openai_allowed=openai_allowed,
+        openai_block_reason=openai_block_reason,
+        openai_limit=openai_limit,
+        openai_used_today=openai_used_today,
     )
 
 
@@ -810,12 +911,20 @@ def translate_strategy_builder_request(
     entitlements: Any,
     max_backtest_years: int,
     provider: StrategyTranslationProvider | None = None,
+    openai_allowed: bool = True,
+    openai_block_reason: str | None = None,
+    openai_limit: int | None = None,
+    openai_used_today: int | None = None,
 ) -> StrategyTranslationResult:
     total_start = time.perf_counter()
     translation_request = build_strategy_translation_request(
         req,
         entitlements=entitlements,
         max_backtest_years=max_backtest_years,
+        openai_allowed=openai_allowed,
+        openai_block_reason=openai_block_reason,
+        openai_limit=openai_limit,
+        openai_used_today=openai_used_today,
     )
     selected_provider = provider or select_strategy_translation_provider(
         requested_mode=translation_request.context_mode,
@@ -1456,6 +1565,83 @@ def _extract_response_text(response: Any) -> str:
     return "\n".join(texts).strip()
 
 
+def _extract_openai_usage_metadata(response: Any) -> dict[str, int | None]:
+    if isinstance(response, dict):
+        payload = response
+    elif hasattr(response, "model_dump"):
+        payload = response.model_dump()
+    else:
+        payload = response
+
+    usage = None
+    if isinstance(payload, dict):
+        usage = payload.get("usage")
+    else:
+        usage = getattr(payload, "usage", None)
+
+    if usage is None:
+        return {
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        }
+
+    def read_int(*names: str) -> int | None:
+        for name in names:
+            if isinstance(usage, dict):
+                value = usage.get(name)
+            else:
+                value = getattr(usage, name, None)
+            if isinstance(value, int):
+                return value
+        return None
+
+    input_tokens = read_int("input_tokens", "prompt_tokens")
+    output_tokens = read_int("output_tokens", "completion_tokens")
+    total_tokens = read_int("total_tokens")
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens
+
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _estimate_openai_cost_usd(usage_metadata: dict[str, Any]) -> float | None:
+    settings = get_settings()
+    input_rate = settings.openai_cost_per_1k_input_tokens_usd
+    output_rate = settings.openai_cost_per_1k_output_tokens_usd
+    input_tokens = usage_metadata.get("input_tokens")
+    output_tokens = usage_metadata.get("output_tokens")
+    if (
+        input_rate is None
+        or output_rate is None
+        or not isinstance(input_tokens, int)
+        or not isinstance(output_tokens, int)
+    ):
+        return None
+    return round((input_tokens / 1000 * input_rate) + (output_tokens / 1000 * output_rate), 6)
+
+
+def _openai_error_status(exc: Exception) -> str:
+    name = exc.__class__.__name__.lower()
+    if "timeout" in name or isinstance(exc, TimeoutError):
+        return "timeout"
+    return "api_error"
+
+
+def _openai_usage_status_from_request_status(status: str) -> str:
+    if status == "ok":
+        return "success"
+    if status in {"invalid_contract", "empty_response"}:
+        return "validation_error"
+    if status == "timeout":
+        return "timeout"
+    return "provider_error"
+
+
 def _is_successful_deterministic_result(
     result: StrategyTranslationResult,
     *,
@@ -1511,6 +1697,39 @@ def _is_non_fallbackable_deterministic_result(
             return True
 
     return False
+
+
+def _openai_block_message(request: StrategyTranslationRequest) -> str:
+    if request.openai_block_reason == "prompt_too_long":
+        return (
+            "AI fallback was not used because this prompt exceeds the OpenAI "
+            "fallback character limit. The deterministic Strategy Builder response "
+            "is shown instead."
+        )
+    return (
+        "AI fallback was not used because your OpenAI fallback limit was reached "
+        "for today. The deterministic Strategy Builder response is shown instead."
+    )
+
+
+def _with_ai_fallback_blocked_note(
+    response: dict[str, Any],
+    *,
+    request: StrategyTranslationRequest,
+) -> dict[str, Any]:
+    noted = deepcopy(response)
+    note = _openai_block_message(request)
+    warnings = noted.get("warnings")
+    if isinstance(warnings, list):
+        if note not in warnings:
+            warnings.append(note)
+    else:
+        noted["warnings"] = [note]
+
+    message = noted.get("message")
+    if isinstance(message, str) and note not in message:
+        noted["message"] = f"{message} {note}"
+    return noted
 
 
 def _with_ai_unavailable_note(response: dict[str, Any]) -> dict[str, Any]:
@@ -1595,6 +1814,7 @@ __all__ = [
     "StrategyTranslationResult",
     "build_strategy_builder_response_from_llm_contract",
     "build_strategy_translation_request",
+    "log_strategy_builder_openai_usage",
     "log_strategy_builder_timing",
     "normalize_translated_strategy_config",
     "select_strategy_translation_provider",

@@ -1,4 +1,5 @@
 from market_simulator.db.models.builder_prompt_event import BuilderPromptEvent
+from market_simulator.db.models.openai_usage_event import OpenAIUsageEvent
 from market_simulator.db.models.user import Plan, User, UserExternalIdentity, UserPlanSubscription
 from market_simulator.db.models.strategy import Strategy, StrategyVersion
 from market_simulator.db.models.run import Run

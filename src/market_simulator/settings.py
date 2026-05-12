@@ -55,6 +55,20 @@ DEFAULT_SUPPORTED_REFERENCE_SERIES_SYMBOLS = ",".join(
 )
 
 
+def _optional_env_float(name: str) -> float | None:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return None
+    return float(value)
+
+
+def _optional_env_int(name: str, default: str) -> int | None:
+    value = os.getenv(name, default).strip()
+    if value.lower() in {"", "none", "null", "unlimited", "-1"}:
+        return None
+    return int(value)
+
+
 class Settings(BaseModel):
     database_url: str = os.getenv(
         "DATABASE_URL",
@@ -173,6 +187,24 @@ class Settings(BaseModel):
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     openai_timeout_seconds: float = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "20"))
     openai_max_retries: int = int(os.getenv("OPENAI_MAX_RETRIES", "1"))
+    openai_fallback_daily_limit_per_user: int | None = _optional_env_int(
+        "OPENAI_FALLBACK_DAILY_LIMIT_PER_USER",
+        "25",
+    )
+    openai_fallback_daily_limit_by_plan: str = os.getenv(
+        "OPENAI_FALLBACK_DAILY_LIMIT_BY_PLAN",
+        "FREE:0,BETA_TESTER:100,PRO:100,RESEARCH:100,DEV_ADMIN:unlimited",
+    )
+    openai_fallback_max_prompt_chars: int | None = _optional_env_int(
+        "OPENAI_FALLBACK_MAX_PROMPT_CHARS",
+        "4000",
+    )
+    openai_cost_per_1k_input_tokens_usd: float | None = _optional_env_float(
+        "OPENAI_COST_PER_1K_INPUT_TOKENS_USD"
+    )
+    openai_cost_per_1k_output_tokens_usd: float | None = _optional_env_float(
+        "OPENAI_COST_PER_1K_OUTPUT_TOKENS_USD"
+    )
     strategy_builder_log_translation_timing: bool = os.getenv(
         "STRATEGY_BUILDER_LOG_TRANSLATION_TIMING",
         (
