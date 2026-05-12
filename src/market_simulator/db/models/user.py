@@ -34,6 +34,7 @@ class User(Base):
     runs = relationship("Run", back_populates="user")
     tracked_strategies = relationship("TrackedStrategy", back_populates="user")
     builder_prompt_events = relationship("BuilderPromptEvent", back_populates="user")
+    openai_usage_events = relationship("OpenAIUsageEvent", back_populates="user")
 
 
 class UserExternalIdentity(Base):
