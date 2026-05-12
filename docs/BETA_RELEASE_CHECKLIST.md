@@ -13,6 +13,7 @@ bash scripts/beta_release_gate.sh
 This command runs backend tests, the frontend production build, beta env template preflight, `docker-compose.beta-local.yml` config validation, tracked env-file safety checks, and the landing/workspace route split check. It does not require AWS/Auth0 secrets, print env values, create cloud resources, or start the compose stack.
 
 - [ ] Review [Ownership And Authorization Checklist](OWNERSHIP_AUTHORIZATION.md) when adding or changing any user-scoped API route.
+- [ ] Review [Reference-Series And Regime Filters](REFERENCE_SERIES_REGIME_FILTERS.md) when changing reference-series data, regime rules, Gallery templates, or builder parsing.
 
 ## 1. Environment Shape
 

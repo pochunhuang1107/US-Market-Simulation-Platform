@@ -6,9 +6,6 @@ from typing import Any
 from pydantic import ValidationError
 
 from market_simulator.models.strategy_v2 import StrategyV2
-from market_simulator.services.strategy_builder_parsers import (
-    SUPPORTED_REFERENCE_SERIES_SYMBOLS,
-)
 from market_simulator.settings import get_settings
 
 
@@ -145,6 +142,7 @@ def validate_draft_config(
 
     settings = get_settings()
     supported_symbols = set(settings.supported_etf_symbols)
+    supported_reference_symbols = set(settings.supported_reference_series_symbols)
 
     symbols_to_check: list[str] = []
 
@@ -175,7 +173,7 @@ def validate_draft_config(
             symbol
             for symbol in symbols_to_check
             if symbol not in supported_symbols
-            and symbol not in SUPPORTED_REFERENCE_SERIES_SYMBOLS
+            and symbol not in supported_reference_symbols
         }
     )
     if unsupported_symbols:

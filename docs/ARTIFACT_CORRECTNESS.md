@@ -8,7 +8,8 @@ Normal Strategy V2 run:
 
 Rotation run:
 - Required: `summary`, `timeline`, `monthly_returns`, `trade_log`, `report_bundle`
-- Timeline should include rotation context when available: `selected_assets`, `target_weights`, `asset_ranks`, `rebalance`
+- Timeline should include rotation context when available: `selected_assets`, `target_weights`, `asset_ranks`, `rebalance`, `risk_filter_passed`, `fallback_used`, `risk_filter_signals`
+- Rotation trade snapshots should include ranking context and risk-filter actual values/thresholds when a risk filter is configured.
 - Optional: `sleeve_summary`, `yearly_report`, `trade_signal_snapshots`, `events`
 - Rotation Rebalance Inspector reads `timeline`, same-date `trade_log` rows, and optional `report_bundle.summary`
 

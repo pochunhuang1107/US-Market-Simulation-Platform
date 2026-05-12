@@ -193,6 +193,46 @@ def test_rotation_ranking_does_not_look_ahead_after_rebalance_date() -> None:
     assert result.trade_log[0]["symbol"] == "SPY"
 
 
+def test_rotation_spy_sma_risk_filter_does_not_use_future_trend_value() -> None:
+    dates = pd.DatetimeIndex(pd.to_datetime(["2021-01-29", "2021-02-01", "2021-02-02"]))
+    bundle = _bundle(
+        dates,
+        {
+            "QQQ": [100.0, 100.0, 100.0],
+            "SPY": [100.0, 100.0, 200.0],
+            "XLK": [100.0, 102.0, 102.0],
+            "TLT": [100.0, 101.0, 101.0],
+        },
+    )
+    strategy = _rotation_strategy(
+        dates=dates,
+        top_n=1,
+        lookback=1,
+        risk_filter={
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": "SPY",
+            "fast_window": 1,
+            "slow_window": 2,
+        },
+        fallback={"type": "cash"},
+    )
+
+    result = run_simulation(bundle, strategy)
+    feb_rebalance = next(
+        row for row in result.timeline if row["date"] == "2021-02-01"
+    )
+    risk_signal = feb_rebalance["risk_filter_signals"][0]
+
+    assert feb_rebalance["risk_filter_passed"] is False
+    assert feb_rebalance["fallback_used"] == "cash"
+    assert risk_signal["label"] == "SPY SMA(1)"
+    assert risk_signal["actual"] == 100.0
+    assert risk_signal["threshold"] == 100.0
+    assert risk_signal["status"] == "not_matched"
+    assert result.trade_log == []
+
+
 def test_rotation_falls_back_to_cash_when_risk_filter_fails() -> None:
     dates = pd.date_range("2021-01-01", periods=45, freq="B")
     bundle = _bundle(
@@ -260,6 +300,46 @@ def test_rotation_falls_back_to_asset_when_configured() -> None:
     assert feb_rebalance["selected_assets"] == ["TLT"]
     assert feb_rebalance["fallback_used"] == "TLT"
     assert result.trade_log[0]["symbol"] == "TLT"
+
+
+def test_rotation_trade_snapshot_includes_risk_filter_actuals_for_fallback_decision() -> None:
+    dates = pd.date_range("2021-01-01", periods=45, freq="B")
+    bundle = _bundle(
+        dates,
+        {
+            "QQQ": _trend_closes(dates, 1.0),
+            "SPY": _trend_closes(dates, -1.0),
+            "XLK": _trend_closes(dates, 2.0),
+            "TLT": _trend_closes(dates, 0.25),
+        },
+    )
+    strategy = _rotation_strategy(
+        dates=dates,
+        lookback=5,
+        risk_filter={
+            "kind": "atomic",
+            "type": "sma_above",
+            "symbol": "SPY",
+            "fast_window": 100,
+            "slow_window": 200,
+        },
+        fallback={"type": "asset", "symbol": "TLT"},
+    )
+
+    result = run_simulation(bundle, strategy)
+
+    snapshot = result.trade_signal_snapshots[0]
+    assert snapshot["symbol"] == "TLT"
+    risk_signal = next(
+        signal
+        for signal in snapshot["signals"]
+        if signal["source"] == "rotation_risk_filter"
+    )
+    assert risk_signal["label"] == "SPY SMA(100)"
+    assert risk_signal["actual"] is None
+    assert risk_signal["threshold"] is None
+    assert risk_signal["status"] == "unavailable"
+    assert snapshot["rotation"]["risk_filter_passed"] is False
 
 
 def test_rotation_transaction_costs_apply_on_rebalance_trades() -> None:
