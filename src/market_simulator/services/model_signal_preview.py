@@ -1,0 +1,239 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Iterable
+
+import pandas as pd
+
+from market_simulator.data.model_signals import (
+    ModelSignalManifest,
+    ModelSignalRepository,
+    validate_model_signal_frame,
+)
+from market_simulator.services.model_signal_catalog import (
+    ModelSignalCatalogEntry,
+    get_model_signal_catalog_entry,
+)
+from market_simulator.settings import get_settings
+
+
+class ModelSignalPreviewError(ValueError):
+    code = "MODEL_SIGNAL_PREVIEW_ERROR"
+
+
+class ModelSignalPreviewNotFoundError(ModelSignalPreviewError):
+    code = "MODEL_SIGNAL_ARTIFACT_NOT_FOUND"
+
+
+class ModelSignalPreviewInvalidError(ModelSignalPreviewError):
+    code = "MODEL_SIGNAL_ARTIFACT_INVALID"
+
+
+@dataclass(frozen=True)
+class ModelSignalPreviewRequest:
+    model_version: str
+    data_path: str | None = None
+    frame: pd.DataFrame | None = None
+    manifest: ModelSignalManifest | None = None
+    repository: ModelSignalRepository | None = None
+
+
+def _safe_missing_error() -> ModelSignalPreviewNotFoundError:
+    return ModelSignalPreviewNotFoundError(
+        "Model signal artifact is not configured or could not be found."
+    )
+
+
+def _safe_invalid_error(message: str) -> ModelSignalPreviewInvalidError:
+    return ModelSignalPreviewInvalidError(f"Model signal artifact is invalid: {message}")
+
+
+def _load_frame_and_manifest(
+    request: ModelSignalPreviewRequest,
+    entry: ModelSignalCatalogEntry,
+) -> tuple[pd.DataFrame, ModelSignalManifest | None]:
+    if request.frame is not None:
+        try:
+            frame = validate_model_signal_frame(
+                request.frame,
+                supported_symbols=entry.supported_universe,
+            )
+        except ValueError as exc:
+            raise _safe_invalid_error(str(exc)) from exc
+        return frame, request.manifest
+
+    repository = request.repository
+    if repository is None:
+        settings = get_settings()
+        data_path = (
+            request.data_path
+            if request.data_path is not None
+            else settings.model_signal_data_path
+        )
+        if not data_path or not data_path.strip():
+            raise _safe_missing_error()
+        repository = ModelSignalRepository(
+            data_path,
+            supported_symbols=entry.supported_universe,
+            duckdb_database=settings.duckdb_database,
+            s3_region=settings.s3_region,
+        )
+
+    try:
+        frame = repository.load(model_version=entry.model_version)
+    except ValueError as exc:
+        message = str(exc)
+        if "does not exist" in message or "No model signal files" in message:
+            raise _safe_missing_error() from exc
+        raise _safe_invalid_error(message) from exc
+
+    manifest = request.manifest
+    if manifest is None:
+        try:
+            manifest = repository.load_manifest(model_version=entry.model_version)
+        except ValueError as exc:
+            raise _safe_invalid_error(str(exc)) from exc
+
+    return frame, manifest
+
+
+def _normalize_bucket_filter(bucket_filter: Iterable[str]) -> set[str]:
+    return {str(bucket).strip() for bucket in bucket_filter if str(bucket).strip()}
+
+
+def _json_value(value: Any) -> Any:
+    if pd.isna(value):
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _date_string(value: Any) -> str:
+    return pd.Timestamp(value).date().isoformat()
+
+
+def _generated_at(
+    latest_rows: pd.DataFrame,
+    manifest: ModelSignalManifest | None,
+) -> str | None:
+    if manifest and manifest.export_created_at:
+        return manifest.export_created_at
+    if "created_at" not in latest_rows.columns:
+        return None
+
+    created_at = pd.to_datetime(latest_rows["created_at"], errors="coerce").dropna()
+    if created_at.empty:
+        return None
+    return created_at.max().isoformat()
+
+
+def _selected_rows_payload(
+    rows: pd.DataFrame,
+    *,
+    ranking_field: str,
+) -> list[dict[str, Any]]:
+    optional_columns = (
+        ranking_field,
+        "rank",
+        "predicted_return",
+        "confidence",
+        "signal_bucket",
+    )
+    payload: list[dict[str, Any]] = []
+    for selection_rank, (_, row) in enumerate(rows.iterrows(), start=1):
+        item: dict[str, Any] = {
+            "symbol": str(row["symbol"]),
+            "date": _date_string(row["date"]),
+            "selection_rank": selection_rank,
+        }
+        for column in optional_columns:
+            if column in row.index:
+                item[column] = _json_value(row[column])
+        payload.append(item)
+    return payload
+
+
+def preview_current_model_signal(
+    model_version: str,
+    *,
+    data_path: str | None = None,
+    frame: pd.DataFrame | None = None,
+    manifest: ModelSignalManifest | None = None,
+    repository: ModelSignalRepository | None = None,
+) -> dict[str, Any]:
+    entry = get_model_signal_catalog_entry(model_version)
+    if entry is None:
+        raise ModelSignalPreviewNotFoundError(
+            "Model signal is not registered or enabled."
+        )
+
+    request = ModelSignalPreviewRequest(
+        model_version=model_version,
+        data_path=data_path,
+        frame=frame,
+        manifest=manifest,
+        repository=repository,
+    )
+    signal_frame, loaded_manifest = _load_frame_and_manifest(request, entry)
+    signal_frame = signal_frame[
+        signal_frame["model_version"] == entry.model_version
+    ].copy()
+    if signal_frame.empty:
+        raise ModelSignalPreviewNotFoundError(
+            "No model signal rows were found for the requested model."
+        )
+
+    ranking_field = entry.ranking_field
+    if ranking_field not in signal_frame.columns:
+        raise _safe_invalid_error(f"ranking_field '{ranking_field}' is missing")
+
+    latest_signal_date = signal_frame["date"].max()
+    latest_rows = signal_frame[signal_frame["date"] == latest_signal_date].copy()
+    row_count_latest_date = int(len(latest_rows))
+    universe_symbol_count = int(latest_rows["symbol"].nunique())
+
+    eligible = latest_rows
+    bucket_filter = _normalize_bucket_filter(entry.default_signal_bucket_filter)
+    if bucket_filter:
+        if "signal_bucket" not in eligible.columns:
+            raise _safe_invalid_error("signal_bucket is required by registry defaults")
+        eligible = eligible[eligible["signal_bucket"].astype(str).isin(bucket_filter)]
+
+    eligible = eligible.copy()
+    eligible[ranking_field] = pd.to_numeric(eligible[ranking_field], errors="coerce")
+    if eligible[ranking_field].isna().any():
+        raise _safe_invalid_error(f"ranking_field '{ranking_field}' must be numeric")
+
+    ranked = eligible.sort_values(
+        by=[ranking_field, "symbol"],
+        ascending=[False, True],
+    )
+    selected = ranked.head(entry.default_top_n)
+
+    manifest_payload = loaded_manifest.public_dict() if loaded_manifest else None
+    return {
+        "model_version": entry.model_version,
+        "latest_signal_date": _date_string(latest_signal_date),
+        "selected_symbols": selected["symbol"].astype(str).tolist(),
+        "selected_rows": _selected_rows_payload(
+            selected,
+            ranking_field=ranking_field,
+        ),
+        "universe_symbol_count": universe_symbol_count,
+        "row_count_latest_date": row_count_latest_date,
+        "ranking_field": ranking_field,
+        "top_n": entry.default_top_n,
+        "signal_bucket_filter": list(entry.default_signal_bucket_filter),
+        "manifest_status": loaded_manifest.status if loaded_manifest else None,
+        "manifest_warnings": list(loaded_manifest.warnings) if loaded_manifest else [],
+        "export_created_at": (
+            loaded_manifest.export_created_at if loaded_manifest else None
+        ),
+        "generated_at": _generated_at(latest_rows, loaded_manifest),
+        "manifest": manifest_payload,
+    }

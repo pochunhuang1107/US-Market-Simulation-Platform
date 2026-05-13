@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from glob import glob
 from pathlib import Path
@@ -36,6 +37,7 @@ DEFAULT_MODEL_SIGNAL_PATH_TEMPLATE = (
 )
 
 SUPPORTED_MODEL_SIGNAL_FILE_EXTENSIONS = (".csv", ".json", ".jsonl", ".parquet")
+DEFAULT_MODEL_SIGNAL_MANIFEST_FILE_NAME = "model_signal_manifest.json"
 
 FORBIDDEN_RUNTIME_LABEL_COLUMNS = frozenset(
     {
@@ -96,6 +98,14 @@ def _has_glob_pattern(path: str | Path) -> bool:
 
 def _model_signal_suffix(path: str | Path) -> str:
     return Path(str(path).split("?", 1)[0]).suffix.lower()
+
+
+def _is_supported_model_signal_file(path: str | Path) -> bool:
+    candidate = Path(path)
+    return (
+        candidate.name != DEFAULT_MODEL_SIGNAL_MANIFEST_FILE_NAME
+        and candidate.suffix.lower() in SUPPORTED_MODEL_SIGNAL_FILE_EXTENSIONS
+    )
 
 
 def _duckdb_literal(value: str) -> str:
@@ -252,6 +262,152 @@ def _read_model_signal_file(path: str | Path) -> pd.DataFrame:
     )
 
 
+@dataclass(frozen=True)
+class ModelSignalManifest:
+    model_version: str
+    feature_set_version: str | None = None
+    label_horizon_days: int | None = None
+    latest_signal_date: pd.Timestamp | None = None
+    row_count: int | None = None
+    symbol_count: int | None = None
+    export_created_at: str | None = None
+    candidate_id: str | None = None
+    artifact_path: str | None = None
+    status: str | None = None
+    warnings: tuple[str, ...] = ()
+
+    def public_dict(self) -> dict[str, object]:
+        return {
+            "model_version": self.model_version,
+            "feature_set_version": self.feature_set_version,
+            "label_horizon_days": self.label_horizon_days,
+            "latest_signal_date": (
+                self.latest_signal_date.date().isoformat()
+                if self.latest_signal_date is not None
+                else None
+            ),
+            "row_count": self.row_count,
+            "symbol_count": self.symbol_count,
+            "export_created_at": self.export_created_at,
+            "candidate_id": self.candidate_id,
+            "status": self.status,
+            "warnings": list(self.warnings),
+        }
+
+
+def _optional_int(value: object, *, field_name: str) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"manifest {field_name} must be an integer") from exc
+
+
+def _manifest_warnings(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,) if value.strip() else ()
+    if isinstance(value, Iterable):
+        return tuple(str(warning) for warning in value if str(warning).strip())
+    return (str(value),)
+
+
+def validate_model_signal_manifest(
+    manifest: dict[str, object],
+    *,
+    model_version: str,
+    require_ready: bool = True,
+) -> ModelSignalManifest:
+    """Validate a model-signal export manifest without exposing storage paths."""
+
+    requested_model_version = _normalize_model_version(model_version)
+    manifest_model_version = str(manifest.get("model_version", "")).strip()
+    if not manifest_model_version:
+        raise ValueError("manifest model_version must be present and non-empty")
+    if manifest_model_version != requested_model_version:
+        raise ValueError(
+            "manifest model_version does not match requested model_version"
+        )
+
+    status_value = manifest.get("status")
+    status = str(status_value).strip().lower() if status_value is not None else None
+    if require_ready and status != "ready":
+        raise ValueError("manifest status must be ready for normal use")
+
+    latest_signal_date_value = manifest.get("latest_signal_date")
+    latest_signal_date = None
+    if latest_signal_date_value is not None and str(latest_signal_date_value).strip():
+        latest_signal_date = pd.Timestamp(latest_signal_date_value).normalize()
+        if pd.isna(latest_signal_date):
+            raise ValueError("manifest latest_signal_date must parse as a date")
+
+    return ModelSignalManifest(
+        model_version=manifest_model_version,
+        feature_set_version=(
+            str(manifest["feature_set_version"]).strip()
+            if manifest.get("feature_set_version") is not None
+            else None
+        ),
+        label_horizon_days=_optional_int(
+            manifest.get("label_horizon_days"),
+            field_name="label_horizon_days",
+        ),
+        latest_signal_date=latest_signal_date,
+        row_count=_optional_int(manifest.get("row_count"), field_name="row_count"),
+        symbol_count=_optional_int(
+            manifest.get("symbol_count"),
+            field_name="symbol_count",
+        ),
+        export_created_at=(
+            str(manifest["export_created_at"]).strip()
+            if manifest.get("export_created_at") is not None
+            else None
+        ),
+        candidate_id=(
+            str(manifest["candidate_id"]).strip()
+            if manifest.get("candidate_id") is not None
+            else None
+        ),
+        artifact_path=(
+            str(manifest["artifact_path"]).strip()
+            if manifest.get("artifact_path") is not None
+            else None
+        ),
+        status=status,
+        warnings=_manifest_warnings(manifest.get("warnings")),
+    )
+
+
+def load_model_signal_manifest(
+    path: str | Path,
+    *,
+    model_version: str,
+    require_ready: bool = True,
+) -> ModelSignalManifest:
+    manifest_path = Path(path)
+    if not manifest_path.exists():
+        raise ValueError(f"Model signal manifest path does not exist: {manifest_path}")
+    if not manifest_path.is_file():
+        raise ValueError(f"Model signal manifest path is not a file: {manifest_path}")
+
+    with manifest_path.open("r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    if not isinstance(manifest, dict):
+        raise ValueError("Model signal manifest must be a JSON object")
+
+    return validate_model_signal_manifest(
+        manifest,
+        model_version=model_version,
+        require_ready=require_ready,
+    )
+
+
+def _candidate_manifest_paths_for_signal_file(path: Path) -> list[Path]:
+    return [path.with_name(DEFAULT_MODEL_SIGNAL_MANIFEST_FILE_NAME)]
+
+
 def _read_model_signal_uri(
     path: str,
     *,
@@ -372,8 +528,7 @@ class ModelSignalRepository:
             matches = [
                 Path(path)
                 for path in glob(str(base), recursive=True)
-                if Path(path).is_file()
-                and Path(path).suffix.lower() in SUPPORTED_MODEL_SIGNAL_FILE_EXTENSIONS
+                if Path(path).is_file() and _is_supported_model_signal_file(path)
             ]
             if not matches:
                 raise ValueError(f"No model signal files matched path: {base}")
@@ -397,8 +552,7 @@ class ModelSignalRepository:
                     matches = [
                         path
                         for path in version_dir.rglob("*")
-                        if path.is_file()
-                        and path.suffix.lower() in SUPPORTED_MODEL_SIGNAL_FILE_EXTENSIONS
+                        if path.is_file() and _is_supported_model_signal_file(path)
                     ]
                     if matches:
                         return sorted(matches)
@@ -406,8 +560,7 @@ class ModelSignalRepository:
             matches = [
                 path
                 for path in base.rglob("*")
-                if path.is_file()
-                and path.suffix.lower() in SUPPORTED_MODEL_SIGNAL_FILE_EXTENSIONS
+                if path.is_file() and _is_supported_model_signal_file(path)
             ]
             if not matches:
                 raise ValueError(f"No model signal files found under directory: {base}")
@@ -444,6 +597,50 @@ class ModelSignalRepository:
         if not frames:
             raise ValueError(f"No model signal files found at {self.base_path}")
         return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+
+    def manifest_path_for_model_version(self, model_version: str) -> str | Path:
+        signal_path = self.path_for_model_version(model_version)
+        if _is_uri(signal_path):
+            return (
+                str(signal_path).rsplit("/", 1)[0].rstrip("/")
+                + f"/{DEFAULT_MODEL_SIGNAL_MANIFEST_FILE_NAME}"
+            )
+        return Path(signal_path).with_name(DEFAULT_MODEL_SIGNAL_MANIFEST_FILE_NAME)
+
+    def load_manifest(
+        self,
+        *,
+        model_version: str,
+        require_ready: bool = True,
+    ) -> ModelSignalManifest | None:
+        """Load a sibling manifest when it is available for a local artifact."""
+
+        if _is_uri(self.base_path):
+            return None
+
+        candidate_paths: list[Path] = []
+        try:
+            signal_paths = self._local_paths(model_version)
+        except ValueError:
+            signal_paths = []
+
+        for signal_path in signal_paths:
+            candidate_paths.extend(_candidate_manifest_paths_for_signal_file(signal_path))
+
+        candidate_paths.append(Path(self.manifest_path_for_model_version(model_version)))
+
+        seen: set[Path] = set()
+        for path in candidate_paths:
+            if path in seen:
+                continue
+            seen.add(path)
+            if path.exists():
+                return load_model_signal_manifest(
+                    path,
+                    model_version=model_version,
+                    require_ready=require_ready,
+                )
+        return None
 
     def load(
         self,

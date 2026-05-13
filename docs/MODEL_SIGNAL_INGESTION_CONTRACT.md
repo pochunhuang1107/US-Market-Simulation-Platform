@@ -93,6 +93,16 @@ Preferred curated layout:
 curated/model_signals/model_version=<VERSION>/signals.parquet
 ```
 
+Daily/latest research exports may also use the ML research repository layout:
+
+```text
+artifacts/model_signals_daily/model_version=<VERSION>/signals.parquet
+artifacts/model_signals_daily/model_version=<VERSION>/model_signal_manifest.json
+```
+
+The platform treats the signal file as an external runtime artifact. Do not
+commit exported parquet/CSV signal files into this repository.
+
 Set `MODEL_SIGNAL_DATA_PATH` only when model-signal strategies should load
 artifacts automatically. The default is empty, which keeps artifact loading
 disabled unless a test or caller injects `model_signal_frame` directly.
@@ -103,6 +113,7 @@ Valid local examples:
 MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals/model_version=etf-ranker-v1/signals.parquet
 MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals
 MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals/**/*.parquet
+MODEL_SIGNAL_DATA_PATH=/path/to/US-Market-ML-Research/artifacts/model_signals_daily
 ```
 
 Intended S3-style examples:
@@ -113,6 +124,31 @@ s3://<bucket>/curated/model_signals/**/*.parquet
 ```
 
 Tests and validation utilities do not require S3 or AWS credentials.
+
+## Manifest Convention
+
+If present, a sibling `model_signal_manifest.json` is read alongside the signal
+artifact. The manifest is metadata only; it does not replace row-level signal
+validation and local paths from the manifest are not exposed by API responses.
+
+Supported manifest fields:
+
+| Field | Notes |
+| --- | --- |
+| `model_version` | Required when a manifest is present. Must match the requested model. |
+| `feature_set_version` | Optional research feature set identifier. |
+| `label_horizon_days` | Optional research label horizon. |
+| `latest_signal_date` | Optional latest exported signal date. Must parse as a date. |
+| `row_count` | Optional total exported row count. |
+| `symbol_count` | Optional exported symbol count. |
+| `export_created_at` | Optional export creation timestamp. |
+| `candidate_id` | Optional research candidate identifier. |
+| `artifact_path` | Optional research-side path. Loaded for validation context only and not returned publicly. |
+| `status` | Must be `ready` for normal preview/API use. |
+| `warnings` | Optional string or list. Warnings are surfaced but do not fail validation. |
+
+If no manifest exists, repository loading and current preview still work from
+the signal rows alone.
 
 ## Export Expectations For ML Research
 
@@ -176,12 +212,27 @@ and do not change existing single-ETF or rotation outputs.
 The platform-side placeholder types are:
 
 - `ModelSignalDataset`
+- `ModelSignalManifest`
 - `ModelSignalRepository`
 - `validate_model_signal_frame(...)`
 - `load_model_signal_frame(...)`
+- `validate_model_signal_manifest(...)`
+- `load_model_signal_manifest(...)`
 
 Local file loading is available for CSV, JSON/JSONL, and parquet artifacts.
 Repository loading can read local files, local directories, local glob patterns,
 and parquet/CSV S3 URI patterns through DuckDB where available. Tests continue
 to inject pandas DataFrames directly when needed and do not require S3 or AWS
 credentials.
+
+For local smoke testing with the daily/latest export:
+
+```bash
+MODEL_SIGNAL_DATA_PATH=/path/to/US-Market-ML-Research/artifacts/model_signals_daily \
+  python scripts/validate_model_signal_export.py \
+  --path /path/to/US-Market-ML-Research/artifacts/model_signals_daily \
+  --model-version linear_smooth10_margin002_v1
+```
+
+This validates artifact shape for paper-tracking/research usage only. It is not
+live trading infrastructure, live inference, or trading advice.

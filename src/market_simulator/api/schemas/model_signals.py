@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ModelSignalFallbackResponse(BaseModel):
@@ -48,3 +48,41 @@ class ModelSignalCatalogItemResponse(BaseModel):
 
 class ModelSignalCatalogListResponse(BaseModel):
     models: list[ModelSignalCatalogItemResponse]
+
+
+class ModelSignalCurrentRowResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    symbol: str
+    date: str
+    selection_rank: int
+
+
+class ModelSignalManifestResponse(BaseModel):
+    model_version: str
+    feature_set_version: str | None = None
+    label_horizon_days: int | None = None
+    latest_signal_date: str | None = None
+    row_count: int | None = None
+    symbol_count: int | None = None
+    export_created_at: str | None = None
+    candidate_id: str | None = None
+    status: str | None = None
+    warnings: list[str]
+
+
+class ModelSignalCurrentPreviewResponse(BaseModel):
+    model_version: str
+    latest_signal_date: str
+    selected_symbols: list[str]
+    selected_rows: list[ModelSignalCurrentRowResponse]
+    universe_symbol_count: int
+    row_count_latest_date: int
+    ranking_field: str
+    top_n: int
+    signal_bucket_filter: list[str]
+    manifest_status: str | None = None
+    manifest_warnings: list[str]
+    export_created_at: str | None = None
+    generated_at: str | None = None
+    manifest: ModelSignalManifestResponse | None = None
