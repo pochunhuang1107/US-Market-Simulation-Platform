@@ -357,17 +357,17 @@ def _record_rotation_trade_snapshot(
             "symbol": trade.get("symbol"),
             "signals": [
                 {
-                    "label": "Rotation rank",
+                    "label": metadata.get("rank_label", "Rotation rank"),
                     "actual": metadata.get("asset_ranks", {}).get(trade.get("symbol")),
                     "actual_value": metadata.get("asset_returns", {}).get(trade.get("symbol")),
-                    "source": "rotation",
+                    "source": metadata.get("signal_source", "rotation"),
                     "status": "selected"
                     if trade.get("symbol") in metadata.get("selected_assets", [])
                     else "rebalanced",
                 }
             ]
             + list(metadata.get("risk_filter_signals", [])),
-            "rotation": metadata,
+            metadata.get("snapshot_metadata_key", "rotation"): metadata,
         }
     )
 
