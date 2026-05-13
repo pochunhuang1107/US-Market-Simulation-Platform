@@ -67,10 +67,29 @@ These columns are additive and do not change existing Strategy V2 artifacts.
 ## Loading
 
 Tests inject pandas DataFrames directly into `run_simulation(...,
-model_signal_frame=...)`. The existing `ModelSignalRepository` and
-`load_model_signal_frame(...)` support local CSV, JSON/JSONL, and parquet files.
-Production S3 loading is intentionally left for a future integration using:
+model_signal_frame=...)`. When no frame is injected and `model_signal.enabled`
+is true, `run_simulation(...)` loads precomputed artifacts through
+`ModelSignalRepository` from `MODEL_SIGNAL_DATA_PATH`.
+
+`MODEL_SIGNAL_DATA_PATH` defaults to empty, so beta preflight does not require a
+real model-signal path unless model-signal strategies are intentionally run.
+Supported local shapes include:
 
 ```text
-curated/model_signals/model_version=<VERSION>/signals.parquet
+/data/curated/model_signals/model_version=<VERSION>/signals.parquet
+/data/curated/model_signals/model_version=<VERSION>/signals.csv
+/data/curated/model_signals
+/data/curated/model_signals/**/*.parquet
 ```
+
+The intended S3-style shape mirrors the ML research export layout:
+
+```text
+s3://<bucket>/curated/model_signals/model_version=<VERSION>/signals.parquet
+s3://<bucket>/curated/model_signals/**/*.parquet
+```
+
+Artifacts are validated with the model-signal ingestion contract, then filtered
+by configured `model_version`, universe, and strategy date range before
+execution. This repo remains an artifact consumer only: no training, notebooks,
+live inference, sklearn, or tensorflow runtime dependencies belong here.

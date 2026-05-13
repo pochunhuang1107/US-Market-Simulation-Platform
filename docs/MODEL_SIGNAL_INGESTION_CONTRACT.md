@@ -48,7 +48,10 @@ date,symbol,model_version,score,predicted_return,rank,confidence,signal_bucket
 ```
 
 Supported local file formats for validation are `.csv`, `.json`, `.jsonl`, and
-`.parquet`.
+`.parquet`. Repository loading supports local files, local directories, and
+local glob patterns. Parquet and CSV S3-style URI patterns can be read through
+the existing DuckDB filesystem path when credentials are available, but tests do
+not require S3 or AWS credentials.
 
 ## Validation Rules
 
@@ -86,10 +89,23 @@ Preferred curated layout:
 curated/model_signals/model_version=<VERSION>/signals.parquet
 ```
 
-The same layout can be mirrored locally or in S3 later, for example:
+Set `MODEL_SIGNAL_DATA_PATH` only when model-signal strategies should load
+artifacts automatically. The default is empty, which keeps artifact loading
+disabled unless a test or caller injects `model_signal_frame` directly.
+
+Valid local examples:
+
+```text
+MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals/model_version=etf-ranker-v1/signals.parquet
+MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals
+MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals/**/*.parquet
+```
+
+Intended S3-style examples:
 
 ```text
 s3://<bucket>/curated/model_signals/model_version=etf-ranker-v1/signals.parquet
+s3://<bucket>/curated/model_signals/**/*.parquet
 ```
 
 Tests and validation utilities do not require S3 or AWS credentials.
@@ -108,8 +124,9 @@ per immutable model version. The export should:
 
 ## Strategy V2 Consumption
 
-The model-signal Strategy V2 MVP consumes an injected, already validated signal
-frame using a block like:
+The model-signal Strategy V2 MVP consumes an injected signal frame when provided
+by tests or callers. If no frame is injected, enabled model-signal strategies
+load artifacts from `MODEL_SIGNAL_DATA_PATH` using `ModelSignalRepository`.
 
 ```yaml
 model_signal:
@@ -133,6 +150,12 @@ before the rebalance date. If multiple rows are available for a symbol, the
 latest available row is used. Rows after the rebalance date are ignored, even if
 they would change the ranking.
 
+Repository loading also filters loaded rows by model version, configured
+universe, and strategy date range before engine execution. The end-date filter is
+inclusive and prevents artifacts from carrying rows beyond the requested
+simulation range into a run; rebalance-time point-in-time filtering still applies
+inside the engine.
+
 Eligible symbols are ranked descending by `ranking_field`, with symbol as the
 deterministic tie-breaker. The engine holds the top `top_n` symbols at equal
 weight. If no eligible rows remain after `min_confidence` or
@@ -153,8 +176,8 @@ The platform-side placeholder types are:
 - `validate_model_signal_frame(...)`
 - `load_model_signal_frame(...)`
 
-The MVP test path injects a pandas DataFrame directly into the engine. Local
-file loading is available for CSV, JSON/JSONL, and parquet artifacts. S3 path
-integration should reuse the documented
-`curated/model_signals/model_version=<VERSION>/signals.parquet` convention in a
-future branch; tests must not require S3 or AWS credentials.
+Local file loading is available for CSV, JSON/JSONL, and parquet artifacts.
+Repository loading can read local files, local directories, local glob patterns,
+and parquet/CSV S3 URI patterns through DuckDB where available. Tests continue
+to inject pandas DataFrames directly when needed and do not require S3 or AWS
+credentials.

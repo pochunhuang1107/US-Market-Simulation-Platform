@@ -138,6 +138,16 @@ def test_load_model_signal_frame_reads_local_parquet_without_s3(tmp_path) -> Non
     assert set(validated["symbol"]) == {"QQQ", "SPY", "TLT"}
 
 
+def test_load_model_signal_frame_reads_local_csv(tmp_path) -> None:
+    path = tmp_path / "signals.csv"
+    _valid_signal_frame().to_csv(path, index=False)
+
+    validated = load_model_signal_frame(path, supported_symbols=SUPPORTED_SYMBOLS)
+
+    assert len(validated) == 3
+    assert set(validated["symbol"]) == {"QQQ", "SPY", "TLT"}
+
+
 def test_repository_builds_project_path_without_s3() -> None:
     repository = ModelSignalRepository("/tmp/curated/model_signals")
 
@@ -145,3 +155,102 @@ def test_repository_builds_project_path_without_s3() -> None:
         repository.path_for_model_version("etf-ranker-v1").as_posix()
         == "/tmp/curated/model_signals/model_version=etf-ranker-v1/signals.parquet"
     )
+
+
+def test_repository_loads_valid_csv_and_filters_model_version(tmp_path) -> None:
+    path = tmp_path / "signals.csv"
+    frame = pd.concat(
+        [
+            _valid_signal_frame(),
+            _valid_signal_frame().assign(model_version="etf-ranker-v2", score=9.0),
+        ],
+        ignore_index=True,
+    )
+    frame.to_csv(path, index=False)
+
+    loaded = ModelSignalRepository(
+        path,
+        supported_symbols=SUPPORTED_SYMBOLS,
+    ).load(model_version="etf-ranker-v2")
+
+    assert len(loaded) == 3
+    assert loaded["model_version"].unique().tolist() == ["etf-ranker-v2"]
+    assert loaded["score"].tolist() == [9.0, 9.0, 9.0]
+
+
+def test_repository_loads_valid_parquet_and_filters_universe(tmp_path) -> None:
+    path = tmp_path / "signals.parquet"
+    _valid_signal_frame().to_parquet(path, index=False)
+
+    loaded = ModelSignalRepository(
+        path,
+        supported_symbols=SUPPORTED_SYMBOLS,
+    ).load(universe=["QQQ", "SPY"])
+
+    assert loaded["symbol"].tolist() == ["QQQ", "SPY"]
+
+
+def test_repository_date_range_filter_excludes_future_rows(tmp_path) -> None:
+    path = tmp_path / "signals.csv"
+    frame = pd.concat(
+        [
+            _valid_signal_frame(),
+            pd.DataFrame(
+                {
+                    "date": ["2024-03-29"],
+                    "symbol": ["QQQ"],
+                    "model_version": ["etf-ranker-v1"],
+                    "score": [99.0],
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+    frame.to_csv(path, index=False)
+
+    loaded = ModelSignalRepository(
+        path,
+        supported_symbols=SUPPORTED_SYMBOLS,
+    ).load(
+        model_version="etf-ranker-v1",
+        start_date="2024-02-01",
+        end_date="2024-02-29",
+    )
+
+    assert loaded["date"].dt.strftime("%Y-%m-%d").tolist() == ["2024-02-29"]
+    assert loaded["symbol"].tolist() == ["TLT"]
+
+
+def test_repository_missing_required_columns_fails(tmp_path) -> None:
+    path = tmp_path / "signals.csv"
+    _valid_signal_frame().drop(columns=["score"]).to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="missing required columns: score"):
+        ModelSignalRepository(path, supported_symbols=SUPPORTED_SYMBOLS).load()
+
+
+def test_repository_unsupported_symbols_fail(tmp_path) -> None:
+    path = tmp_path / "signals.csv"
+    frame = _valid_signal_frame()
+    frame.loc[0, "symbol"] = "AAPL"
+    frame.to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="unsupported ETF symbols: AAPL"):
+        ModelSignalRepository(path, supported_symbols=SUPPORTED_SYMBOLS).load()
+
+
+def test_repository_duplicate_date_symbol_model_version_fails(tmp_path) -> None:
+    path = tmp_path / "signals.csv"
+    frame = _valid_signal_frame()
+    frame.loc[1, "symbol"] = "QQQ"
+    frame.to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="duplicate date/symbol/model_version"):
+        ModelSignalRepository(path, supported_symbols=SUPPORTED_SYMBOLS).load()
+
+
+def test_repository_missing_path_gives_controlled_error(tmp_path) -> None:
+    path = tmp_path / "missing-signals.csv"
+
+    with pytest.raises(ValueError, match="Model signal path does not exist"):
+        ModelSignalRepository(path, supported_symbols=SUPPORTED_SYMBOLS).load()
