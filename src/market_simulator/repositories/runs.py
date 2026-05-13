@@ -276,9 +276,13 @@ def get_run_queue_health(
     db: Session,
     *,
     running_stale_seconds: int = 300,
+    queue_oldest_warning_seconds: int = 600,
+    failed_recent_seconds: int = 86400,
 ) -> dict:
     now = utc_now()
     stale_cutoff = now - timedelta(seconds=running_stale_seconds)
+    old_queue_cutoff = now - timedelta(seconds=queue_oldest_warning_seconds)
+    failed_recent_cutoff = now - timedelta(seconds=failed_recent_seconds)
     stale_running_condition = (
         (Run.status == RunStatus.RUNNING)
         & (
@@ -291,6 +295,24 @@ def get_run_queue_health(
                 )
             )
             | (Run.heartbeat_at < stale_cutoff)
+        )
+    )
+    old_pending_condition = (
+        (Run.status == RunStatus.PENDING)
+        & (Run.created_at < old_queue_cutoff)
+    )
+    old_queued_condition = (
+        (Run.status == RunStatus.QUEUED)
+        & (
+            (Run.queued_at < old_queue_cutoff)
+            | (Run.queued_at.is_(None) & (Run.created_at < old_queue_cutoff))
+        )
+    )
+    failed_recent_condition = (
+        (Run.status == RunStatus.FAILED)
+        & (
+            (Run.finished_at >= failed_recent_cutoff)
+            | (Run.finished_at.is_(None) & (Run.updated_at >= failed_recent_cutoff))
         )
     )
 
@@ -312,8 +334,29 @@ def get_run_queue_health(
                 func.sum(case((stale_running_condition, 1), else_=0)),
                 0,
             ).label("stale_running_count"),
+            func.coalesce(
+                func.sum(case((failed_recent_condition, 1), else_=0)),
+                0,
+            ).label("failed_recent_count"),
+            func.coalesce(
+                func.sum(case((old_pending_condition, 1), else_=0)),
+                0,
+            ).label("suspicious_old_pending_count"),
+            func.coalesce(
+                func.sum(case((old_queued_condition, 1), else_=0)),
+                0,
+            ).label("suspicious_old_queued_count"),
             func.min(
-                case((Run.status == RunStatus.QUEUED, Run.queued_at), else_=None)
+                case((Run.status == RunStatus.PENDING, Run.created_at), else_=None)
+            ).label("oldest_pending_at"),
+            func.min(
+                case(
+                    (
+                        Run.status == RunStatus.QUEUED,
+                        func.coalesce(Run.queued_at, Run.created_at),
+                    ),
+                    else_=None,
+                )
             ).label("oldest_queued_at"),
             func.min(
                 case((Run.status == RunStatus.RUNNING, Run.heartbeat_at), else_=None)
@@ -321,6 +364,7 @@ def get_run_queue_health(
         )
     ).one()
 
+    oldest_pending_age_seconds = _age_seconds(row.oldest_pending_at, now)
     oldest_queued_age_seconds = _age_seconds(row.oldest_queued_at, now)
     oldest_running_heartbeat_age_seconds = _age_seconds(
         row.oldest_running_heartbeat_at,
@@ -332,10 +376,17 @@ def get_run_queue_health(
         "queued_count": int(row.queued_count),
         "running_count": int(row.running_count),
         "stale_running_count": int(row.stale_running_count),
+        "failed_recent_count": int(row.failed_recent_count),
+        "suspicious_old_pending_count": int(row.suspicious_old_pending_count),
+        "suspicious_old_queued_count": int(row.suspicious_old_queued_count),
+        "suspicious_old_running_count": int(row.stale_running_count),
+        "oldest_pending_age_seconds": oldest_pending_age_seconds,
         "oldest_queued_age_seconds": oldest_queued_age_seconds,
         "oldest_running_heartbeat_age_seconds": (
             oldest_running_heartbeat_age_seconds
         ),
+        "failed_recent_window_seconds": failed_recent_seconds,
+        "worker_recovery_available": True,
     }
 
 
@@ -587,14 +638,25 @@ def requeue_stale_running_runs(
     db: Session,
     *,
     limit: int = 100,
+    running_stale_seconds: int = 300,
 ):
     now = utc_now()
+    stale_cutoff = now - timedelta(seconds=running_stale_seconds)
 
     stmt = (
         select(Run)
         .where(Run.status == RunStatus.RUNNING)
-        .where(Run.leased_until.is_not(None))
-        .where(Run.leased_until < now)
+        .where(
+            (Run.leased_until < now)
+            | (
+                Run.leased_until.is_(None)
+                & (
+                    Run.heartbeat_at.is_(None)
+                    | (Run.heartbeat_at < stale_cutoff)
+                )
+            )
+            | (Run.heartbeat_at < stale_cutoff)
+        )
         .order_by(Run.leased_until.asc())
         .limit(limit)
         .with_for_update(skip_locked=True)

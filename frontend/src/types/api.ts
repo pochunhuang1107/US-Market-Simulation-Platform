@@ -34,6 +34,7 @@ export interface RunDashboardListItem {
   finished_at: Nullable<string>;
   progress_pct: number;
   progress_message: Nullable<string>;
+  failure_summary: Nullable<string>;
   artifact_storage_type: string;
   has_artifacts: boolean;
   total_return_pct: Nullable<number>;
@@ -129,6 +130,7 @@ export interface RunResponse {
   artifact_storage_type: string;
   artifact_root_uri: Nullable<string>;
   error_message: Nullable<string>;
+  failure_summary: Nullable<string>;
   is_daily_tracking_run: boolean;
   parent_run_id: Nullable<string>;
   queued_at: Nullable<string>;

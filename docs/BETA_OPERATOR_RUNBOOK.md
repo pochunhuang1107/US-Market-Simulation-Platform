@@ -244,6 +244,54 @@ curl -fsS http://127.0.0.1:8000/health/readiness
 
 If compose owns the API, the same health URLs should still work through the compose-published API port.
 
+## Run Queue Operations
+
+Use the queue status helper when runs appear stuck, queue depth grows, or the worker terminal is quiet:
+
+```bash
+python scripts/run_queue_status.py
+python scripts/run_queue_status.py --json
+```
+
+The helper prints aggregate-only diagnostics: pending, queued, running, stale running, recent failed counts, oldest pending/queued/running heartbeat ages, and suspicious old active work. It does not print run payloads, user identifiers, secrets, or stack traces.
+
+Readiness exposes the same safe aggregate shape under `checks.run_queue`:
+
+```bash
+curl -fsS http://127.0.0.1:8000/health/readiness | jq '.checks.run_queue'
+```
+
+Interpretation:
+
+- `status=ready`: no stale running work and no old queued work beyond `QUEUE_OLDEST_WARNING_SECONDS`.
+- `status=warning`: queued work is old enough that the worker may not be claiming jobs. Confirm the worker process is running.
+- `status=not_ready`: at least one running run is stale according to `RUNNING_STALE_SECONDS` or an expired worker lease.
+- `failed_recent_count>0`: inspect failed run detail in the app/API and the worker logs for the full operator error context.
+- `suspicious_old_pending_count>0`: check API enqueue logs; these runs were created but did not move into the queue promptly.
+
+Recover stale running runs with the worker recovery path:
+
+```bash
+python -m market_simulator.platform.worker --recover-stale
+```
+
+Local dev admins can also use the local-only admin endpoint:
+
+```bash
+curl -X POST http://127.0.0.1:8000/runs/admin/recover-stale
+```
+
+Recovery is intentionally narrow: it requeues stale running runs that still have attempts remaining, marks them failed when max attempts are exhausted, leaves succeeded runs untouched, and does not delete or rewrite artifacts.
+
+If artifacts are missing, first check the run detail response for `artifact_storage_type` and `artifact_root_uri`. Local artifact errors usually mean a container, temp directory, or local workspace was replaced; rerun the simulation if the source strategy is still valid. For beta/prod, prefer S3 artifact storage and verify `checks.artifact_storage` is ready before tester handoff.
+
+If the worker is down, restart the worker command for the current mode, then re-check:
+
+```bash
+python -m market_simulator.platform.worker --recover-stale
+python scripts/run_queue_status.py
+```
+
 ## Environment Safety Checklist
 
 - Never commit backend `.env`.

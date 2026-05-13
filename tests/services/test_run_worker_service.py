@@ -328,6 +328,118 @@ def test_recover_stale_runs_requeues_expired_run(
     assert refreshed.error_message == "Worker lease expired; retry scheduled"
 
 
+def test_recover_stale_runs_is_idempotent_and_only_changes_stale_running_runs(
+    db_session,
+    create_user,
+    create_strategy_bundle,
+):
+    user = create_user(email="worker-stale-scope@example.com")
+    strategy, version = create_strategy_bundle(user_id=str(user.id))
+    service = RunWorkerService(artifact_store=FakeArtifactStore())
+    now = runs_repo.utc_now()
+
+    stale_run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "stale running"},
+        max_attempts=3,
+    )
+    enqueue_run(db_session, stale_run)
+    stale_run.status = RunStatus.RUNNING
+    stale_run.worker_id = "worker-stale"
+    stale_run.attempt_count = 1
+    stale_run.leased_until = now - timedelta(minutes=5)
+
+    fresh_run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "fresh running"},
+        max_attempts=3,
+    )
+    enqueue_run(db_session, fresh_run)
+    fresh_run.status = RunStatus.RUNNING
+    fresh_run.worker_id = "worker-fresh"
+    fresh_run.attempt_count = 1
+    fresh_run.leased_until = now + timedelta(minutes=5)
+
+    succeeded_run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "succeeded"},
+        max_attempts=3,
+    )
+    enqueue_run(db_session, succeeded_run)
+    succeeded_run.status = RunStatus.SUCCEEDED
+    succeeded_run.summary_json = {"total_return_pct": 1.23}
+    succeeded_run.artifact_dir = "/tmp/succeeded"
+    succeeded_run.artifact_manifest_json = {"summary": "/tmp/succeeded/summary.json"}
+    succeeded_run.leased_until = now - timedelta(minutes=5)
+    db_session.commit()
+
+    first_result = service.recover_stale_runs(db_session)
+    second_result = service.recover_stale_runs(db_session)
+
+    db_session.refresh(stale_run)
+    db_session.refresh(fresh_run)
+    db_session.refresh(succeeded_run)
+
+    assert first_result["recovered_count"] == 1
+    assert first_result["run_ids"] == [str(stale_run.id)]
+    assert second_result == {"recovered_count": 0, "run_ids": []}
+    assert stale_run.status == RunStatus.QUEUED
+    assert fresh_run.status == RunStatus.RUNNING
+    assert fresh_run.worker_id == "worker-fresh"
+    assert succeeded_run.status == RunStatus.SUCCEEDED
+    assert succeeded_run.artifact_dir == "/tmp/succeeded"
+    assert succeeded_run.artifact_manifest_json == {"summary": "/tmp/succeeded/summary.json"}
+
+
+def test_recover_stale_runs_handles_running_run_with_missing_lease_and_old_heartbeat(
+    db_session,
+    create_user,
+    create_strategy_bundle,
+):
+    user = create_user(email="worker-stale-missing-lease@example.com")
+    strategy, version = create_strategy_bundle(user_id=str(user.id))
+    run = create_run(
+        db_session,
+        str(user.id),
+        str(strategy.id),
+        str(version.id),
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"note": "missing lease"},
+        max_attempts=3,
+    )
+    enqueue_run(db_session, run)
+    run.status = RunStatus.RUNNING
+    run.worker_id = "worker-missing-lease"
+    run.attempt_count = 1
+    run.heartbeat_at = runs_repo.utc_now() - timedelta(minutes=10)
+    run.leased_until = None
+    db_session.commit()
+
+    service = RunWorkerService(artifact_store=FakeArtifactStore())
+    result = service.recover_stale_runs(db_session)
+
+    db_session.refresh(run)
+    assert result["recovered_count"] == 1
+    assert run.status == RunStatus.QUEUED
+    assert run.worker_id is None
+
+
 def test_claim_and_execute_next_run_succeeds_for_unsaved_draft_config(
     monkeypatch,
     db_session,

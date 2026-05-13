@@ -242,6 +242,7 @@ function runResponseToDashboardItem(run: RunResponse): RunDashboardListItem {
     finished_at: run.finished_at,
     progress_pct: run.progress_pct,
     progress_message: run.progress_message,
+    failure_summary: run.failure_summary,
     artifact_storage_type: run.artifact_storage_type,
     has_artifacts: Boolean(run.artifact_manifest_json),
     total_return_pct: typeof summary.total_return_pct === 'number' ? summary.total_return_pct : null,

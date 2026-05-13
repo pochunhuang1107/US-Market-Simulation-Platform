@@ -151,6 +151,7 @@ class RunResponse(BaseModel):
     artifact_root_uri: str | None
 
     error_message: str | None
+    failure_summary: str | None = None
 
     is_daily_tracking_run: bool
     parent_run_id: UUID | None
@@ -197,6 +198,12 @@ class RunResponse(BaseModel):
         self,
         artifact_url_resolver: callable | None = None,
     ) -> "RunResponse":
+        if self.status == "FAILED":
+            self.failure_summary = safe_failure_summary(self.error_message)
+            self.error_message = self.failure_summary
+        else:
+            self.failure_summary = None
+
         if self.started_at and self.finished_at:
             self.duration_seconds = (
                 self.finished_at - self.started_at
@@ -239,6 +246,35 @@ class RunResponse(BaseModel):
         )
 
         return self
+
+
+def safe_failure_summary(error_message: str | None, *, max_length: int = 300) -> str | None:
+    if not error_message:
+        return None
+
+    normalized = str(error_message).strip()
+    classification = None
+    if normalized.startswith("[") and "]" in normalized:
+        prefix, _, remainder = normalized.partition("]")
+        classification = prefix.strip("[]")
+        normalized = remainder.strip()
+
+    unsafe_markers = (
+        "Traceback",
+        'File "',
+        "During handling of the above exception",
+        "The above exception was the direct cause",
+    )
+    first_line = normalized.splitlines()[0].strip() if normalized else ""
+    if not first_line or any(marker in normalized for marker in unsafe_markers):
+        first_line = "Run failed. Check operator logs for details."
+
+    if len(first_line) > max_length:
+        first_line = f"{first_line[: max_length - 3].rstrip()}..."
+
+    if classification:
+        return f"[{classification}] {first_line}"
+    return first_line
 
 
 class RunListResponse(BaseModel):
@@ -510,6 +546,7 @@ class RunDashboardListItem(BaseModel):
     finished_at: datetime | None = None
     progress_pct: int
     progress_message: str | None = None
+    failure_summary: str | None = None
     artifact_storage_type: str
     has_artifacts: bool
     total_return_pct: float | None = None
