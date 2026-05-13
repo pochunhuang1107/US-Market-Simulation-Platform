@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -10,6 +12,14 @@ import market_simulator.engine.runner as runner_module
 from market_simulator.engine.runner import run_simulation
 from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.settings import Settings
+
+
+LINEAR_SMOOTH10_STRATEGY_FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "model_signals"
+    / "linear_smooth10_margin002_v1_strategy.json"
+)
 
 
 def _market_df(symbol: str, dates: pd.DatetimeIndex, closes: list[float]) -> pd.DataFrame:
@@ -109,6 +119,30 @@ def _signals(rows: list[dict]) -> pd.DataFrame:
             ),
         }
     )
+
+
+def _linear_smooth10_config(dates: pd.DatetimeIndex) -> dict:
+    config = json.loads(LINEAR_SMOOTH10_STRATEGY_FIXTURE.read_text())
+    config["start_date"] = str(dates[0].date())
+    config["end_date"] = str(dates[-1].date())
+    return config
+
+
+def _linear_smooth10_strategy(dates: pd.DatetimeIndex) -> StrategyV2:
+    return StrategyV2.model_validate(_linear_smooth10_config(dates))
+
+
+def _all_supported_symbol_closes(
+    dates: pd.DatetimeIndex,
+    symbols: list[str],
+) -> dict[str, list[float]]:
+    return {
+        symbol: [
+            100.0 + symbol_index + (date_index * 0.25)
+            for date_index in range(len(dates))
+        ]
+        for symbol_index, symbol in enumerate(symbols)
+    }
 
 
 def test_model_signal_config_validates_without_single_symbol_rules() -> None:
@@ -287,6 +321,86 @@ def test_model_signal_falls_back_to_cash_when_no_eligible_signals() -> None:
     assert result.timeline[0]["fallback_used"] == "cash"
     assert result.trade_log == []
     assert result.timeline[-1]["cash"] == pytest.approx(10_000.0)
+
+
+def test_linear_smooth10_margin002_v1_fixture_uses_recommended_controls() -> None:
+    dates = pd.date_range("2025-01-02", periods=45, freq="B")
+
+    strategy = _linear_smooth10_strategy(dates)
+
+    assert strategy.model_signal is not None
+    assert strategy.model_signal.model_version == "linear_smooth10_margin002_v1"
+    assert strategy.model_signal.ranking_field == "score"
+    assert strategy.model_signal.top_n == 1
+    assert strategy.model_signal.signal_bucket_filter == ["top"]
+    assert strategy.model_signal.fallback.type == "cash"
+
+
+def test_linear_smooth10_margin002_v1_smoke_uses_top_bucket_and_deterministic_fallback() -> None:
+    dates = pd.date_range("2025-01-02", periods=45, freq="B")
+    strategy = _linear_smooth10_strategy(dates)
+    universe = strategy.model_signal.universe
+
+    result = run_simulation(
+        _bundle(dates, closes_by_symbol=_all_supported_symbol_closes(dates, universe)),
+        strategy,
+        model_signal_frame=_signals(
+            [
+                {
+                    "date": "2025-01-31",
+                    "symbol": "QQQ",
+                    "model_version": "linear_smooth10_margin002_v1",
+                    "score": 99.0,
+                    "signal_bucket": "other",
+                },
+                {
+                    "date": "2025-01-31",
+                    "symbol": "SPY",
+                    "model_version": "linear_smooth10_margin002_v1",
+                    "score": 0.8,
+                    "signal_bucket": "top",
+                },
+                {
+                    "date": "2025-01-31",
+                    "symbol": "XLK",
+                    "model_version": "linear_smooth10_margin002_v1",
+                    "score": 0.8,
+                    "signal_bucket": "top",
+                },
+                {
+                    "date": "2025-01-31",
+                    "symbol": "TLT",
+                    "model_version": "linear_smooth10_margin002_v1",
+                    "score": 0.1,
+                    "signal_bucket": "top",
+                },
+            ]
+        ),
+    )
+
+    first_rebalance = next(row for row in result.timeline if row["date"] == "2025-01-02")
+    feb_rebalance = next(row for row in result.timeline if row["date"] == "2025-02-03")
+
+    assert first_rebalance["selected_assets"] == []
+    assert first_rebalance["target_weights"] == {}
+    assert first_rebalance["fallback_used"] == "cash"
+    assert first_rebalance["model_version"] == "linear_smooth10_margin002_v1"
+    assert first_rebalance["ranking_field"] == "score"
+    assert first_rebalance["model_signal_dates"] == {}
+
+    assert feb_rebalance["selected_assets"] == ["SPY"]
+    assert feb_rebalance["target_weights"] == {"SPY": 1.0}
+    assert feb_rebalance["model_scores"] == {"SPY": 0.8, "TLT": 0.1, "XLK": 0.8}
+    assert feb_rebalance["model_ranks"] == {"SPY": 1, "XLK": 2, "TLT": 3}
+    assert feb_rebalance["model_signal_dates"] == {
+        "SPY": "2025-01-31",
+        "TLT": "2025-01-31",
+        "XLK": "2025-01-31",
+    }
+    assert feb_rebalance["model_version"] == "linear_smooth10_margin002_v1"
+    assert feb_rebalance["ranking_field"] == "score"
+    assert result.summary["strategy_type"] == "model_signal"
+    assert result.summary["model_signal_top_n"] == 1
 
 
 def test_model_signal_falls_back_to_asset_when_configured() -> None:

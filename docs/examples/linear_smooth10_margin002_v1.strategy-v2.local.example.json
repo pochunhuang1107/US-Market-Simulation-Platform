@@ -1,0 +1,56 @@
+{
+  "schema_version": "2.0",
+  "name": "linear-smooth10-margin002-v1-local",
+  "tradable_symbol": "QQQ",
+  "benchmark_symbol": "SPY",
+  "reference_symbols": [],
+  "start_date": "2025-01-02",
+  "end_date": "2026-05-08",
+  "initial_capital": 100000,
+  "transaction_cost_bps": 5,
+  "model_signal": {
+    "enabled": true,
+    "model_version": "linear_smooth10_margin002_v1",
+    "ranking_field": "score",
+    "universe": [
+      "ARKK",
+      "DIA",
+      "GLD",
+      "HYG",
+      "IBIT",
+      "IEF",
+      "IWM",
+      "LQD",
+      "MTUM",
+      "QQQ",
+      "QUAL",
+      "SLV",
+      "SPY",
+      "TLT",
+      "VTI",
+      "VTV",
+      "VUG",
+      "XLB",
+      "XLE",
+      "XLF",
+      "XLI",
+      "XLK",
+      "XLP",
+      "XLRE",
+      "XLU",
+      "XLV",
+      "XLY"
+    ],
+    "top_n": 1,
+    "rebalance": {
+      "frequency": "monthly",
+      "day": "first_trading_day"
+    },
+    "fallback": {
+      "type": "cash"
+    },
+    "signal_bucket_filter": [
+      "top"
+    ]
+  }
+}
