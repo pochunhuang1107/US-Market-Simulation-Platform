@@ -16,7 +16,7 @@ The backend image is intentionally reusable for the API and worker. Runtime envi
 CI validates that the backend image, frontend image, and beta-local compose configuration still build or parse successfully. That validation does not push images to a registry, deploy infrastructure, or require secrets or AWS credentials.
 
 For the concise release gate, use [Beta Release Checklist](BETA_RELEASE_CHECKLIST.md).
-For the hosted Vercel + Render + managed Postgres + S3 + Auth0 beta path, use [Hosted Beta Deployment](HOSTED_BETA_DEPLOYMENT.md).
+For the hosted Vercel + Render + managed Postgres + S3 + Auth0 beta path and operator dry run, use [Hosted Beta Deployment](HOSTED_BETA_DEPLOYMENT.md).
 
 ## Hosted Beta Targets
 

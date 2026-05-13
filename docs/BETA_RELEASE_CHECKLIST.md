@@ -131,19 +131,8 @@ bash scripts/beta_smoke_core_loop.sh
 - [ ] Compare one completed run against another completed run or a selected sweep variant.
 - [ ] Run the fuller manual pass in [Beta Smoke Checklist](BETA_SMOKE_CHECKLIST.md) when changing auth, artifacts, data paths, or run execution.
 
-## 8. Hosted Beta Deployment
+## 8. Hosted Beta Dry Run
 
-- [ ] Confirm `render.yaml` has no real secrets and all `sync: false` values are filled privately in Render.
-- [ ] Deploy the Render API web service.
-- [ ] Deploy the Render worker service.
-- [ ] Confirm the API command runs FastAPI and the worker command runs `python -m market_simulator.platform.worker --recover-stale`.
-- [ ] Run `alembic upgrade head` against hosted Postgres if it did not run as the Render API predeploy command.
-- [ ] Run `python scripts/seed_plans.py` if hosted plans are missing.
-- [ ] Provision invited beta tester users by email, and by Auth0 subject when known.
-- [ ] Deploy the Vercel frontend with install/build from `frontend` and output `frontend/dist`.
-- [ ] Confirm the Vercel `/api/*` rewrite points at the actual Render API hostname.
-- [ ] Verify `curl -fsS "$API_BASE/health"` and `curl -fsS "$API_BASE/health/readiness"`.
-- [ ] Confirm readiness shows `ENV=beta`, OIDC auth, S3 artifact storage, curated S3 market/reference data paths, database readiness, and queue readiness.
-- [ ] Run one real S3-backed simulation through the hosted frontend.
-- [ ] Verify artifact files are written under the configured S3 prefix.
-- [ ] Verify Auth0 login and logout from the hosted frontend.
+- [ ] Complete the operator dry-run checklist in [Hosted Beta Deployment](HOSTED_BETA_DEPLOYMENT.md) before applying the hosted beta stack or handing it to testers.
+- [ ] Confirm `render.yaml` and `vercel.json` have no real secrets and any `sync: false` values are supplied privately in the hosting provider.
+- [ ] Confirm the hosted workflow covers backend, worker, frontend, database/user provisioning, smoke tests, queue recovery, S3 artifact verification, and rollback.
