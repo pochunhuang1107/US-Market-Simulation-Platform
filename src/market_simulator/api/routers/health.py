@@ -206,6 +206,7 @@ def _run_queue_check(db: Session, settings: Settings) -> CheckResult:
         queue_health = get_run_queue_health(
             db,
             running_stale_seconds=settings.running_stale_seconds,
+            queue_oldest_warning_seconds=settings.queue_oldest_warning_seconds,
         )
     except Exception as exc:
         return {

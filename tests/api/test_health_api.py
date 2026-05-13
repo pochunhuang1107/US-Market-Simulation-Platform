@@ -47,6 +47,8 @@ def test_readiness_reports_database_ready_in_local_mode(client, monkeypatch, tmp
     assert body["checks"]["run_queue"]["queued_count"] == 0
     assert body["checks"]["run_queue"]["running_count"] == 0
     assert body["checks"]["run_queue"]["stale_running_count"] == 0
+    assert body["checks"]["run_queue"]["failed_recent_count"] == 0
+    assert body["checks"]["run_queue"]["worker_recovery_available"] is True
 
 
 def test_readiness_warns_for_placeholder_market_data_paths(
@@ -232,6 +234,10 @@ def test_readiness_reports_fresh_queued_run_ready(
     assert run_queue["queued_count"] == 1
     assert run_queue["pending_count"] == 0
     assert run_queue["running_count"] == 0
+    assert run_queue["failed_recent_count"] == 0
+    assert run_queue["suspicious_old_pending_count"] == 0
+    assert run_queue["suspicious_old_queued_count"] == 0
+    assert run_queue["worker_recovery_available"] is True
     assert run_queue["oldest_queued_age_seconds"] is not None
 
 
@@ -263,7 +269,60 @@ def test_readiness_warns_for_old_queued_run(
     assert body["overall_status"] == "warning"
     assert run_queue["status"] == "warning"
     assert run_queue["queued_count"] == 1
+    assert run_queue["suspicious_old_queued_count"] == 1
     assert run_queue["oldest_queued_age_seconds"] >= 60
+
+
+def test_readiness_warns_for_old_pending_run(
+    client,
+    monkeypatch,
+    tmp_path,
+    db_session,
+    create_user,
+):
+    _set_readiness_settings(
+        monkeypatch,
+        artifacts_dir=tmp_path / "artifacts",
+        queue_oldest_warning_seconds=60,
+    )
+    user = create_user(email="queue-old-pending@example.com")
+    run = _create_health_run(db_session, user_id=user.id)
+    run.created_at = utc_now() - timedelta(seconds=120)
+    db_session.commit()
+
+    response = client.get("/health/readiness")
+
+    assert response.status_code == 200
+    run_queue = response.json()["checks"]["run_queue"]
+    assert run_queue["status"] == "ready"
+    assert run_queue["pending_count"] == 1
+    assert run_queue["suspicious_old_pending_count"] == 1
+    assert run_queue["oldest_pending_age_seconds"] >= 60
+
+
+def test_readiness_reports_recent_failed_runs_without_details(
+    client,
+    monkeypatch,
+    tmp_path,
+    db_session,
+    create_user,
+):
+    _set_readiness_settings(monkeypatch, artifacts_dir=tmp_path / "artifacts")
+    user = create_user(email="queue-failed@example.com")
+    run = _create_health_run(db_session, user_id=user.id)
+    run.status = RunStatus.FAILED
+    run.finished_at = utc_now()
+    run.error_message = "private failure detail"
+    db_session.commit()
+
+    response = client.get("/health/readiness")
+
+    assert response.status_code == 200
+    run_queue = response.json()["checks"]["run_queue"]
+    assert run_queue["status"] == "ready"
+    assert run_queue["failed_recent_count"] == 1
+    assert str(run.id) not in response.text
+    assert "private failure detail" not in response.text
 
 
 def test_readiness_reports_fresh_running_run_ready(
@@ -323,6 +382,7 @@ def test_readiness_reports_stale_running_run_not_ready(
     assert run_queue["status"] == "not_ready"
     assert run_queue["running_count"] == 1
     assert run_queue["stale_running_count"] == 1
+    assert run_queue["suspicious_old_running_count"] == 1
     assert run_queue["oldest_running_heartbeat_age_seconds"] >= 300
 
 

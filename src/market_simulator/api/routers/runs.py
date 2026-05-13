@@ -25,6 +25,7 @@ from market_simulator.api.schemas.runs import (
     SaveDraftRunAsStrategyResponse,
     SweepVariantDetailResponse,
     TradeEventContextResponse,
+    safe_failure_summary,
 )
 from market_simulator.db.enums import RunStatus
 from market_simulator.models.strategy_v2 import StrategyV2
@@ -857,6 +858,9 @@ def list_runs_dashboard_api(
                 finished_at=run.finished_at,
                 progress_pct=run.progress_pct,
                 progress_message=run.progress_message,
+                failure_summary=safe_failure_summary(run.error_message)
+                if run.status == RunStatus.FAILED or str(run.status) == "FAILED"
+                else None,
                 artifact_storage_type=str(run.artifact_storage_type),
                 has_artifacts=bool(run.artifact_manifest_json),
                 total_return_pct=summary_json.get("total_return_pct"),

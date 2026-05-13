@@ -383,6 +383,46 @@ def test_create_run_returns_pending(
     assert body["progress_message"] == "Run created"
 
 
+def test_run_detail_exposes_safe_failure_summary_without_stack_trace(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+):
+    user = create_user(email="failed-summary@example.com")
+    current_user_ctx["id"] = str(user.id)
+    raw_error = (
+        "[NON_RETRYABLE] Traceback (most recent call last):\n"
+        '  File "/private/app/worker.py", line 42, in execute\n'
+        "ValueError: secret internal details"
+    )
+    run = create_run(
+        db_session,
+        str(user.id),
+        None,
+        None,
+        "SIMULATION",
+        "SIMULATION_EXECUTOR",
+        {"source": "failed-summary-test"},
+    )
+    run.status = RunStatus.FAILED
+    run.error_message = raw_error
+    run.finished_at = datetime.now(timezone.utc)
+    db_session.commit()
+
+    response = client.get(f"/runs/{run.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["failure_summary"] == "[NON_RETRYABLE] Run failed. Check operator logs for details."
+    assert body["error_message"] == body["failure_summary"]
+    assert "Traceback" not in response.text
+    assert "/private/app/worker.py" not in response.text
+
+    db_session.refresh(run)
+    assert run.error_message == raw_error
+
+
 def test_get_run_progress_returns_latest_intermediate_progress(
     client,
     db_session,

@@ -19,6 +19,7 @@ from market_simulator.repositories.runs import (
 )
 from market_simulator.repositories.strategies import get_strategy_version
 from market_simulator.service import SimulationService
+from market_simulator.settings import get_settings
 
 from market_simulator.platform.services.artifact_store import (
     ArtifactStore,
@@ -446,7 +447,11 @@ class RunWorkerService:
         )
 
     def recover_stale_runs(self, db: Session) -> dict:
-        recovered = requeue_stale_running_runs(db)
+        settings = get_settings()
+        recovered = requeue_stale_running_runs(
+            db,
+            running_stale_seconds=settings.running_stale_seconds,
+        )
 
         for run in recovered:
             self._log_info(
