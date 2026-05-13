@@ -6,6 +6,10 @@ ETF rotation. The platform consumes precomputed signal artifacts exported by
 inference, add notebooks, add sklearn/tensorflow dependencies, or call external
 ML services.
 
+The backend catalog in `docs/MODEL_SIGNAL_CATALOG.md` owns onboarded model
+metadata and recommended defaults. Runtime execution still uses the explicit
+Strategy V2 `model_signal` block and separately managed signal artifacts.
+
 ## Strategy V2 Block
 
 ```yaml

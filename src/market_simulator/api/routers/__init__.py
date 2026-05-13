@@ -1,3 +1,11 @@
-from . import health, runs, strategies, strategy_builder, tracking
+from . import health, me, model_signals, runs, strategies, strategy_builder, tracking
 
-__all__ = ["health", "runs", "strategies", "strategy_builder", "tracking"]
+__all__ = [
+    "health",
+    "me",
+    "model_signals",
+    "runs",
+    "strategies",
+    "strategy_builder",
+    "tracking",
+]
