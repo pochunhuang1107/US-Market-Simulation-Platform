@@ -6,11 +6,14 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import pandas as pd
 from sqlalchemy.orm import Session
 
+from market_simulator import settings as settings_module
 from market_simulator.db.enums import SubscriptionStatus
 from market_simulator.db.models.user import Plan, UserPlanSubscription
 from market_simulator.services import model_signal_catalog as catalog_module
+from market_simulator.settings import Settings
 
 
 MODEL_VERSION = "linear_smooth10_margin002_v1"
@@ -65,6 +68,34 @@ def _attach_plan(db_session: Session, *, user_id: uuid.UUID, plan: Plan) -> None
     )
     db_session.add(subscription)
     db_session.commit()
+
+
+def _write_current_preview_artifact(base_path) -> None:
+    version_dir = base_path / f"model_version={MODEL_VERSION}"
+    version_dir.mkdir()
+    pd.DataFrame(
+        {
+            "date": ["2026-05-01", "2026-05-08", "2026-05-08", "2026-05-08"],
+            "symbol": ["QQQ", "QQQ", "VUG", "SPY"],
+            "model_version": [MODEL_VERSION] * 4,
+            "score": [99.0, 0.7, 0.9, 9.0],
+            "rank": [1, 2, 1, 3],
+            "confidence": [0.9, 0.7, 0.88, 0.95],
+            "signal_bucket": ["top", "top", "top", "middle"],
+        }
+    ).to_csv(version_dir / "signals.csv", index=False)
+    (version_dir / "model_signal_manifest.json").write_text(
+        json.dumps(
+            {
+                "model_version": MODEL_VERSION,
+                "latest_signal_date": "2026-05-08",
+                "status": "ready",
+                "warnings": ["synthetic fixture warning"],
+                "artifact_path": "/Users/local/export/signals.parquet",
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_catalog_lists_linear_model_for_entitled_user(
@@ -173,3 +204,86 @@ def test_catalog_response_does_not_leak_local_absolute_paths(
     assert "/tmp/" not in serialized
     assert "C:\\" not in serialized
     assert "MODEL_SIGNAL_DATA_PATH" in serialized
+
+
+def test_current_preview_returns_latest_selected_signal_for_entitled_user(
+    client,
+    create_user,
+    current_user_ctx,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    create_user(user_id=current_user_ctx["id"])
+    _write_current_preview_artifact(tmp_path)
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            model_signal_data_path=str(tmp_path),
+            artifact_storage_backend="LOCAL",
+        ),
+    )
+
+    response = client.get(f"/model-signals/catalog/{MODEL_VERSION}/current")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model_version"] == MODEL_VERSION
+    assert body["latest_signal_date"] == "2026-05-08"
+    assert body["selected_symbols"] == ["VUG"]
+    assert body["selected_rows"][0]["score"] == 0.9
+    assert body["manifest_status"] == "ready"
+    assert body["manifest_warnings"] == ["synthetic fixture warning"]
+    serialized = json.dumps(body)
+    assert str(tmp_path) not in serialized
+    assert "/Users/local/export" not in serialized
+
+
+def test_current_preview_blocks_non_entitled_user(
+    client,
+    db_session,
+    create_user,
+    current_user_ctx,
+) -> None:
+    user = create_user(user_id=current_user_ctx["id"], with_default_plan=False)
+    plan = _create_plan(
+        db_session,
+        code="FREE_MODEL_SIGNAL_CURRENT_TEST",
+        allow_advanced_builder=False,
+    )
+    _attach_plan(db_session, user_id=user.id, plan=plan)
+
+    response = client.get(f"/model-signals/catalog/{MODEL_VERSION}/current")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "PLAN_LIMIT_MODEL_SIGNALS"
+
+
+def test_current_preview_missing_artifact_returns_controlled_error_without_path(
+    client,
+    create_user,
+    current_user_ctx,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    create_user(user_id=current_user_ctx["id"])
+    missing_path = tmp_path / "missing"
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            model_signal_data_path=str(missing_path),
+            artifact_storage_backend="LOCAL",
+        ),
+    )
+
+    response = client.get(f"/model-signals/catalog/{MODEL_VERSION}/current")
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["detail"]["code"] == "MODEL_SIGNAL_ARTIFACT_NOT_FOUND"
+    assert str(missing_path) not in json.dumps(body)

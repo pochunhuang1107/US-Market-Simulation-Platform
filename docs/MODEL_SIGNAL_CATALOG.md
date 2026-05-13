@@ -37,6 +37,7 @@ Protected catalog endpoints:
 ```text
 GET /model-signals/catalog
 GET /model-signals/catalog/{model_version}
+GET /model-signals/catalog/{model_version}/current
 ```
 
 The endpoints resolve `current_user` and enforce model-signal catalog access
@@ -46,6 +47,22 @@ strategy metadata. Enabled models are returned by default.
 API responses intentionally expose only `artifact_path_setting` and a safe
 relative/template `artifact_path_hint`; they must not expose resolved local
 absolute paths, secrets, bucket credentials, or artifact contents.
+
+The current preview endpoint loads the configured signal artifact, filters to
+the requested registered `model_version`, finds the latest available signal
+date, applies the registry defaults, and returns a compact paper-tracking
+preview. For `linear_smooth10_margin002_v1`, the runtime defaults are:
+
+- `ranking_field=score`
+- `top_n=1`
+- `signal_bucket_filter=["top"]`
+
+The response includes the latest signal date, selected symbols, selected row
+fields such as `score`, `rank`, `predicted_return`, `confidence`, and
+`signal_bucket` when present, row/symbol counts for the latest date, and
+manifest status/warnings when a sibling `model_signal_manifest.json` exists.
+The endpoint does not run model training, does not run live inference, and does
+not expose local artifact paths.
 
 ## Adding a Model After Research Export
 
@@ -86,6 +103,26 @@ model-signal strategy is executed.
 Do not commit signal artifacts, training data, trained model binaries, local
 absolute paths, or private bucket URLs. The platform should only need the
 artifact path setting at runtime and should validate artifacts before use.
+
+Daily/latest artifacts exported by `US-Market-ML-Research` can be used locally
+by pointing `MODEL_SIGNAL_DATA_PATH` at the export root or a specific signal
+file. Example:
+
+```bash
+MODEL_SIGNAL_DATA_PATH=/path/to/US-Market-ML-Research/artifacts/model_signals_daily \
+  uvicorn market_simulator.api.main:app --reload
+```
+
+Then call:
+
+```text
+GET /model-signals/catalog/linear_smooth10_margin002_v1/current
+```
+
+The known daily/latest export for this model was generated for
+`latest_signal_date=2026-05-08` with `status=ready`, 162 merged rows, 27 symbols,
+and top selected symbol `VUG`. Treat this as a research/paper-tracking preview,
+not a live trading signal or investment advice.
 
 ## Guardrails
 
