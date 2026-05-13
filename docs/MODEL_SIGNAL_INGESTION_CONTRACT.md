@@ -11,6 +11,10 @@ inputs for Strategy V2 model-signal simulations. This repository does not train
 models, run notebooks, perform live inference, add sklearn/tensorflow runtime
 dependencies, or call external ML services.
 
+Onboarded strategy metadata lives in the backend model signal catalog. See
+`docs/MODEL_SIGNAL_CATALOG.md` for the registry purpose, required metadata, and
+the distinction between catalog entries and runtime artifacts.
+
 ## File Schema
 
 Signal artifacts are tabular files with one row per `date` / `symbol` /
