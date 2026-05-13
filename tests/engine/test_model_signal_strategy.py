@@ -6,8 +6,10 @@ import pandas as pd
 import pytest
 
 from market_simulator.data.repository import MarketDataBundle
+import market_simulator.engine.runner as runner_module
 from market_simulator.engine.runner import run_simulation
 from market_simulator.models.strategy_v2 import StrategyV2
+from market_simulator.settings import Settings
 
 
 def _market_df(symbol: str, dates: pd.DatetimeIndex, closes: list[float]) -> pd.DataFrame:
@@ -178,6 +180,30 @@ def test_model_signal_ranks_assets_by_score_and_selects_top_1() -> None:
     assert feb_rebalance["model_ranks"]["XLK"] == 1
     assert feb_rebalance["model_version"] == "ml_v1"
     assert result.trade_log[0]["symbol"] == "XLK"
+
+
+def test_model_signal_loads_repository_signals_when_frame_not_injected(tmp_path, monkeypatch) -> None:
+    dates = pd.date_range("2021-01-01", periods=45, freq="B")
+    signal_path = tmp_path / "signals.csv"
+    _signals(
+        [
+            {"date": "2021-01-29", "symbol": "QQQ", "score": 0.2},
+            {"date": "2021-01-29", "symbol": "SPY", "score": 0.1},
+            {"date": "2021-01-29", "symbol": "XLK", "score": 0.9},
+            {"date": "2021-02-15", "symbol": "TLT", "score": 10.0},
+        ]
+    ).to_csv(signal_path, index=False)
+    monkeypatch.setattr(
+        runner_module,
+        "get_settings",
+        lambda: Settings(model_signal_data_path=str(signal_path)),
+    )
+
+    result = run_simulation(_bundle(dates), _strategy(dates))
+
+    feb_rebalance = next(row for row in result.timeline if row["date"] == "2021-02-01")
+    assert feb_rebalance["selected_assets"] == ["XLK"]
+    assert "TLT" not in feb_rebalance["model_scores"]
 
 
 def test_model_signal_selects_top_2_equal_weight() -> None:

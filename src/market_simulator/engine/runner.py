@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from market_simulator.data.model_signals import ModelSignalRepository
 from market_simulator.engine.execution import transaction_cost
 from market_simulator.engine.model_signal import run_model_signal_simulation
 from market_simulator.engine.portfolio import PortfolioState
@@ -17,6 +18,7 @@ from market_simulator.reporting.metrics import (
 from market_simulator.strategy.dataframe_resolution import resolve_market_dataframe, row_position_for_date
 from market_simulator.strategy.enricher import enrich_market_data
 from market_simulator.strategy.evaluator import evaluate_rule
+from market_simulator.settings import get_settings
 
 
 def _benchmark_curve(df, initial_capital):
@@ -414,8 +416,23 @@ def run_simulation(bundle, strategy, model_signal_frame: pd.DataFrame | None = N
         return run_rotation_simulation(bundle, strategy)
     if getattr(getattr(strategy, "model_signal", None), "enabled", False):
         if model_signal_frame is None:
-            raise ValueError(
-                "model_signal strategy execution requires a precomputed model_signal_frame"
+            settings = get_settings()
+            if not settings.model_signal_data_path.strip():
+                raise ValueError(
+                    "model_signal strategy execution requires a precomputed "
+                    "model_signal_frame or MODEL_SIGNAL_DATA_PATH"
+                )
+            model_signal = strategy.model_signal
+            model_signal_frame = ModelSignalRepository(
+                settings.model_signal_data_path,
+                supported_symbols=settings.supported_etf_symbols,
+                duckdb_database=settings.duckdb_database,
+                s3_region=settings.s3_region,
+            ).load(
+                model_version=model_signal.model_version,
+                universe=model_signal.universe,
+                start_date=strategy.start_date,
+                end_date=strategy.end_date,
             )
         return run_model_signal_simulation(bundle, strategy, model_signal_frame)
 
