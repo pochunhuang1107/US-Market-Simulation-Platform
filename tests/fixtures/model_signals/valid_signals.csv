@@ -1,0 +1,4 @@
+date,symbol,model_version,score,predicted_return,rank,confidence,signal_bucket,feature_set_version,label_horizon_days
+2024-01-31,QQQ,etf-ranker-21d-v1,0.72,0.018,1,0.83,top,features-crossasset-v4,21
+2024-01-31,SPY,etf-ranker-21d-v1,0.41,0.009,2,0.61,middle,features-crossasset-v4,21
+2024-02-29,TLT,etf-ranker-21d-v1,-0.12,-0.004,3,0.55,bottom,features-crossasset-v4,21
