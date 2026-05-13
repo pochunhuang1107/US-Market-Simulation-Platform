@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class AllocationSpec(BaseModel):
@@ -173,6 +173,84 @@ class RotationFallbackSpec(BaseModel):
         return self
 
 
+class ModelSignalFallbackSpec(BaseModel):
+    type: Literal["cash", "asset"] = "cash"
+    symbol: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_symbol(self) -> "ModelSignalFallbackSpec":
+        if self.type == "asset" and not self.symbol:
+            raise ValueError("symbol required for asset fallback")
+        if self.symbol:
+            self.symbol = self.symbol.upper()
+        return self
+
+
+class ModelSignalRebalanceSpec(BaseModel):
+    frequency: Literal["monthly", "weekly", "quarterly"] = "monthly"
+    day: Literal["first_trading_day"] = "first_trading_day"
+
+
+class ModelSignalSpec(BaseModel):
+    enabled: bool = False
+    model_version: str = ""
+    ranking_field: str = "score"
+    universe: list[str] = Field(default_factory=list)
+    top_n: Optional[int] = Field(default=None, ge=1, le=50)
+    rebalance: ModelSignalRebalanceSpec = ModelSignalRebalanceSpec()
+    fallback: ModelSignalFallbackSpec = ModelSignalFallbackSpec()
+    min_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    signal_bucket_filter: Optional[list[str]] = None
+
+    @field_validator("signal_bucket_filter", mode="before")
+    @classmethod
+    def normalize_signal_bucket_filter(cls, value):
+        if value is None or isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            return [value]
+        return value
+
+    @model_validator(mode="after")
+    def validate_model_signal(self) -> "ModelSignalSpec":
+        self.model_version = self.model_version.strip()
+        self.ranking_field = self.ranking_field.strip()
+        self.universe = [symbol.upper() for symbol in self.universe]
+        if self.signal_bucket_filter is not None:
+            self.signal_bucket_filter = [
+                bucket.strip()
+                for bucket in self.signal_bucket_filter
+                if bucket and bucket.strip()
+            ]
+
+        if self.enabled:
+            if not self.model_version:
+                raise ValueError("model_version required when model_signal is enabled")
+            if not self.ranking_field:
+                raise ValueError("ranking_field required when model_signal is enabled")
+            if not self.universe:
+                raise ValueError("universe required when model_signal is enabled")
+            if self.top_n is None:
+                raise ValueError("top_n required when model_signal is enabled")
+            if self.top_n > len(self.universe):
+                raise ValueError("top_n cannot exceed universe size")
+
+            from market_simulator.settings import get_settings
+
+            supported_symbols = set(get_settings().supported_etf_symbols)
+            symbols = set(self.universe)
+            if self.fallback.type == "asset" and self.fallback.symbol:
+                symbols.add(self.fallback.symbol)
+            unsupported = sorted(symbols - supported_symbols)
+            if unsupported:
+                raise ValueError(
+                    "model_signal contains unsupported ETF symbols: "
+                    f"{', '.join(unsupported)}"
+                )
+
+        return self
+
+
 class RotationSpec(BaseModel):
     enabled: bool = False
     universe: list[str] = Field(default_factory=list)
@@ -217,18 +295,23 @@ class StrategyV2(BaseModel):
     core_overlay: CoreOverlaySpec = CoreOverlaySpec()
     position_management: Optional[PositionManagementSpec] = None
     rotation: Optional[RotationSpec] = None
+    model_signal: Optional[ModelSignalSpec] = None
 
     @model_validator(mode="after")
     def validate_dates(self) -> "StrategyV2":
         if self.start_date >= self.end_date:
             raise ValueError("start_date must be earlier than end_date")
-        if not self.rotation or not self.rotation.enabled:
+        rotation_enabled = bool(self.rotation and self.rotation.enabled)
+        model_signal_enabled = bool(self.model_signal and self.model_signal.enabled)
+        if rotation_enabled and model_signal_enabled:
+            raise ValueError("rotation and model_signal cannot both be enabled")
+        if not rotation_enabled and not model_signal_enabled:
             if self.allocation is None:
-                raise ValueError("allocation required unless rotation is enabled")
+                raise ValueError("allocation required unless rotation or model_signal is enabled")
             if self.entry_rule is None:
-                raise ValueError("entry_rule required unless rotation is enabled")
+                raise ValueError("entry_rule required unless rotation or model_signal is enabled")
             if self.exit_rule is None:
-                raise ValueError("exit_rule required unless rotation is enabled")
+                raise ValueError("exit_rule required unless rotation or model_signal is enabled")
         return self
 
     def rotation_required_reference_symbols(self) -> list[str]:
@@ -243,9 +326,22 @@ class StrategyV2(BaseModel):
         symbols.discard(self.tradable_symbol)
         return sorted(symbols)
 
+    def model_signal_required_reference_symbols(self) -> list[str]:
+        if not self.model_signal or not self.model_signal.enabled:
+            return []
+
+        symbols = set(self.reference_symbols)
+        symbols.update(self.model_signal.universe)
+        if self.model_signal.fallback.type == "asset" and self.model_signal.fallback.symbol:
+            symbols.add(self.model_signal.fallback.symbol)
+        symbols.add(self.benchmark_symbol)
+        symbols.discard(self.tradable_symbol)
+        return sorted(symbols)
+
 
 NotRule.model_rebuild()
 GroupRule.model_rebuild()
 WindowRule.model_rebuild()
 SequenceRule.model_rebuild()
 RotationSpec.model_rebuild()
+ModelSignalSpec.model_rebuild()

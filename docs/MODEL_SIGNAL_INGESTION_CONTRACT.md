@@ -7,8 +7,9 @@ notebooks, feature research, and model evaluation workflows are out of scope for
 this repository.
 
 The platform consumes validated, point-in-time signal files as deterministic
-inputs for future Strategy V2 simulations. Strategy V2 execution does not use
-these signals yet.
+inputs for Strategy V2 model-signal simulations. This repository does not train
+models, run notebooks, perform live inference, add sklearn/tensorflow runtime
+dependencies, or call external ML services.
 
 ## File Schema
 
@@ -105,7 +106,45 @@ per immutable model version. The export should:
 - Keep training labels and realized future performance columns out of runtime
   signal files.
 
-## Future Platform Consumption
+## Strategy V2 Consumption
+
+The model-signal Strategy V2 MVP consumes an injected, already validated signal
+frame using a block like:
+
+```yaml
+model_signal:
+  enabled: true
+  model_version: "ml_v1"
+  ranking_field: "score"
+  universe: ["QQQ", "SPY", "XLK", "TLT"]
+  top_n: 2
+  rebalance:
+    frequency: "monthly"
+    day: "first_trading_day"
+  fallback:
+    type: "cash"
+  min_confidence: 0.6
+  signal_bucket_filter: ["top"]
+```
+
+On each rebalance date, execution filters rows to the configured
+`model_version`, configured universe, and rows whose signal `date` is on or
+before the rebalance date. If multiple rows are available for a symbol, the
+latest available row is used. Rows after the rebalance date are ignored, even if
+they would change the ranking.
+
+Eligible symbols are ranked descending by `ranking_field`, with symbol as the
+deterministic tie-breaker. The engine holds the top `top_n` symbols at equal
+weight. If no eligible rows remain after `min_confidence` or
+`signal_bucket_filter` filters, the configured fallback is used: cash or a
+single fallback ETF.
+
+Timeline and rebalance rows add model-signal fields such as `selected_assets`,
+`target_weights`, `model_scores`, `model_ranks`, `model_signal_dates`,
+`model_version`, `rebalance`, `holdings`, and `cash`. These fields are additive
+and do not change existing single-ETF or rotation outputs.
+
+## Platform Interfaces
 
 The platform-side placeholder types are:
 
@@ -114,6 +153,8 @@ The platform-side placeholder types are:
 - `validate_model_signal_frame(...)`
 - `load_model_signal_frame(...)`
 
-Future Strategy V2 work can load validated datasets, rank ETFs by `score`, and
-feed rotation logic. This branch stops at schema, validation, documentation, and
-tests; it does not change Strategy V2 execution behavior.
+The MVP test path injects a pandas DataFrame directly into the engine. Local
+file loading is available for CSV, JSON/JSONL, and parquet artifacts. S3 path
+integration should reuse the documented
+`curated/model_signals/model_version=<VERSION>/signals.parquet` convention in a
+future branch; tests must not require S3 or AWS credentials.

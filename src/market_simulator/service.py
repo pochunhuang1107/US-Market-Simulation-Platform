@@ -27,23 +27,42 @@ class SimulationService:
         strategy = load_any_strategy(path)
         return self.run_from_strategy(strategy, output_dir=output_dir)
 
-    def run_from_config(self, config: dict, output_dir: str | Path | None = None):
+    def run_from_config(
+        self,
+        config: dict,
+        output_dir: str | Path | None = None,
+        model_signal_frame=None,
+    ):
         strategy = StrategyV2.model_validate(config)
-        return self.run_from_strategy(strategy, output_dir=output_dir)
-
-    def run_from_strategy(self, strategy, output_dir: str | Path | None = None):
-        reference_symbols = (
-            strategy.rotation_required_reference_symbols()
-            if getattr(getattr(strategy, "rotation", None), "enabled", False)
-            else strategy.reference_symbols
+        return self.run_from_strategy(
+            strategy,
+            output_dir=output_dir,
+            model_signal_frame=model_signal_frame,
         )
+
+    def run_from_strategy(
+        self,
+        strategy,
+        output_dir: str | Path | None = None,
+        model_signal_frame=None,
+    ):
+        if getattr(getattr(strategy, "rotation", None), "enabled", False):
+            reference_symbols = strategy.rotation_required_reference_symbols()
+        elif getattr(getattr(strategy, "model_signal", None), "enabled", False):
+            reference_symbols = strategy.model_signal_required_reference_symbols()
+        else:
+            reference_symbols = strategy.reference_symbols
         market_data = self.repo.get_market_data(
             tradable_symbol=strategy.tradable_symbol,
             reference_symbols=reference_symbols,
             start_date=str(strategy.start_date),
             end_date=str(strategy.end_date),
         )
-        result = run_simulation(market_data, strategy)
+        result = run_simulation(
+            market_data,
+            strategy,
+            model_signal_frame=model_signal_frame,
+        )
 
         artifact_output_dir = Path(output_dir) if output_dir else (self.artifacts_dir / strategy.name)
         artifact_dir = write_artifacts(result, artifact_output_dir)

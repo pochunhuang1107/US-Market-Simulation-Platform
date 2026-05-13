@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from market_simulator.engine.execution import transaction_cost
+from market_simulator.engine.model_signal import run_model_signal_simulation
 from market_simulator.engine.portfolio import PortfolioState
 from market_simulator.engine.rotation import run_rotation_simulation
 from market_simulator.models.strategy_v2 import AtomicRule, GroupRule, NotRule, SequenceRule, WindowRule
@@ -408,9 +409,15 @@ def _risk_signal(
     }
 
 
-def run_simulation(bundle, strategy):
+def run_simulation(bundle, strategy, model_signal_frame: pd.DataFrame | None = None):
     if getattr(getattr(strategy, "rotation", None), "enabled", False):
         return run_rotation_simulation(bundle, strategy)
+    if getattr(getattr(strategy, "model_signal", None), "enabled", False):
+        if model_signal_frame is None:
+            raise ValueError(
+                "model_signal strategy execution requires a precomputed model_signal_frame"
+            )
+        return run_model_signal_simulation(bundle, strategy, model_signal_frame)
 
     bundle = enrich_market_data(bundle, strategy)
     df = bundle.tradable.reset_index(drop=True).copy()
