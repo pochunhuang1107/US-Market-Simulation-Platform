@@ -74,6 +74,88 @@ export interface RunDashboardListResponse {
   has_next: boolean;
 }
 
+export interface ModelSignalFallbackResponse {
+  type: 'cash' | 'asset';
+  symbol: Nullable<string>;
+}
+
+export interface ModelSignalRecommendedDefaultsResponse {
+  universe: string[];
+  ranking_field: string;
+  top_n: number;
+  signal_bucket_filter: string[];
+  fallback: ModelSignalFallbackResponse;
+  benchmark: string;
+}
+
+export interface ModelSignalCatalogItemResponse {
+  model_version: string;
+  display_name: string;
+  description: string;
+  family: string;
+  research_status: string;
+  supported_universe: string[];
+  default_universe: string[];
+  ranking_field: string;
+  allowed_ranking_fields: string[];
+  default_top_n: number;
+  default_signal_bucket_filter: string[];
+  default_fallback: ModelSignalFallbackResponse;
+  default_benchmark: string;
+  label_horizon_days: number;
+  feature_set_version: string;
+  artifact_path_setting: string;
+  artifact_path_hint: string;
+  risk_notes: string[];
+  limitations: string[];
+  recommended_use: string;
+  recommended_defaults: ModelSignalRecommendedDefaultsResponse;
+  created_at: string;
+  updated_at: string;
+  enabled: boolean;
+}
+
+export interface ModelSignalCatalogListResponse {
+  models: ModelSignalCatalogItemResponse[];
+}
+
+export interface ModelSignalCurrentRowResponse {
+  symbol: string;
+  date: string;
+  selection_rank: number;
+  [key: string]: unknown;
+}
+
+export interface ModelSignalManifestResponse {
+  model_version: string;
+  feature_set_version: Nullable<string>;
+  label_horizon_days: Nullable<number>;
+  latest_signal_date: Nullable<string>;
+  row_count: Nullable<number>;
+  symbol_count: Nullable<number>;
+  export_created_at: Nullable<string>;
+  candidate_id: Nullable<string>;
+  status: Nullable<string>;
+  warnings: string[];
+}
+
+export interface ModelSignalCurrentPreviewResponse {
+  model_version: string;
+  latest_signal_date: string;
+  selected_symbols: string[];
+  selected_rows: ModelSignalCurrentRowResponse[];
+  universe_symbol_count: number;
+  row_count_latest_date: number;
+  ranking_field: string;
+  top_n: number;
+  signal_bucket_filter: string[];
+  manifest_status: Nullable<string>;
+  manifest_warnings: string[];
+  export_created_at: Nullable<string>;
+  generated_at: Nullable<string>;
+  manifest: Nullable<ModelSignalManifestResponse>;
+}
+
 export type RunSortBy = 'created_at' | 'finished_at' | 'status';
 export type RunSortOrder = 'asc' | 'desc';
 export type RunArtifactStorageFilter = '' | 'ALL' | 'CURRENT' | 'S3' | 'LOCAL';
