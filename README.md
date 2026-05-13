@@ -54,6 +54,7 @@ Natural language is an input method, not the execution engine.
 ### Data Layer
 - S3 + parquet historical datasets
 - DuckDB for analytics and research reads
+- Precomputed model signal ingestion contract documented in [docs/MODEL_SIGNAL_INGESTION_CONTRACT.md](docs/MODEL_SIGNAL_INGESTION_CONTRACT.md)
 
 ---
 
