@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
+import { ModelStrategyLab } from '../components/model-strategy-lab/ModelStrategyLab';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
@@ -279,6 +280,8 @@ export function CreateSimulationPage() {
       {versionsError ? <StateCard title="Failed to load strategy versions" description={versionsError} tone="error" /> : null}
       {submitError ? <StateCard title="Result creation failed" description={submitError} tone="error" /> : null}
       {successMessage ? <StateCard title="Result request accepted" description={successMessage} /> : null}
+
+      <ModelStrategyLab />
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <SectionCard title="Manual Run Request" subtitle="Choose a strategy and version, then submit a manual run request payload.">

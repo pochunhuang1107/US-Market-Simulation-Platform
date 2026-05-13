@@ -5,6 +5,9 @@ import type {
   CreateStrategyVersionRequest,
   CreateStrategyVersionResponse,
   MeEntitlementsResponse,
+  ModelSignalCatalogItemResponse,
+  ModelSignalCatalogListResponse,
+  ModelSignalCurrentPreviewResponse,
   PromoteSweepVariantRequest,
   PromoteSweepVariantResponse,
   RunActionResponse,
@@ -202,6 +205,33 @@ function buildQueryString(query: Record<string, string | number | string[] | und
 
 export async function fetchMeEntitlements(): Promise<MeEntitlementsResponse> {
   return request<MeEntitlementsResponse>('/api/me/entitlements');
+}
+
+export async function fetchModelSignalCatalog(options?: {
+  includeDisabled?: boolean;
+}): Promise<ModelSignalCatalogListResponse> {
+  return request<ModelSignalCatalogListResponse>(
+    `/api/model-signals/catalog${buildQueryString({ include_disabled: options?.includeDisabled ? 'true' : undefined })}`
+  );
+}
+
+export async function fetchModelSignalCatalogDetail(
+  modelVersion: string,
+  options?: { includeDisabled?: boolean }
+): Promise<ModelSignalCatalogItemResponse> {
+  return request<ModelSignalCatalogItemResponse>(
+    `/api/model-signals/catalog/${encodeURIComponent(modelVersion)}${buildQueryString({
+      include_disabled: options?.includeDisabled ? 'true' : undefined
+    })}`
+  );
+}
+
+export async function fetchCurrentModelSignalPreview(
+  modelVersion: string
+): Promise<ModelSignalCurrentPreviewResponse> {
+  return request<ModelSignalCurrentPreviewResponse>(
+    `/api/model-signals/catalog/${encodeURIComponent(modelVersion)}/current`
+  );
 }
 
 export async function fetchRunsDashboard(query: RunsDashboardQuery): Promise<RunDashboardListResponse> {
