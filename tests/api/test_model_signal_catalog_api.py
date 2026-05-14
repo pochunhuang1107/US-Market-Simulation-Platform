@@ -76,12 +76,12 @@ def _write_current_preview_artifact(base_path) -> None:
     pd.DataFrame(
         {
             "date": ["2026-05-01", "2026-05-08", "2026-05-08", "2026-05-08"],
-            "symbol": ["QQQ", "QQQ", "VUG", "SPY"],
+            "symbol": ["QQQ", "SLV", "VUG", "SPY"],
             "model_version": [MODEL_VERSION] * 4,
-            "score": [99.0, 0.7, 0.9, 9.0],
+            "score": [99.0, 0.01427497862217832, -0.0485, -0.2],
             "rank": [1, 2, 1, 3],
             "confidence": [0.9, 0.7, 0.88, 0.95],
-            "signal_bucket": ["top", "top", "top", "middle"],
+            "signal_bucket": ["top", "unselected", "top", "unselected"],
         }
     ).to_csv(version_dir / "signals.csv", index=False)
     (version_dir / "model_signal_manifest.json").write_text(
@@ -233,7 +233,8 @@ def test_current_preview_returns_latest_selected_signal_for_entitled_user(
     assert body["model_version"] == MODEL_VERSION
     assert body["latest_signal_date"] == "2026-05-08"
     assert body["selected_symbols"] == ["VUG"]
-    assert body["selected_rows"][0]["score"] == 0.9
+    assert body["selected_rows"][0]["score"] == -0.0485
+    assert body["selected_rows"][0]["signal_bucket"] == "top"
     assert body["manifest_status"] == "ready"
     assert body["manifest_warnings"] == ["synthetic fixture warning"]
     serialized = json.dumps(body)

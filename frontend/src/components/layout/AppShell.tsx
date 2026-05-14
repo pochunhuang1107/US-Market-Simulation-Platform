@@ -15,6 +15,7 @@ const navItems = [
   { to: '/runs', label: 'Results', end: true },
   { to: '/compare', label: 'Compare', end: true },
   { to: '/strategies', label: 'Library', end: false },
+  { to: '/model-lab', label: 'Model Lab', end: true },
   { to: '/runs/new', label: 'Manual Run', end: true }
 ];
 
@@ -157,7 +158,7 @@ export function AppShell() {
                 end={item.end}
                 onClick={(event) => handleNavClick(event, item.to)}
                 className={({ isActive }) =>
-                  `whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition ${
+                  `whitespace-nowrap rounded-xl px-2.5 py-2 text-sm font-medium transition xl:px-3 ${
                     isActive ? 'app-nav-link-active' : 'app-nav-link'
                   }`
                 }

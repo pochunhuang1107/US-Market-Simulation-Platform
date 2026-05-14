@@ -397,6 +397,10 @@ class RotationAssetRankRow(BaseModel):
     symbol: str
     rank: int | None = None
     trailing_return_pct: float | None = None
+    model_score: float | None = None
+    model_rank: int | None = None
+    model_signal_date: str | None = None
+    model_signal_bucket: str | None = None
     target_weight_pct: float | None = None
     selected: bool = False
 

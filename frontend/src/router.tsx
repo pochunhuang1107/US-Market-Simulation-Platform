@@ -6,6 +6,7 @@ import { CreateSimulationPage } from './pages/CreateSimulationPage';
 import { CreateStrategyPage } from './pages/CreateStrategyPage';
 import { CreateStrategyVersionPage } from './pages/CreateStrategyVersionPage';
 import { LandingPage } from './pages/LandingPage';
+import { ModelLabPage } from './pages/ModelLabPage';
 import { RunDetailPage } from './pages/RunDetailPage';
 import { RunsPage } from './pages/RunsPage';
 import { StrategyBuilderPage } from './pages/StrategyBuilderPage';
@@ -26,6 +27,7 @@ export const router = createBrowserRouter([
       { path: '/workspace', element: <StrategyChatPage /> },
       { path: '/chat', element: <Navigate to="/workspace" replace /> },
       { path: '/runs', element: <RunsPage /> },
+      { path: '/model-lab', element: <ModelLabPage /> },
       { path: '/runs/new', element: <CreateSimulationPage /> },
       { path: '/runs/:runId', element: <RunDetailPage /> },
       { path: '/runs/:runId/variants/:variantId', element: <SweepVariantDetailPage /> },

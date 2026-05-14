@@ -168,6 +168,10 @@ def build_rotation_rebalance_rows(
         target_weights = _number_map(row.get("target_weights"))
         asset_returns = _number_map(row.get("asset_returns"))
         asset_ranks = _number_map(row.get("asset_ranks"))
+        model_scores = _number_map(row.get("model_scores"))
+        model_ranks = _number_map(row.get("model_ranks"))
+        model_signal_dates = _string_map(row.get("model_signal_dates"))
+        model_signal_buckets = _string_map(row.get("model_signal_buckets"))
         holdings = _holdings(row, universe=universe)
 
         rebalances.append(
@@ -181,6 +185,10 @@ def build_rotation_rebalance_rows(
                     target_weights=target_weights,
                     asset_returns=asset_returns,
                     asset_ranks=asset_ranks,
+                    model_scores=model_scores,
+                    model_ranks=model_ranks,
+                    model_signal_dates=model_signal_dates,
+                    model_signal_buckets=model_signal_buckets,
                 ),
                 "trades": trades_by_date.get(date_value, []),
                 "cash": _optional_float(row.get("cash")),
@@ -291,6 +299,19 @@ def _number_map(value: Any) -> dict[str, float]:
     return out
 
 
+def _string_map(value: Any) -> dict[str, str]:
+    parsed = _parse_collection(value)
+    if not isinstance(parsed, dict):
+        return {}
+
+    out: dict[str, str] = {}
+    for key, raw_value in parsed.items():
+        text = _optional_string(raw_value)
+        if text is not None:
+            out[str(key)] = text
+    return out
+
+
 def _holdings(row: dict[str, Any], *, universe: list[str] | None = None) -> list[dict[str, Any]]:
     parsed = _parse_collection(row.get("holdings"))
     if isinstance(parsed, dict) and parsed:
@@ -345,8 +366,25 @@ def _asset_rank_rows(
     target_weights: dict[str, float],
     asset_returns: dict[str, float],
     asset_ranks: dict[str, float],
+    model_scores: dict[str, float] | None = None,
+    model_ranks: dict[str, float] | None = None,
+    model_signal_dates: dict[str, str] | None = None,
+    model_signal_buckets: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    symbols = set(selected_assets) | set(target_weights) | set(asset_returns) | set(asset_ranks)
+    model_scores = model_scores or {}
+    model_ranks = model_ranks or {}
+    model_signal_dates = model_signal_dates or {}
+    model_signal_buckets = model_signal_buckets or {}
+    symbols = (
+        set(selected_assets)
+        | set(target_weights)
+        | set(asset_returns)
+        | set(asset_ranks)
+        | set(model_scores)
+        | set(model_ranks)
+        | set(model_signal_dates)
+        | set(model_signal_buckets)
+    )
     rows = []
     for symbol in symbols:
         rows.append(
@@ -358,6 +396,10 @@ def _asset_rank_rows(
                     if symbol in asset_returns
                     else None
                 ),
+                "model_score": _optional_float(model_scores.get(symbol)),
+                "model_rank": _optional_int(model_ranks.get(symbol)),
+                "model_signal_date": model_signal_dates.get(symbol),
+                "model_signal_bucket": model_signal_buckets.get(symbol),
                 "target_weight_pct": (
                     round(target_weights[symbol] * 100.0, 6)
                     if symbol in target_weights
@@ -367,14 +409,12 @@ def _asset_rank_rows(
             }
         )
 
-    return sorted(
-        rows,
-        key=lambda item: (
-            item["rank"] is None,
-            item["rank"] if item["rank"] is not None else 999999,
-            item["symbol"],
-        ),
-    )
+    return sorted(rows, key=_asset_rank_sort_key)
+
+
+def _asset_rank_sort_key(item: dict[str, Any]) -> tuple[bool, int, str]:
+    rank = item["rank"] if item["rank"] is not None else item["model_rank"]
+    return rank is None, rank if rank is not None else 999999, item["symbol"]
 
 
 def _trade_row(trade: dict[str, Any]) -> dict[str, Any]:

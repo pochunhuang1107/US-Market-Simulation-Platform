@@ -54,6 +54,72 @@ def test_preview_selects_latest_top_bucket_and_ranks_by_score() -> None:
     assert selected["signal_bucket"] == "top"
 
 
+def test_preview_uses_artifact_bucket_before_raw_score_sorting() -> None:
+    preview = preview_current_model_signal(
+        MODEL_VERSION,
+        frame=pd.DataFrame(
+            {
+                "date": ["2026-05-08", "2026-05-08", "2026-05-08"],
+                "symbol": ["SLV", "VUG", "QQQ"],
+                "model_version": [MODEL_VERSION] * 3,
+                "score": [0.01427497862217832, -0.0485, -0.2],
+                "rank": [2, 1, 3],
+                "signal_bucket": ["unselected", "top", "unselected"],
+            }
+        ),
+    )
+
+    assert preview["signal_bucket_filter"] == ["top"]
+    assert preview["selected_symbols"] == ["VUG"]
+    selected = preview["selected_rows"][0]
+    assert selected["symbol"] == "VUG"
+    assert selected["score"] == -0.0485
+    assert selected["rank"] == 1
+    assert selected["signal_bucket"] == "top"
+
+
+def test_preview_prefers_daily_latest_layout_from_broad_artifact_root(tmp_path) -> None:
+    stale_dir = tmp_path / f"model_version={MODEL_VERSION}"
+    stale_dir.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "date": ["2026-05-08"],
+            "symbol": ["SLV"],
+            "model_version": [MODEL_VERSION],
+            "score": [0.01427497862217832],
+            "rank": [1],
+            "signal_bucket": ["top"],
+        }
+    ).to_csv(stale_dir / "signals.csv", index=False)
+
+    daily_dir = (
+        tmp_path
+        / "artifacts"
+        / "model_signals_daily"
+        / f"model_version={MODEL_VERSION}"
+    )
+    daily_dir.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "date": ["2026-05-08", "2026-05-08"],
+            "symbol": ["SLV", "VUG"],
+            "model_version": [MODEL_VERSION, MODEL_VERSION],
+            "score": [0.01427497862217832, -0.0485],
+            "rank": [2, 1],
+            "signal_bucket": ["unselected", "top"],
+        }
+    ).to_csv(daily_dir / "signals.csv", index=False)
+
+    preview = preview_current_model_signal(MODEL_VERSION, data_path=str(tmp_path))
+
+    assert preview["latest_signal_date"] == "2026-05-08"
+    assert preview["selected_symbols"] == ["VUG"]
+    selected = preview["selected_rows"][0]
+    assert selected["symbol"] == "VUG"
+    assert selected["score"] == -0.0485
+    assert selected["signal_bucket"] == "top"
+
+
 def test_preview_reads_ready_manifest_and_surfaces_warnings(tmp_path) -> None:
     version_dir = tmp_path / f"model_version={MODEL_VERSION}"
     version_dir.mkdir()

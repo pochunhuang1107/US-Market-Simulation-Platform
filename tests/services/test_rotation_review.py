@@ -52,6 +52,10 @@ def test_rotation_timeline_rows_transform_into_rebalance_rows() -> None:
         "symbol": "XLK",
         "rank": 1,
         "trailing_return_pct": 12.0,
+        "model_score": None,
+        "model_rank": None,
+        "model_signal_date": None,
+        "model_signal_bucket": None,
         "target_weight_pct": 50.0,
         "selected": True,
     }
@@ -125,3 +129,35 @@ def test_rotation_review_service_loads_metrics_from_artifacts(tmp_path) -> None:
     assert response["metrics"]["alpha_vs_universe_equal_weight_pct"] == 2.5
     assert response["metrics"]["universe_size"] == 2
     assert response["rebalances"][0]["trades"][0]["symbol"] == "XLK"
+
+
+def test_model_signal_timeline_rows_expose_model_score_rank_and_signal_date() -> None:
+    rows = build_rotation_rebalance_rows(
+        [
+            {
+                "date": "2026-05-08",
+                "rebalance": "True",
+                "selected_assets": "['VUG']",
+                "target_weights": "{'VUG': 1.0}",
+                "model_scores": "{'VUG': 0.82, 'SLV': 0.12}",
+                "model_ranks": "{'VUG': 1, 'SLV': 2}",
+                "model_signal_dates": "{'VUG': '2026-05-08', 'SLV': '2026-05-08'}",
+                "cash": "0",
+            }
+        ],
+        [],
+        universe=["VUG", "SLV"],
+    )
+
+    assert rows[0]["selected_assets"] == ["VUG"]
+    assert rows[0]["asset_ranks"][0] == {
+        "symbol": "VUG",
+        "rank": None,
+        "trailing_return_pct": None,
+        "model_score": 0.82,
+        "model_rank": 1,
+        "model_signal_date": "2026-05-08",
+        "model_signal_bucket": None,
+        "target_weight_pct": 100.0,
+        "selected": True,
+    }
