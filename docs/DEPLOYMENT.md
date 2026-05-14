@@ -13,6 +13,12 @@ The app is packaged as four runtime processes:
 
 The backend image is intentionally reusable for the API and worker. Runtime environment variables come from the deploy environment; the Dockerfiles do not bake `.env` files, access tokens, bucket names, or OIDC secrets into images.
 
+The backend runtime is Python 3.11. CI and `Dockerfile.backend` validate this
+version, and Python package metadata excludes Python 3.14 for now because the
+current pinned Parquet/data stack does not install there. Supporting Python 3.14
+requires a coordinated data-stack upgrade rather than only a deployment config
+change.
+
 CI validates that the backend image, frontend image, and beta-local compose configuration still build or parse successfully. That validation does not push images to a registry, deploy infrastructure, or require secrets or AWS credentials.
 
 For the concise release gate, use [Beta Release Checklist](BETA_RELEASE_CHECKLIST.md).
@@ -173,6 +179,9 @@ For a product-loop pass, use [Beta Smoke Checklist](BETA_SMOKE_CHECKLIST.md).
 The non-Docker workflow remains supported:
 
 ```bash
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -e ".[dev]"
 uvicorn market_simulator.api.main:app --reload
 python -m market_simulator.platform.worker --recover-stale
 cd frontend

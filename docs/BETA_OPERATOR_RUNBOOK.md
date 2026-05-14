@@ -6,6 +6,13 @@ Use this runbook when switching between normal local development, packaged Docke
 
 Use local dev mode for normal feature work and real local configuration, including your real local `.env` data paths and local or S3 artifact settings.
 
+Use Python 3.11 for the backend virtual environment. The Simulation Platform
+currently keeps the local/runtime data stack on NumPy 1.x, pandas 2.2, and
+PyArrow 16 for Parquet-backed market data and model signal loading. If your
+default `python3` points to Python 3.14, create the environment with
+`python3.11 -m venv venv`; the data/Lambda pipeline may use a different Python
+runtime and should be treated separately.
+
 For a quick automated product-loop check that does not start services or use external providers, run:
 
 ```bash
