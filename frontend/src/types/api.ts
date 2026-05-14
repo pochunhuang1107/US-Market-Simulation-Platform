@@ -156,6 +156,42 @@ export interface ModelSignalCurrentPreviewResponse {
   manifest: Nullable<ModelSignalManifestResponse>;
 }
 
+export interface StrategyCurrentSignalRowResponse {
+  symbol: string;
+  date: Nullable<string>;
+  selection_rank: number;
+  [key: string]: unknown;
+}
+
+export interface StrategyCurrentSignalSourceResponse {
+  type: string;
+  manifest_status: Nullable<string>;
+}
+
+export interface StrategyCurrentSignalResponse {
+  strategy_id: string;
+  strategy_version_id: string;
+  model_version: string;
+  as_of_date: Nullable<string>;
+  latest_signal_date: Nullable<string>;
+  selected_symbols: string[];
+  target_weights: Record<string, number>;
+  selected_rows: StrategyCurrentSignalRowResponse[];
+  fallback_used: boolean;
+  fallback_type: Nullable<string>;
+  fallback_symbol: Nullable<string>;
+  ranking_field: string;
+  top_n: number;
+  universe: string[];
+  signal_bucket_filter: string[];
+  min_confidence: Nullable<number>;
+  manifest_status: Nullable<string>;
+  manifest_warnings: string[];
+  export_created_at: Nullable<string>;
+  manifest: Nullable<ModelSignalManifestResponse>;
+  source: Nullable<StrategyCurrentSignalSourceResponse>;
+}
+
 export type RunSortBy = 'created_at' | 'finished_at' | 'status';
 export type RunSortOrder = 'asc' | 'desc';
 export type RunArtifactStorageFilter = '' | 'ALL' | 'CURRENT' | 'S3' | 'LOCAL';
