@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { formatDecimal, formatNumber, formatPct } from '../../lib/formatters';
+import { isModelSignalRun } from '../../lib/modelSignalRunContext';
 import type { RunResponse } from '../../types/api';
 
 type Tone = 'default' | 'positive' | 'negative' | 'warning';
@@ -238,6 +239,7 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
   const maxDrawdownPct = getSummaryNumber(summary, 'max_drawdown_pct');
   const sharpeRatio = getSummaryNumber(summary, 'sharpe_ratio');
   const tradeCount = getSummaryNumber(summary, 'trade_count');
+  const isModelSignal = isModelSignalRun(run);
 
   const insights = [
     buildReturnInsight({ totalReturnPct, benchmarkReturnPct, alphaPct }),
@@ -245,7 +247,7 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
     buildActivityInsight({ tradeCount })
   ];
 
-  const nextSteps = buildNextSteps({ run, alphaPct, maxDrawdownPct, tradeCount });
+  const nextSteps = isModelSignal ? [] : buildNextSteps({ run, alphaPct, maxDrawdownPct, tradeCount });
 
   function handleOpenPrompt(prompt: string) {
     const sourceDraftConfig = getDraftConfig(run);
@@ -279,33 +281,35 @@ export function RunInsightBreakdown({ run }: { run: RunResponse }) {
         ))}
       </div>
 
-      <div className="app-surface-soft mt-5 rounded-3xl border p-5">
-        <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
-          Suggested next research steps
-        </div>
-        <p className="app-text-muted mt-2 text-sm leading-6">
-          Open one of these prompts in the builder to create the next strategy variant.
-        </p>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          {nextSteps.map((step) => (
-            <ResearchPromptButton
-              key={step.label}
-              step={step}
-              onOpen={handleOpenPrompt}
-            />
-          ))}
-        </div>
-
-        {openedPrompt ? (
-          <div className="app-note mt-4 rounded-2xl px-4 py-3 text-sm">
-            <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
-              Opening builder with prompt
-            </div>
-            <p className="app-title mt-2 leading-6">{openedPrompt}</p>
+      {nextSteps.length > 0 ? (
+        <div className="app-surface-soft mt-5 rounded-3xl border p-5">
+          <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+            Suggested next research steps
           </div>
-        ) : null}
-      </div>
+          <p className="app-text-muted mt-2 text-sm leading-6">
+            Open one of these prompts in the builder to create the next strategy variant.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {nextSteps.map((step) => (
+              <ResearchPromptButton
+                key={step.label}
+                step={step}
+                onOpen={handleOpenPrompt}
+              />
+            ))}
+          </div>
+
+          {openedPrompt ? (
+            <div className="app-note mt-4 rounded-2xl px-4 py-3 text-sm">
+              <div className="app-label text-[11px] font-semibold uppercase tracking-[0.22em]">
+                Opening builder with prompt
+              </div>
+              <p className="app-title mt-2 leading-6">{openedPrompt}</p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

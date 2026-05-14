@@ -33,6 +33,7 @@ export function getStrategyBehaviorFields(config: Record<string, unknown> | null
   const coreOverlay = getRecord(config.core_overlay);
   const positionManagement = getRecord(config.position_management);
   const rotation = getRecord(config.rotation);
+  const modelSignal = getRecord(config.model_signal);
   const fields: StrategyBehaviorField[] = [];
 
   if (rotation?.enabled === true) {
@@ -66,6 +67,46 @@ export function getStrategyBehaviorFields(config: Record<string, unknown> | null
     if (maxPositionPct !== null) {
       fields.push({ label: 'Rotation max position', value: formatPercent(maxPositionPct) });
     }
+    if (fallbackType) {
+      fields.push({
+        label: 'Fallback',
+        value: fallbackType === 'asset' && fallbackSymbol ? fallbackSymbol.toUpperCase() : fallbackType
+      });
+    }
+    if (typeof config.benchmark_symbol === 'string' && config.benchmark_symbol.trim()) {
+      fields.push({ label: 'Benchmark', value: config.benchmark_symbol });
+    }
+
+    return fields;
+  }
+
+  if (modelSignal?.enabled === true) {
+    const universe = Array.isArray(modelSignal.universe)
+      ? modelSignal.universe.filter((symbol): symbol is string => typeof symbol === 'string' && symbol.trim().length > 0)
+      : [];
+    const bucketFilter = Array.isArray(modelSignal.signal_bucket_filter)
+      ? modelSignal.signal_bucket_filter.filter((bucket): bucket is string => typeof bucket === 'string' && bucket.trim().length > 0)
+      : [];
+    const fallback = getRecord(modelSignal.fallback);
+    const fallbackType = getString(fallback?.type);
+    const fallbackSymbol = getString(fallback?.symbol);
+    const modelVersion = getString(modelSignal.model_version);
+    const rankingField = getString(modelSignal.ranking_field);
+    const topN = getNumber(modelSignal.top_n);
+
+    if (modelVersion) {
+      fields.push({ label: 'Model version', value: modelVersion });
+    }
+    if (universe.length > 0) {
+      fields.push({ label: 'Model universe', value: universe.join(', ') });
+    }
+    if (rankingField) {
+      fields.push({ label: 'Ranking field', value: rankingField });
+    }
+    if (topN !== null) {
+      fields.push({ label: 'Selection', value: `Top ${topN}` });
+    }
+    fields.push({ label: 'Signal bucket', value: bucketFilter.length > 0 ? bucketFilter.join(', ') : 'All buckets' });
     if (fallbackType) {
       fields.push({
         label: 'Fallback',

@@ -16,12 +16,14 @@ import {
   artifactUnavailableMessage,
   fetchRun,
   fetchRunDashboard,
+  fetchModelSignalCatalogDetail,
   fetchRunProgress,
   isArtifactUnavailableError,
   saveDraftRunAsStrategy
 } from '../lib/api';
+import { getModelSignalVersion, isModelSignalRun } from '../lib/modelSignalRunContext';
 import { suggestStrategyNameFromConfig } from '../lib/suggestStrategyName';
-import type { RunDashboardResponse, RunResponse } from '../types/api';
+import type { ModelSignalCatalogItemResponse, RotationReviewResponse, RunDashboardResponse, RunResponse } from '../types/api';
 
 const ACTIVE_RUN_STATUSES = new Set(['PENDING', 'QUEUED', 'RUNNING']);
 const UNSUCCESSFUL_RUN_STATUSES = new Set(['FAILED', 'CANCELED', 'CANCELLED']);
@@ -90,6 +92,11 @@ function isRotationResult(run: RunResponse): boolean {
   );
 }
 
+function getLatestRebalanceSelection(review: RotationReviewResponse | null | undefined): string[] {
+  if (!review || review.rebalances.length === 0) return [];
+  return review.rebalances[review.rebalances.length - 1]?.selected_assets ?? [];
+}
+
 export function RunDetailPage() {
   const { runId } = useParams();
   const location = useLocation();
@@ -103,6 +110,7 @@ export function RunDetailPage() {
   const [isSavingDraftStrategy, setIsSavingDraftStrategy] = useState(false);
   const [isSaveStrategyModalOpen, setIsSaveStrategyModalOpen] = useState(false);
   const [saveStrategyError, setSaveStrategyError] = useState<string | null>(null);
+  const [modelSignalCatalogItem, setModelSignalCatalogItem] = useState<ModelSignalCatalogItemResponse | null>(null);
   const [notice, setNotice] = useState<PageNotice | null>(
     (location.state as { notice?: PageNotice } | null)?.notice ?? null
   );
@@ -285,9 +293,40 @@ export function RunDetailPage() {
     };
   }, [runId]);
 
+  useEffect(() => {
+    const detailRun = data?.run ?? run;
+    const modelVersion = detailRun ? getModelSignalVersion(detailRun) : null;
+
+    if (!modelVersion) {
+      setModelSignalCatalogItem(null);
+      return;
+    }
+
+    let ignore = false;
+    setModelSignalCatalogItem(null);
+
+    void fetchModelSignalCatalogDetail(modelVersion)
+      .then((catalogItem) => {
+        if (!ignore) {
+          setModelSignalCatalogItem(catalogItem);
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setModelSignalCatalogItem(null);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [data?.run, run]);
+
   const suggestedStrategyName = suggestStrategyNameFromConfig(run?.request_payload?.draft_config);
   const isParameterSweep = data?.run.run_type === 'PARAMETER_SWEEP';
   const isRotation = data ? isRotationResult(data.run) : false;
+  const isModelSignal = data ? isModelSignalRun(data.run) : run ? isModelSignalRun(run) : false;
+  const latestModelSignalRebalanceSelection = isModelSignal ? getLatestRebalanceSelection(data?.rotation_review) : [];
   const canSaveDraftStrategy = Boolean(
     data?.run.status === 'SUCCEEDED' && !data.run.strategy_id && getDraftConfig(data.run)
   );
@@ -419,14 +458,31 @@ export function RunDetailPage() {
           <ParameterSweepResults run={data.run} />
         ) : (
           <>
-            <RunInsightHero run={data.run} chartData={data.chart_data} />
+            <RunInsightHero
+              run={data.run}
+              chartData={data.chart_data}
+              modelSignalCatalogItem={modelSignalCatalogItem}
+              latestRebalanceSelection={latestModelSignalRebalanceSelection}
+            />
 
             <RunInsightBreakdown run={data.run} />
 
             <RunCharts chartData={data.chart_data} run={data.run} />
 
             {data.rotation_review?.is_rotation ? (
-              <RotationRebalanceInspector review={data.rotation_review} />
+              <RotationRebalanceInspector
+                review={data.rotation_review}
+                mode={isModelSignal ? 'model_signal' : 'rotation'}
+              />
+            ) : isModelSignal ? (
+              <SectionCard
+                title="Model Signal Selection Inspector"
+                subtitle="Selection and allocation details from available model signal artifacts."
+              >
+                <div className="app-text-muted text-sm">
+                  Model signal rebalance artifacts are not available for this result.
+                </div>
+              </SectionCard>
             ) : isRotation ? (
               <SectionCard
                 title="Rotation Rebalance Inspector"

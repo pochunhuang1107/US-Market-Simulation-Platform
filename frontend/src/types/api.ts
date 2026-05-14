@@ -348,6 +348,10 @@ export interface RotationAssetRankRow {
   symbol: string;
   rank: Nullable<number>;
   trailing_return_pct: Nullable<number>;
+  model_score: Nullable<number>;
+  model_rank: Nullable<number>;
+  model_signal_date: Nullable<string>;
+  model_signal_bucket: Nullable<string>;
   target_weight_pct: Nullable<number>;
   selected: boolean;
 }

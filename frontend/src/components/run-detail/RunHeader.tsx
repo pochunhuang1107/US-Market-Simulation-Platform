@@ -9,6 +9,7 @@ import {
   isSavedSweepVariantResult,
   shortRunId
 } from '../../lib/formatters';
+import { buildModelSignalRunContext, getDraftConfigFromRun } from '../../lib/modelSignalRunContext';
 import type { RunResponse } from '../../types/api';
 import { RunStatusBadge } from '../runs/RunStatusBadge';
 
@@ -20,13 +21,7 @@ interface RunHeaderProps {
 }
 
 export function getDraftConfig(run: RunResponse): Record<string, unknown> | null {
-  const draftConfig = run.request_payload?.draft_config;
-
-  if (draftConfig && typeof draftConfig === 'object' && !Array.isArray(draftConfig)) {
-    return draftConfig as Record<string, unknown>;
-  }
-
-  return null;
+  return getDraftConfigFromRun(run);
 }
 
 export function getModifyBuilderState(run: RunResponse) {
@@ -109,13 +104,18 @@ export function RunHeader({
   onSaveDraftStrategy
 }: RunHeaderProps) {
   const isSavedSweepVariant = isSavedSweepVariantResult(run);
+  const modelSignalContext = buildModelSignalRunContext(run);
   const modifyBuilderState = getModifyBuilderState(run);
   const title = run.strategy_id
     ? formatRunLabel(run.strategy_name, run.strategy_version_number)
-    : 'Unsaved draft run';
+    : modelSignalContext
+      ? 'Model signal strategy'
+      : 'Unsaved draft run';
   const resultLabel = isSavedSweepVariant
     ? 'Saved Sweep Variant Result'
-    : run.run_type === 'PARAMETER_SWEEP' ? 'Parameter Sweep Result' : 'Simulation Result';
+    : modelSignalContext
+      ? 'Model Signal Result'
+      : run.run_type === 'PARAMETER_SWEEP' ? 'Parameter Sweep Result' : 'Simulation Result';
   const benchmarkLabel = getBenchmarkLabel(run);
   const coreOverlayLabel = getCoreOverlayLabel(run);
   const metadata = isSavedSweepVariant
@@ -135,6 +135,10 @@ export function RunHeader({
 
   if (coreOverlayLabel) {
     metadata.push(coreOverlayLabel);
+  }
+
+  if (modelSignalContext?.modelVersion) {
+    metadata.push(`Model: ${modelSignalContext.modelVersion}`);
   }
 
   return (
@@ -186,13 +190,28 @@ export function RunHeader({
             ) : null}
 
             {modifyBuilderState ? (
-              <Link
-                to="/workspace"
-                state={modifyBuilderState}
-                className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
-              >
-                Modify in Workspace
-              </Link>
+              modelSignalContext ? (
+                <Link
+                  to="/model-lab"
+                  state={{
+                    source: 'run_header',
+                    sourceRunId: run.id,
+                    modelVersion: modelSignalContext.modelVersion
+                  }}
+                  className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+                  title="Open Model Lab for cataloged model-signal research settings."
+                >
+                  Modify in Model Lab
+                </Link>
+              ) : (
+                <Link
+                  to="/workspace"
+                  state={modifyBuilderState}
+                  className="app-button-primary rounded-xl px-4 py-2 text-sm font-semibold transition"
+                >
+                  Modify in Workspace
+                </Link>
+              )
             ) : null}
 
             {!isSavedSweepVariant && run.parent_run_id ? (
@@ -227,8 +246,9 @@ export function RunHeader({
 
         <div className="flex flex-col items-start gap-4 lg:items-end">
           <RunStatusBadge status={run.status} />
-          <div className="app-card-soft rounded-2xl border px-4 py-3 text-sm app-text-muted">
-            Finished {formatDateTime(run.finished_at)}
+          <div className="app-card-soft min-w-[13rem] rounded-2xl border px-4 py-3 text-sm app-text-muted">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] app-text-soft">Finished</div>
+            <div className="mt-1 whitespace-nowrap font-semibold app-title">{formatDateTime(run.finished_at)}</div>
           </div>
         </div>
       </div>

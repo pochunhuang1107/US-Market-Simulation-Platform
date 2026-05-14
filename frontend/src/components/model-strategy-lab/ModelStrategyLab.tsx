@@ -43,6 +43,11 @@ function compactList(values: string[], maxItems = 6): string {
   return `${visible.join(', ')}${suffix}`;
 }
 
+function formatFallback(fallback: ModelSignalCatalogItemResponse['default_fallback']): string {
+  if (fallback.type === 'asset' && fallback.symbol) return fallback.symbol.toUpperCase();
+  return fallback.type;
+}
+
 function formatUnknownError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
@@ -128,6 +133,58 @@ function sortedUnique(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim().toUpperCase()).filter(Boolean))).sort();
 }
 
+function sameSymbols(left: string[], right: string[]): boolean {
+  const leftSymbols = sortedUnique(left);
+  const rightSymbols = sortedUnique(right);
+  return leftSymbols.length === rightSymbols.length && leftSymbols.every((symbol, index) => symbol === rightSymbols[index]);
+}
+
+function previewSelectedSymbols(preview: ModelSignalCurrentPreviewResponse | null | undefined): string[] {
+  if (!preview) return [];
+  const rowSymbols = preview.selected_rows.map((row) => row.symbol);
+  return rowSymbols.length > 0 ? rowSymbols : preview.selected_symbols;
+}
+
+function formatSignalNumber(value: unknown): string | null {
+  const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(numericValue)) return null;
+
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 4
+  }).format(numericValue);
+}
+
+function formatLatestSignalSelection(preview: ModelSignalCurrentPreviewResponse | null | undefined): string {
+  if (!preview) return 'Preview unavailable';
+
+  const symbols = previewSelectedSymbols(preview);
+  return symbols.length > 0 ? symbols.join(', ') : 'Preview unavailable';
+}
+
+function formatSignalScores(preview: ModelSignalCurrentPreviewResponse | null | undefined): string {
+  if (!preview || preview.selected_rows.length === 0) return '—';
+
+  return preview.selected_rows
+    .map((row) => {
+      const score = formatSignalNumber(row[preview.ranking_field]);
+      return score ? `${row.symbol} ${score}` : null;
+    })
+    .filter((value): value is string => Boolean(value))
+    .join(', ') || '—';
+}
+
+function formatSignalBuckets(preview: ModelSignalCurrentPreviewResponse | null | undefined): string {
+  if (!preview || preview.selected_rows.length === 0) return '—';
+
+  return preview.selected_rows
+    .map((row) => {
+      const bucket = row.signal_bucket;
+      return typeof bucket === 'string' && bucket.trim() ? `${row.symbol} ${bucket.trim()}` : null;
+    })
+    .filter((value): value is string => Boolean(value))
+    .join(', ') || '—';
+}
+
 export function buildModelSignalStrategyDraft(
   model: ModelSignalCatalogItemResponse,
   preview: ModelSignalCurrentPreviewResponse
@@ -139,7 +196,7 @@ export function buildModelSignalStrategyDraft(
   }
 
   const benchmark = defaults.benchmark || model.default_benchmark;
-  const selectedTradable = preview.selected_symbols.find((symbol) => universe.includes(symbol.toUpperCase()));
+  const selectedTradable = previewSelectedSymbols(preview).find((symbol) => universe.includes(symbol.toUpperCase()));
   const tradableSymbol = (selectedTradable ?? universe[0]).toUpperCase();
   const referenceSymbols = sortedUnique([...universe, benchmark]).filter((symbol) => symbol !== tradableSymbol);
   const signalBucketFilter =
@@ -208,6 +265,7 @@ export function ModelStrategyLab() {
   const [previewByModel, setPreviewByModel] = useState<Record<string, PreviewState>>({});
   const [runningModelVersion, setRunningModelVersion] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [expandedUniverses, setExpandedUniverses] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let ignore = false;
@@ -364,7 +422,7 @@ export function ModelStrategyLab() {
           source: 'model_strategy_lab',
           model_version: model.model_version,
           latest_signal_date: preview.latest_signal_date,
-          selected_symbols: preview.selected_symbols
+          selected_symbols: previewSelectedSymbols(preview)
         },
         max_attempts: 1
       });
@@ -453,7 +511,10 @@ export function ModelStrategyLab() {
           <div className="grid gap-4">
             {models.map((model) => {
               const previewState = previewByModel[model.model_version];
-              const selectedSymbols = previewState?.data?.selected_symbols ?? [];
+              const hasSharedUniverse = sameSymbols(model.supported_universe, model.default_universe);
+              const sharedUniverseKey = `${model.model_version}:universe`;
+              const supportedUniverseKey = `${model.model_version}:supported`;
+              const defaultUniverseKey = `${model.model_version}:default`;
               const disabledReason = getRunDisabledReason({
                 entitlements,
                 entitlementsLoading,
@@ -492,10 +553,48 @@ export function ModelStrategyLab() {
                   </div>
 
                   <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
-                    <Info label="Supported universe" value={`${model.supported_universe.length} ETFs`} />
-                    <Info label="Default universe" value={compactList(model.default_universe)} />
+                    {hasSharedUniverse ? (
+                      <UniverseInfo
+                        label="Universe"
+                        values={model.default_universe.length > 0 ? model.default_universe : model.supported_universe}
+                        expanded={Boolean(expandedUniverses[sharedUniverseKey])}
+                        onToggle={() =>
+                          setExpandedUniverses((current) => ({
+                            ...current,
+                            [sharedUniverseKey]: !current[sharedUniverseKey]
+                          }))
+                        }
+                      />
+                    ) : (
+                      <>
+                        <UniverseInfo
+                          label="Supported universe"
+                          values={model.supported_universe}
+                          expanded={Boolean(expandedUniverses[supportedUniverseKey])}
+                          onToggle={() =>
+                            setExpandedUniverses((current) => ({
+                              ...current,
+                              [supportedUniverseKey]: !current[supportedUniverseKey]
+                            }))
+                          }
+                        />
+                        <UniverseInfo
+                          label="Default universe"
+                          values={model.default_universe}
+                          expanded={Boolean(expandedUniverses[defaultUniverseKey])}
+                          onToggle={() =>
+                            setExpandedUniverses((current) => ({
+                              ...current,
+                              [defaultUniverseKey]: !current[defaultUniverseKey]
+                            }))
+                          }
+                        />
+                      </>
+                    )}
                     <Info label="Default top_n" value={String(model.default_top_n)} />
                     <Info label="Ranking field" value={model.ranking_field} />
+                    <Info label="Signal bucket filter" value={compactList(model.default_signal_bucket_filter)} />
+                    <Info label="Fallback" value={formatFallback(model.default_fallback)} />
                     <Info
                       label="Latest signal date"
                       value={
@@ -505,12 +604,36 @@ export function ModelStrategyLab() {
                       }
                     />
                     <Info
-                      label="Current selected symbol(s)"
+                      label="Latest signal selection"
                       value={
                         previewState?.loading
                           ? 'Loading...'
-                          : selectedSymbols.length > 0
-                            ? selectedSymbols.join(', ')
+                          : formatLatestSignalSelection(previewState?.data)
+                      }
+                    />
+                    <Info
+                      label="Signal score"
+                      value={
+                        previewState?.loading
+                          ? 'Loading...'
+                          : formatSignalScores(previewState?.data)
+                      }
+                    />
+                    <Info
+                      label="Signal bucket"
+                      value={
+                        previewState?.loading
+                          ? 'Loading...'
+                          : formatSignalBuckets(previewState?.data)
+                      }
+                    />
+                    <Info
+                      label="Preview source"
+                      value={
+                        previewState?.loading
+                          ? 'Loading...'
+                          : previewState?.data
+                            ? 'Configured artifact (MODEL_SIGNAL_DATA_PATH)'
                             : 'Preview unavailable'
                       }
                     />
@@ -544,6 +667,51 @@ export function ModelStrategyLab() {
         ) : null}
       </div>
     </SectionCard>
+  );
+}
+
+function UniverseInfo({
+  label,
+  values,
+  expanded,
+  onToggle
+}: {
+  label: string;
+  values: string[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const visibleValues = expanded ? values : values.slice(0, 6);
+  const hiddenCount = Math.max(values.length - visibleValues.length, 0);
+
+  return (
+    <div className="rounded-2xl border app-border-soft px-3 py-2">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] app-text-soft">{label}</p>
+      <p className="mt-1 app-title">{values.length > 0 ? `${values.length} ETFs` : '—'}</p>
+      {values.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {visibleValues.map((symbol) => (
+            <span key={symbol} className="app-surface-soft rounded-full border px-2 py-0.5 text-xs font-semibold app-title">
+              {symbol}
+            </span>
+          ))}
+          {hiddenCount > 0 ? (
+            <span className="app-surface-soft rounded-full border px-2 py-0.5 text-xs font-semibold app-text-muted">
+              +{hiddenCount}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {values.length > 6 ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="mt-2 text-xs font-semibold app-text-muted transition hover:opacity-80"
+        >
+          {expanded ? 'Show less' : 'Show all'}
+        </button>
+      ) : null}
+    </div>
   );
 }
 

@@ -13,6 +13,8 @@ import type {
 } from '../../types/api';
 import { SectionCard } from '../shared/SectionCard';
 
+type RebalanceInspectorMode = 'rotation' | 'model_signal';
+
 function formatShares(value: number | null): string {
   if (value === null || value === undefined) return '—';
   return new Intl.NumberFormat('en-US', {
@@ -113,9 +115,54 @@ function RebalanceList({
   );
 }
 
-function AssetRankTable({ rebalance }: { rebalance: RotationRebalanceEvent }) {
+function AssetRankTable({
+  rebalance,
+  mode
+}: {
+  rebalance: RotationRebalanceEvent;
+  mode: RebalanceInspectorMode;
+}) {
   if (rebalance.asset_ranks.length === 0) {
-    return <div className="app-text-muted text-sm">No rank or trailing return fields were available.</div>;
+    return (
+      <div className="app-text-muted text-sm">
+        {mode === 'model_signal'
+          ? 'No model signal rank fields were available.'
+          : 'No rank or trailing return fields were available.'}
+      </div>
+    );
+  }
+
+  if (mode === 'model_signal') {
+    return (
+      <div className="app-table-frame overflow-auto rounded-xl">
+        <table className="min-w-[760px] divide-y text-sm app-divider">
+          <thead className="app-table-head text-left text-xs font-semibold uppercase tracking-[0.18em]">
+            <tr>
+              <th className="px-3 py-2">Asset</th>
+              <th className="px-3 py-2">Score</th>
+              <th className="px-3 py-2">Rank</th>
+              <th className="px-3 py-2">Signal date</th>
+              <th className="px-3 py-2">Bucket</th>
+              <th className="px-3 py-2">Target</th>
+              <th className="min-w-24 px-3 py-2">Selected</th>
+            </tr>
+          </thead>
+          <tbody className="app-table-body divide-y app-divider">
+            {rebalance.asset_ranks.map((row) => (
+              <tr key={row.symbol}>
+                <td className="app-title px-3 py-2 font-medium">{row.symbol}</td>
+                <td className="px-3 py-2">{formatNumber(row.model_score)}</td>
+                <td className="px-3 py-2">{formatNumber(row.model_rank ?? row.rank)}</td>
+                <td className="px-3 py-2">{row.model_signal_date ? formatShortDate(row.model_signal_date) : '-'}</td>
+                <td className="px-3 py-2">{row.model_signal_bucket ?? '-'}</td>
+                <td className="px-3 py-2">{formatPct(row.target_weight_pct)}</td>
+                <td className="min-w-24 px-3 py-2">{row.selected ? 'Yes' : 'No'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
   }
 
   return (
@@ -210,7 +257,13 @@ function HoldingTable({ rebalance }: { rebalance: RotationRebalanceEvent }) {
   );
 }
 
-function RebalancePanel({ rebalance }: { rebalance: RotationRebalanceEvent | null }) {
+function RebalancePanel({
+  rebalance,
+  mode
+}: {
+  rebalance: RotationRebalanceEvent | null;
+  mode: RebalanceInspectorMode;
+}) {
   if (!rebalance) {
     return (
       <div className="app-border-soft h-full rounded-2xl border p-5">
@@ -236,8 +289,10 @@ function RebalancePanel({ rebalance }: { rebalance: RotationRebalanceEvent | nul
 
       <div className="space-y-5">
         <div>
-          <div className="app-title mb-3 text-sm font-semibold">Ranks / trailing returns</div>
-          <AssetRankTable rebalance={rebalance} />
+          <div className="app-title mb-3 text-sm font-semibold">
+            {mode === 'model_signal' ? 'Model signal scores' : 'Ranks / trailing returns'}
+          </div>
+          <AssetRankTable rebalance={rebalance} mode={mode} />
         </div>
         <div>
           <div className="app-title mb-3 text-sm font-semibold">Rebalance trades</div>
@@ -252,7 +307,13 @@ function RebalancePanel({ rebalance }: { rebalance: RotationRebalanceEvent | nul
   );
 }
 
-export function RotationRebalanceInspector({ review }: { review: RotationReviewResponse }) {
+export function RotationRebalanceInspector({
+  review,
+  mode = 'rotation'
+}: {
+  review: RotationReviewResponse;
+  mode?: RebalanceInspectorMode;
+}) {
   const [selectedRebalanceId, setSelectedRebalanceId] = useState<string | null>(
     review.rebalances[0]?.id ?? null
   );
@@ -268,8 +329,12 @@ export function RotationRebalanceInspector({ review }: { review: RotationReviewR
   if (review.rebalances.length === 0) {
     return (
       <SectionCard
-        title="Rotation Rebalance Inspector"
-        subtitle="Selection and allocation details from available rotation artifacts."
+        title={mode === 'model_signal' ? 'Model Signal Selection Inspector' : 'Rotation Rebalance Inspector'}
+        subtitle={
+          mode === 'model_signal'
+            ? 'Selection and allocation details from available model signal artifacts.'
+            : 'Selection and allocation details from available rotation artifacts.'
+        }
       >
         <MetricTable metrics={review.metrics} />
         <div className="app-text-muted mt-4 text-sm">No rebalance rows were available for this result.</div>
@@ -284,8 +349,12 @@ export function RotationRebalanceInspector({ review }: { review: RotationReviewR
 
   return (
     <SectionCard
-      title="Rotation Rebalance Inspector"
-      subtitle={`Selection, target weights, trades, and holdings from rotation artifacts. ${countCopy}`}
+      title={mode === 'model_signal' ? 'Model Signal Selection Inspector' : 'Rotation Rebalance Inspector'}
+      subtitle={
+        mode === 'model_signal'
+          ? `Model scores, selected assets, target weights, trades, and holdings from model signal artifacts. ${countCopy}`
+          : `Selection, target weights, trades, and holdings from rotation artifacts. ${countCopy}`
+      }
     >
       <div className="space-y-5">
         <MetricTable metrics={review.metrics} />
@@ -295,7 +364,7 @@ export function RotationRebalanceInspector({ review }: { review: RotationReviewR
             selectedId={selectedRebalance?.id ?? null}
             onSelect={setSelectedRebalanceId}
           />
-          <RebalancePanel rebalance={selectedRebalance} />
+          <RebalancePanel rebalance={selectedRebalance} mode={mode} />
         </div>
       </div>
     </SectionCard>

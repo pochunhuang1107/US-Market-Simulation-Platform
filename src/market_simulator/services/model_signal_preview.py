@@ -98,7 +98,11 @@ def _load_frame_and_manifest(
 
 
 def _normalize_bucket_filter(bucket_filter: Iterable[str]) -> set[str]:
-    return {str(bucket).strip() for bucket in bucket_filter if str(bucket).strip()}
+    return {
+        str(bucket).strip().lower()
+        for bucket in bucket_filter
+        if str(bucket).strip()
+    }
 
 
 def _json_value(value: Any) -> Any:
@@ -158,6 +162,42 @@ def _selected_rows_payload(
     return payload
 
 
+def _select_latest_signal_rows(
+    signal_frame: pd.DataFrame,
+    entry: ModelSignalCatalogEntry,
+) -> tuple[pd.Timestamp, pd.DataFrame, pd.DataFrame, int, int]:
+    latest_signal_date = signal_frame["date"].max()
+    latest_rows = signal_frame[signal_frame["date"] == latest_signal_date].copy()
+    row_count_latest_date = int(len(latest_rows))
+    universe_symbol_count = int(latest_rows["symbol"].nunique())
+
+    eligible = latest_rows
+    bucket_filter = _normalize_bucket_filter(entry.default_signal_bucket_filter)
+    if bucket_filter:
+        if "signal_bucket" not in eligible.columns:
+            raise _safe_invalid_error("signal_bucket is required by registry defaults")
+        artifact_bucket = eligible["signal_bucket"].astype(str).str.strip().str.lower()
+        eligible = eligible[artifact_bucket.isin(bucket_filter)]
+
+    ranking_field = entry.ranking_field
+    eligible = eligible.copy()
+    eligible[ranking_field] = pd.to_numeric(eligible[ranking_field], errors="coerce")
+    if eligible[ranking_field].isna().any():
+        raise _safe_invalid_error(f"ranking_field '{ranking_field}' must be numeric")
+
+    ranked = eligible.sort_values(
+        by=[ranking_field, "symbol"],
+        ascending=[False, True],
+    )
+    return (
+        latest_signal_date,
+        latest_rows,
+        ranked.head(entry.default_top_n),
+        row_count_latest_date,
+        universe_symbol_count,
+    )
+
+
 def preview_current_model_signal(
     model_version: str,
     *,
@@ -192,28 +232,16 @@ def preview_current_model_signal(
     if ranking_field not in signal_frame.columns:
         raise _safe_invalid_error(f"ranking_field '{ranking_field}' is missing")
 
-    latest_signal_date = signal_frame["date"].max()
-    latest_rows = signal_frame[signal_frame["date"] == latest_signal_date].copy()
-    row_count_latest_date = int(len(latest_rows))
-    universe_symbol_count = int(latest_rows["symbol"].nunique())
-
-    eligible = latest_rows
-    bucket_filter = _normalize_bucket_filter(entry.default_signal_bucket_filter)
-    if bucket_filter:
-        if "signal_bucket" not in eligible.columns:
-            raise _safe_invalid_error("signal_bucket is required by registry defaults")
-        eligible = eligible[eligible["signal_bucket"].astype(str).isin(bucket_filter)]
-
-    eligible = eligible.copy()
-    eligible[ranking_field] = pd.to_numeric(eligible[ranking_field], errors="coerce")
-    if eligible[ranking_field].isna().any():
-        raise _safe_invalid_error(f"ranking_field '{ranking_field}' must be numeric")
-
-    ranked = eligible.sort_values(
-        by=[ranking_field, "symbol"],
-        ascending=[False, True],
+    (
+        latest_signal_date,
+        latest_rows,
+        selected,
+        row_count_latest_date,
+        universe_symbol_count,
+    ) = _select_latest_signal_rows(
+        signal_frame,
+        entry,
     )
-    selected = ranked.head(entry.default_top_n)
 
     manifest_payload = loaded_manifest.public_dict() if loaded_manifest else None
     return {

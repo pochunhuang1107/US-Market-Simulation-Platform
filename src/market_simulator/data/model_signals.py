@@ -522,6 +522,19 @@ class ModelSignalRepository:
             / self.file_name
         )
 
+    def _local_model_version_paths(self, root: Path, model_version: str) -> list[Path]:
+        version_dir = root / f"model_version={_normalize_model_version(model_version)}"
+        preferred_path = version_dir / self.file_name
+        if preferred_path.exists():
+            return [preferred_path]
+        if not version_dir.is_dir():
+            return []
+        return sorted(
+            path
+            for path in version_dir.rglob("*")
+            if path.is_file() and _is_supported_model_signal_file(path)
+        )
+
     def _local_paths(self, model_version: str | None) -> list[Path]:
         base = Path(self.base_path)
         if _has_glob_pattern(base):
@@ -544,18 +557,21 @@ class ModelSignalRepository:
 
         if base.is_dir():
             if model_version is not None:
+                daily_roots = (
+                    base / "model_signals_daily",
+                    base / "artifacts" / "model_signals_daily",
+                )
+                for daily_root in daily_roots:
+                    matches = self._local_model_version_paths(daily_root, model_version)
+                    if matches:
+                        return matches
+
                 version_path = Path(self.path_for_model_version(model_version))
                 if version_path.exists():
                     return [version_path]
-                version_dir = base / f"model_version={_normalize_model_version(model_version)}"
-                if version_dir.is_dir():
-                    matches = [
-                        path
-                        for path in version_dir.rglob("*")
-                        if path.is_file() and _is_supported_model_signal_file(path)
-                    ]
-                    if matches:
-                        return sorted(matches)
+                matches = self._local_model_version_paths(base, model_version)
+                if matches:
+                    return matches
 
             matches = [
                 path

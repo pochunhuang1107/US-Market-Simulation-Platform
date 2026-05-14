@@ -12,6 +12,9 @@ def test_run_detail_header_does_not_expose_new_version_action():
     assert "Compare this result" in source
     assert "Save strategy" in source
     assert "Modify in Workspace" in source
+    assert "Finished</div>" in source
+    assert "whitespace-nowrap" in source
+    assert "min-w-[13rem]" in source
     assert "Result ID:" in source
     assert "Simulation Result" in source
     assert "Parameter Sweep Result" in source
@@ -26,6 +29,11 @@ def test_completed_run_detail_keeps_chart_first_compact_result_hierarchy():
     assert "canSaveDraftStrategy = Boolean" in page_source
     assert "getDraftConfig(data.run)" in page_source
     assert "Completed result" in hero_source
+    assert "isModelSignalHero" in hero_source
+    assert "grid items-start gap-6" in hero_source
+    assert "h-[320px]" in hero_source
+    assert "self-start rounded-3xl" in hero_source
+    assert "h-[360px]" in hero_source
     assert "const cagrPct = getSummaryNumber(summary, 'cagr_pct');" in hero_source
     assert "label: 'Total Return'" in hero_source
     assert "label: 'CAGR'" in hero_source
@@ -34,6 +42,50 @@ def test_completed_run_detail_keeps_chart_first_compact_result_hierarchy():
     assert "label: 'Alpha'" in hero_source
     assert "label: 'Sharpe'" not in hero_source
     assert "verdict.description" not in hero_source
+
+
+def test_run_detail_displays_model_signal_context_without_affecting_normal_drafts():
+    page_source = (ROOT / "frontend/src/pages/RunDetailPage.tsx").read_text()
+    header_source = (ROOT / "frontend/src/components/run-detail/RunHeader.tsx").read_text()
+    hero_source = (ROOT / "frontend/src/components/run-detail/RunInsightHero.tsx").read_text()
+    context_source = (ROOT / "frontend/src/lib/modelSignalRunContext.ts").read_text()
+
+    assert "fetchModelSignalCatalogDetail(modelVersion)" in page_source
+    assert "modelSignalCatalogItem={modelSignalCatalogItem}" in page_source
+    assert "getModelSignalVersion" in page_source
+    assert "Model Signal Result" in header_source
+    assert "Model signal strategy" in header_source
+    assert ": 'Unsaved draft run'" in header_source
+    assert "modelSignalContext ? modelSignalContext.displayName ?? 'Model signal strategy' : 'Draft strategy'" in hero_source
+    assert "ModelSignalContextPill" in hero_source
+    assert "Model version" in hero_source
+    assert "Signal date" in hero_source
+    assert "Ranking field" in hero_source
+    assert "Top N" in hero_source
+    assert "Signal bucket" in hero_source
+    assert "Fallback" in hero_source
+    assert "Latest rebalance holding" in hero_source
+    assert "latestRebalanceSelection" in hero_source
+    assert "Paper tracking" in hero_source
+    assert "Research-only paper-tracking signal; not investment advice." in hero_source
+    assert "Research / paper tracking" in context_source
+    assert "paper tracking - paper-tracking" not in context_source
+    assert "summary.strategy_type === 'model_signal'" in context_source
+    assert "draftConfig.model_signal.enabled === true" in context_source
+    assert "run.request_payload?.latest_signal_date" in context_source
+    assert "selected_symbols" not in context_source
+    assert "Modify in Model Lab" in header_source
+
+
+def test_strategy_behavior_summary_includes_model_signal_fields():
+    source = (ROOT / "frontend/src/lib/strategyBehaviorSummary.ts").read_text()
+
+    assert "modelSignal?.enabled === true" in source
+    assert "label: 'Model version'" in source
+    assert "label: 'Model universe'" in source
+    assert "label: 'Ranking field'" in source
+    assert "label: 'Signal bucket'" in source
+    assert "label: 'Fallback'" in source
 
 
 def test_run_detail_uses_rotation_rebalance_inspector_for_rotation_runs():
@@ -45,7 +97,7 @@ def test_run_detail_uses_rotation_rebalance_inspector_for_rotation_runs():
 
     assert "import { RotationRebalanceInspector }" in page_source
     assert "data.rotation_review?.is_rotation" in page_source
-    assert "<RotationRebalanceInspector review={data.rotation_review} />" in page_source
+    assert "mode={isModelSignal ? 'model_signal' : 'rotation'}" in page_source
     assert "isRotation ? (" in page_source
     assert "Rotation rebalance artifacts are not available for this result." in page_source
     assert "<TradeEventInspector runId={data.run.id} />" in page_source
@@ -53,7 +105,21 @@ def test_run_detail_uses_rotation_rebalance_inspector_for_rotation_runs():
     assert "Ranks / trailing returns" in inspector_source
     assert "Rebalance trades" in inspector_source
     assert "Holdings after rebalance" in inspector_source
+    assert "Model Signal Selection Inspector" in inspector_source
+    assert "Model signal scores" in inspector_source
+    assert "min-w-[760px]" in inspector_source
+    assert "min-w-24 px-3 py-2" in inspector_source
+    assert "model_score" in types_source
+    assert "model_signal_date" in types_source
     assert "rotation_review: Nullable<RotationReviewResponse>;" in types_source
+
+
+def test_model_signal_breakdown_hides_builder_prompts():
+    source = (ROOT / "frontend/src/components/run-detail/RunInsightBreakdown.tsx").read_text()
+
+    assert "isModelSignalRun" in source
+    assert "const nextSteps = isModelSignal ? [] : buildNextSteps" in source
+    assert "nextSteps.length > 0" in source
 
 
 def test_run_detail_hero_has_optional_universe_equal_weight_metrics():
