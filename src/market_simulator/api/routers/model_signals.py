@@ -9,7 +9,7 @@ from market_simulator.api.schemas.model_signals import (
     ModelSignalCatalogListResponse,
     ModelSignalCurrentPreviewResponse,
 )
-from market_simulator.services.entitlements import get_user_entitlements
+from market_simulator.services.entitlements import enforce_model_signal_access
 from market_simulator.services.model_signal_catalog import (
     get_model_signal_catalog_entry,
     list_model_signal_catalog,
@@ -24,22 +24,8 @@ from market_simulator.services.model_signal_preview import (
 router = APIRouter(prefix="/model-signals", tags=["model-signals"])
 
 
-MODEL_SIGNAL_ACCESS_LIMIT_DETAIL = {
-    "code": "PLAN_LIMIT_MODEL_SIGNALS",
-    "message": "Model-signal catalog access requires advanced research access.",
-    "guidance": (
-        "These entries are research candidates and are not available on the "
-        "free plan."
-    ),
-    "plan_limit": True,
-}
-
-
 def _enforce_model_signal_catalog_access(db: Session, user_id: str) -> None:
-    entitlements = get_user_entitlements(db, user_id)
-    if entitlements.allow_advanced_builder:
-        return
-    raise HTTPException(status_code=403, detail=MODEL_SIGNAL_ACCESS_LIMIT_DETAIL)
+    enforce_model_signal_access(db, user_id)
 
 
 @router.get("/catalog", response_model=ModelSignalCatalogListResponse)

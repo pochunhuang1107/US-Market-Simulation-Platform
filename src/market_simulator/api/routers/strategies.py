@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from market_simulator.api.schemas.runs import RunDashboardListItem
 from market_simulator.api.schemas.strategies import (
     CreateStrategyRequest,
     CreateStrategyVersionRequest,
+    StrategyCurrentSignalResponse,
     StrategyDashboardResponse,
     StrategyReferencePerformance,
     StrategyResponse,
@@ -29,8 +31,17 @@ from market_simulator.repositories.strategies import (
 )
 from market_simulator.services.entitlements import (
     enforce_custom_rotation_access_for_config,
+    enforce_model_signal_access,
     enforce_strategy_create_access,
     enforce_strategy_history_access,
+)
+from market_simulator.services.saved_strategy_current_signal import (
+    SavedStrategyCurrentSignalArtifactNotFoundError,
+    SavedStrategyCurrentSignalInvalidError,
+    SavedStrategyCurrentSignalNotFoundError,
+    SavedStrategyCurrentSignalNotModelSignalError,
+    SavedStrategyCurrentSignalRequest,
+    evaluate_current_signal_for_saved_strategy,
 )
 from market_simulator.services.draft_validation import validate_backtest_window
 from market_simulator.services.strategy_version_identity import (
@@ -234,6 +245,46 @@ def restore_strategy_api(
         raise HTTPException(status_code=404, detail="Strategy not found")
 
     return strategy
+
+
+@router.get("/{strategy_id}/current-signal", response_model=StrategyCurrentSignalResponse)
+def get_strategy_current_signal_api(
+    strategy_id: str,
+    strategy_version_id: str | None = Query(default=None),
+    as_of_date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    enforce_model_signal_access(db, user["id"])
+    try:
+        payload = evaluate_current_signal_for_saved_strategy(
+            db,
+            SavedStrategyCurrentSignalRequest(
+                strategy_id=strategy_id,
+                strategy_version_id=strategy_version_id,
+                current_user=user,
+                as_of_date=as_of_date,
+            ),
+        )
+    except SavedStrategyCurrentSignalNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Strategy not found") from exc
+    except SavedStrategyCurrentSignalNotModelSignalError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except SavedStrategyCurrentSignalArtifactNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except SavedStrategyCurrentSignalInvalidError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    return StrategyCurrentSignalResponse.model_validate(payload)
 
 
 @router.get("/{strategy_id}/dashboard", response_model=StrategyDashboardResponse)

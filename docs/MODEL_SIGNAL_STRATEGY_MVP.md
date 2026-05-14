@@ -97,3 +97,33 @@ Artifacts are validated with the model-signal ingestion contract, then filtered
 by configured `model_version`, universe, and strategy date range before
 execution. This repo remains an artifact consumer only: no training, notebooks,
 live inference, sklearn, or tensorflow runtime dependencies belong here.
+
+## Saved Strategy Current Signal
+
+Saved model-signal strategies also have a backend/API evaluator for the
+paper-tracking foundation:
+
+```text
+GET /strategies/{strategy_id}/current-signal
+GET /strategies/{strategy_id}/current-signal?strategy_version_id=<version_id>
+GET /strategies/{strategy_id}/current-signal?as_of_date=2026-05-08
+```
+
+The evaluator loads the saved strategy version owned by `current_user`,
+requires `model_signal.enabled=true`, reads the latest available model signal
+artifact through `MODEL_SIGNAL_DATA_PATH`, and returns the compact current
+selection state. It applies the saved config values for `model_version`,
+`ranking_field`, `universe`, `top_n`, `signal_bucket_filter`, `min_confidence`,
+and `fallback`. When `as_of_date` is supplied, it uses the latest signal date
+on or before that date; otherwise it uses the latest available signal date.
+
+The response includes selected symbols, equal target weights, selected row
+fields such as score/rank/predicted return/confidence/bucket when present,
+fallback state, and safe manifest status/warnings. It intentionally does not
+expose resolved local artifact paths.
+
+This is only a tracking foundation. There are no scheduled daily jobs,
+notifications, portfolio channels, model training, or live inference in this
+MVP. Model artifacts must be refreshed by the ML/data pipeline outside this
+repository. Current signal output is for research and paper tracking only, not
+investment advice.

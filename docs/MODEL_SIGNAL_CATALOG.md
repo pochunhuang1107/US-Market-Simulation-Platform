@@ -38,6 +38,7 @@ Protected catalog endpoints:
 GET /model-signals/catalog
 GET /model-signals/catalog/{model_version}
 GET /model-signals/catalog/{model_version}/current
+GET /strategies/{strategy_id}/current-signal
 ```
 
 The endpoints resolve `current_user` and enforce model-signal catalog access
@@ -63,6 +64,13 @@ fields such as `score`, `rank`, `predicted_return`, `confidence`, and
 manifest status/warnings when a sibling `model_signal_manifest.json` exists.
 The endpoint does not run model training, does not run live inference, and does
 not expose local artifact paths.
+
+Saved strategies use the strategy-specific current signal endpoint. Unlike the
+catalog preview, it evaluates the saved `model_signal` config for the owned
+strategy version: universe, ranking field, top N, bucket filter, confidence
+floor, fallback, and optional `as_of_date`. This lets the backend answer the
+current paper holding for a saved strategy before any UI tracking, scheduler,
+notification, or channel work exists.
 
 ## Adding a Model After Research Export
 
