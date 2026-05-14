@@ -7,7 +7,7 @@ name = "us-market-backtest-engine-v2"
 version = "0.2.0"
 description = "Deterministic ETF strategy simulation engine"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy>=1.26,<2",
     "pandas>=2.2,<2.3",

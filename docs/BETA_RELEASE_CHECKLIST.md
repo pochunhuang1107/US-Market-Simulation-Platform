@@ -4,6 +4,17 @@ Use this before handing a beta build to testers. The first gate focuses on local
 
 ## 0. Local Release Gate
 
+- [ ] Use a Python 3.11 backend virtual environment for local release checks.
+  The Simulation Platform's pinned Parquet/data stack is not yet validated on
+  Python 3.14. If your default `python3` is 3.14, create the venv explicitly:
+
+```bash
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -e ".[dev]"
+python -c "import pandas, pyarrow, duckdb; print('pandas', pandas.__version__, 'pyarrow', pyarrow.__version__, 'duckdb', duckdb.__version__)"
+```
+
 - [ ] Run the safe local release gate from the repo root:
 
 ```bash

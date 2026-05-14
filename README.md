@@ -93,10 +93,30 @@ Natural language is an input method, not the execution engine.
 
 ## Local Development
 
+### Python compatibility
+
+Use Python 3.11 for this repository's local backend environment. CI and the
+backend Docker image currently validate Python 3.11, and the pinned data stack
+is intentionally held on NumPy 1.x, pandas 2.2, and PyArrow 16.
+
+Do not create the virtual environment with plain `python3` if your machine's
+default `python3` points to Python 3.14. Python 3.14 is not supported by this
+repo yet because it requires a newer Parquet/data stack, including NumPy 2.x and
+a much newer PyArrow release. That upgrade should be handled as a separate
+simulation/data-stack validation effort, not as a local setup workaround.
+
+PyArrow is required because market data, ETF metadata, reference series, and
+model signal artifacts are loaded from Parquet datasets through pandas, PyArrow,
+and DuckDB paths. Do not remove it unless Parquet support is replaced correctly.
+
+The upstream data/Lambda pipeline may use a different Python version and
+dependency bundle. Treat its runtime compatibility separately from this
+Simulation Platform app.
+
 ### 1. Create and activate a virtual environment
 
 ```bash
-python3 -m venv venv
+python3.11 -m venv venv
 source venv/bin/activate
 ```
 
@@ -104,6 +124,12 @@ source venv/bin/activate
 
 ```bash
 pip install -e .
+```
+
+Optional import smoke check for the Parquet/data stack:
+
+```bash
+python -c "import pandas, pyarrow, duckdb; print('pandas', pandas.__version__, 'pyarrow', pyarrow.__version__, 'duckdb', duckdb.__version__)"
 ```
 
 ### 3. Start the FastAPI backend
