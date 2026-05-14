@@ -93,3 +93,53 @@ class StrategyDashboardResponse(BaseModel):
     latest_run_id: str | None = None
     latest_finished_at: datetime | None = None
     latest_performance: StrategyLatestPerformance | None = None
+
+
+class StrategyCurrentSignalRowResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    symbol: str
+    date: str | None = None
+    selection_rank: int
+
+
+class StrategyCurrentSignalManifestResponse(BaseModel):
+    model_version: str
+    feature_set_version: str | None = None
+    label_horizon_days: int | None = None
+    latest_signal_date: str | None = None
+    row_count: int | None = None
+    symbol_count: int | None = None
+    export_created_at: str | None = None
+    candidate_id: str | None = None
+    status: str | None = None
+    warnings: list[str]
+
+
+class StrategyCurrentSignalSourceResponse(BaseModel):
+    type: str
+    manifest_status: str | None = None
+
+
+class StrategyCurrentSignalResponse(BaseModel):
+    strategy_id: str
+    strategy_version_id: str
+    model_version: str
+    as_of_date: str | None = None
+    latest_signal_date: str | None = None
+    selected_symbols: list[str]
+    target_weights: dict[str, float]
+    selected_rows: list[StrategyCurrentSignalRowResponse]
+    fallback_used: bool
+    fallback_type: str | None = None
+    fallback_symbol: str | None = None
+    ranking_field: str
+    top_n: int
+    universe: list[str]
+    signal_bucket_filter: list[str]
+    min_confidence: float | None = None
+    manifest_status: str | None = None
+    manifest_warnings: list[str]
+    export_created_at: str | None = None
+    manifest: StrategyCurrentSignalManifestResponse | None = None
+    source: StrategyCurrentSignalSourceResponse | None = None

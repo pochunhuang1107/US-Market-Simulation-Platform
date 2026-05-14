@@ -22,6 +22,15 @@ ADVANCED_ROTATION_GUIDANCE = (
     "You can still run curated Gallery examples within your plan limits. "
     "This is a plan limit, not a strategy validation error."
 )
+MODEL_SIGNAL_ACCESS_LIMIT_DETAIL = {
+    "code": "PLAN_LIMIT_MODEL_SIGNALS",
+    "message": "Model-signal catalog access requires advanced research access.",
+    "guidance": (
+        "These entries are research candidates and are not available on the "
+        "free plan."
+    ),
+    "plan_limit": True,
+}
 
 
 @dataclass
@@ -227,6 +236,13 @@ def enforce_strategy_history_access(db: Session, user_id: str) -> UserEntitlemen
             status_code=403,
             detail="Your current plan does not include strategy version history",
         )
+    return entitlements
+
+
+def enforce_model_signal_access(db: Session, user_id: str) -> UserEntitlements:
+    entitlements = get_user_entitlements(db, user_id)
+    if not entitlements.allow_advanced_builder:
+        raise HTTPException(status_code=403, detail=MODEL_SIGNAL_ACCESS_LIMIT_DETAIL)
     return entitlements
 
 
