@@ -24,6 +24,7 @@ import type {
   TradeEventContextResponse,
   StrategyBuilderGenerateRequest,
   StrategyBuilderGenerateResponse,
+  StrategyCurrentSignalResponse,
   StrategyDashboardResponse,
   StrategyListItem
 } from '../types/api';
@@ -278,6 +279,17 @@ export async function fetchStrategies(options?: { includeArchived?: boolean }): 
 
 export async function fetchStrategyDashboard(strategyId: string): Promise<StrategyDashboardResponse> {
   return request<StrategyDashboardResponse>(`/api/strategies/${strategyId}/dashboard`);
+}
+
+export async function fetchStrategyCurrentSignal(
+  strategyId: string,
+  options?: { strategyVersionId?: string }
+): Promise<StrategyCurrentSignalResponse> {
+  return request<StrategyCurrentSignalResponse>(
+    `/api/strategies/${strategyId}/current-signal${buildQueryString({
+      strategy_version_id: options?.strategyVersionId
+    })}`
+  );
 }
 
 export async function archiveStrategy(strategyId: string): Promise<StrategyListItem> {

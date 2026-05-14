@@ -7,7 +7,15 @@ import { MetricCard } from '../components/shared/MetricCard';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { StateCard } from '../components/shared/StateCard';
-import { archiveStrategy, createRun, enqueueRun, fetchStrategyDashboard, restoreStrategy } from '../lib/api';
+import {
+  ApiRequestError,
+  archiveStrategy,
+  createRun,
+  enqueueRun,
+  fetchStrategyCurrentSignal,
+  fetchStrategyDashboard,
+  restoreStrategy
+} from '../lib/api';
 import {
   formatDateTime,
   formatPct,
@@ -16,7 +24,7 @@ import {
 } from '../lib/formatters';
 import { summarizeRule as summarizeStrategyRule } from '../lib/ruleSummaries';
 import { getStrategyBehaviorFields } from '../lib/strategyBehaviorSummary';
-import type { StrategyDashboardResponse, StrategyVersionSummary } from '../types/api';
+import type { StrategyCurrentSignalResponse, StrategyDashboardResponse, StrategyVersionSummary } from '../types/api';
 
 function formatStrategyType(value: string | null | undefined) {
   if (!value) return 'Strategy';
@@ -47,6 +55,11 @@ function getRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+function isModelSignalStrategyConfig(config: Record<string, unknown> | null | undefined): boolean {
+  const modelSignal = getRecord(config?.model_signal);
+  return modelSignal?.enabled === true;
+}
+
 function formatConfigValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/\.?0+$/, '');
@@ -58,6 +71,96 @@ function formatConfigValue(value: unknown): string {
 function formatConfigPct(value: unknown): string | null {
   if (typeof value !== 'number') return null;
   return `${(value * 100).toFixed(1).replace(/\.0$/, '')}%`;
+}
+
+function formatSignalNumber(value: unknown): string {
+  const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(numericValue)) return '—';
+
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 4
+  }).format(numericValue);
+}
+
+function firstSelectedSignalRow(signal: StrategyCurrentSignalResponse | null): Record<string, unknown> | null {
+  return getRecord(signal?.selected_rows[0]);
+}
+
+function signalScore(signal: StrategyCurrentSignalResponse | null): string {
+  const row = firstSelectedSignalRow(signal);
+  if (!row) return '—';
+
+  return formatSignalNumber(row.score ?? row[signal?.ranking_field ?? 'score']);
+}
+
+function signalRank(signal: StrategyCurrentSignalResponse | null): string {
+  const row = firstSelectedSignalRow(signal);
+  const rank = row?.rank ?? row?.selection_rank;
+  if (rank === null || rank === undefined || rank === '') return '—';
+  return String(rank);
+}
+
+function signalBucket(signal: StrategyCurrentSignalResponse | null): string {
+  const row = firstSelectedSignalRow(signal);
+  const bucket = row?.signal_bucket ?? row?.bucket;
+  return typeof bucket === 'string' && bucket.trim() ? bucket.trim() : '—';
+}
+
+function formatTargetWeights(weights: Record<string, number> | null | undefined): string {
+  const entries = Object.entries(weights ?? {});
+  if (entries.length === 0) return '—';
+
+  return entries
+    .map(([symbol, weight]) => `${symbol} ${(weight * 100).toFixed(1).replace(/\.0$/, '')}%`)
+    .join(', ');
+}
+
+function apiDetailCode(error: ApiRequestError): string | null {
+  const detail = (error.body as { detail?: unknown } | null)?.detail;
+  if (!detail || typeof detail !== 'object') return null;
+
+  const code = (detail as { code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
+}
+
+type CurrentSignalErrorState = {
+  kind: 'hidden' | 'locked' | 'unavailable';
+  message: string;
+};
+
+function formatCurrentSignalError(error: unknown): CurrentSignalErrorState {
+  if (error instanceof ApiRequestError) {
+    const code = apiDetailCode(error);
+    if (error.status === 400 && code === 'STRATEGY_NOT_MODEL_SIGNAL') {
+      return {
+        kind: 'hidden',
+        message: 'Saved strategy is not a model-signal strategy.'
+      };
+    }
+    if (error.status === 403) {
+      return {
+        kind: 'locked',
+        message: 'Advanced research access is required for current model signal.'
+      };
+    }
+    if (code === 'MODEL_SIGNAL_ARTIFACT_NOT_FOUND' || error.status === 404) {
+      return {
+        kind: 'unavailable',
+        message: 'Current model signal is unavailable because the signal artifact is missing or not configured.'
+      };
+    }
+    if (error.status === 422) {
+      return {
+        kind: 'unavailable',
+        message: 'Current model signal is unavailable because the signal artifact could not be validated.'
+      };
+    }
+  }
+
+  return {
+    kind: 'unavailable',
+    message: 'Current model signal is unavailable right now.'
+  };
 }
 
 function selectedVersionLabel(version: StrategyVersionSummary | null): string {
@@ -114,6 +217,9 @@ export function StrategyPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusActionError, setStatusActionError] = useState<string | null>(null);
   const [runVersionError, setRunVersionError] = useState<string | null>(null);
+  const [currentSignal, setCurrentSignal] = useState<StrategyCurrentSignalResponse | null>(null);
+  const [currentSignalLoading, setCurrentSignalLoading] = useState(false);
+  const [currentSignalError, setCurrentSignalError] = useState<CurrentSignalErrorState | null>(null);
   const [notice, setNotice] = useState<PageNotice | null>(
     (location.state as { notice?: PageNotice } | null)?.notice ?? null
   );
@@ -220,6 +326,7 @@ export function StrategyPage() {
   }, [referencePerformance]);
 
   const selectedConfig = selectedVersion?.config_json ?? null;
+  const isSelectedModelSignalStrategy = isModelSignalStrategyConfig(selectedConfig);
   const selectedVersionRuns = useMemo(
     () =>
       selectedVersion
@@ -246,6 +353,40 @@ export function StrategyPage() {
         ? 'app-note'
         : 'app-alert-success';
   const referenceIsSavedSweepVariant = referencePerformance ? isSavedSweepVariantResult(referencePerformance) : false;
+  const latestSelectedVersionRunId = selectedVersionRuns[0]?.run_id ?? null;
+
+  useEffect(() => {
+    if (!strategyId || !selectedVersion || !isSelectedModelSignalStrategy) {
+      setCurrentSignal(null);
+      setCurrentSignalError(null);
+      setCurrentSignalLoading(false);
+      return;
+    }
+
+    let ignore = false;
+    setCurrentSignal(null);
+    setCurrentSignalError(null);
+    setCurrentSignalLoading(true);
+
+    void fetchStrategyCurrentSignal(strategyId, { strategyVersionId: selectedVersion.id })
+      .then((response) => {
+        if (ignore) return;
+        setCurrentSignal(response);
+      })
+      .catch((error) => {
+        if (ignore) return;
+        setCurrentSignalError(formatCurrentSignalError(error));
+      })
+      .finally(() => {
+        if (!ignore) {
+          setCurrentSignalLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [isSelectedModelSignalStrategy, selectedVersion, strategyId]);
 
   function handleSelectVersion(version: StrategyVersionSummary) {
     const nextParams = new URLSearchParams(searchParams);
@@ -478,6 +619,17 @@ export function StrategyPage() {
         </div>
       </section>
 
+      {isSelectedModelSignalStrategy && currentSignalError?.kind !== 'hidden' ? (
+        <CurrentSignalCard
+          signal={currentSignal}
+          loading={currentSignalLoading}
+          error={currentSignalError}
+          latestRunId={latestSelectedVersionRunId}
+          onRunBacktest={handleRunSelectedVersion}
+          runLoading={runVersionLoading}
+        />
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <SectionCard title="Saved Strategy" subtitle="Core metadata and saved-strategy status.">
           <dl className="space-y-4 text-sm">
@@ -570,6 +722,94 @@ function Row({ label, value, mono = false }: { label: string; value: string | nu
     <div className="app-surface-soft flex flex-col gap-1 rounded-2xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <dt className="app-label text-xs font-semibold uppercase tracking-[0.18em]">{label}</dt>
       <dd className={`${mono ? 'font-mono text-xs break-all' : 'text-sm font-medium'} app-title sm:text-right`}>{value || '—'}</dd>
+    </div>
+  );
+}
+
+function CurrentSignalCard({
+  signal,
+  loading,
+  error,
+  latestRunId,
+  onRunBacktest,
+  runLoading
+}: {
+  signal: StrategyCurrentSignalResponse | null;
+  loading: boolean;
+  error: CurrentSignalErrorState | null;
+  latestRunId: string | null;
+  onRunBacktest: () => Promise<void>;
+  runLoading: boolean;
+}) {
+  const selectedSymbols = signal?.selected_symbols.length ? signal.selected_symbols.join(', ') : '—';
+  const isSignalLoading = loading || (!signal && !error);
+
+  return (
+    <section className="app-card app-shadow-soft rounded-3xl border p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="app-label text-xs font-semibold uppercase tracking-[0.22em]">Current model signal</p>
+            <span className="app-chip-warning rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]">
+              Research only
+            </span>
+          </div>
+          <h3 className="app-title mt-2 text-xl font-semibold">
+            {signal?.model_version ?? 'Latest signal selection'}
+          </h3>
+          <p className="app-text-muted mt-1 text-sm">
+            Paper-tracking signal. Not investment advice.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {latestRunId ? (
+            <Link
+              to={`/runs/${latestRunId}`}
+              className="app-button-secondary rounded-xl px-3 py-2 text-sm font-semibold transition"
+            >
+              Open latest run
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void onRunBacktest()}
+              disabled={runLoading}
+              className="app-button-primary rounded-xl px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {runLoading ? 'Creating result...' : 'Run model backtest'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {isSignalLoading ? (
+        <div className="app-surface-soft mt-4 rounded-2xl border px-4 py-3 text-sm app-text-muted">
+          Loading current signal...
+        </div>
+      ) : error ? (
+        <div className={`${error.kind === 'locked' ? 'app-alert-warning' : 'app-surface-soft app-text-muted'} mt-4 rounded-2xl border px-4 py-3 text-sm`}>
+          {error.message}
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-4">
+          <SignalInfo label="Latest signal date" value={signal?.latest_signal_date ?? '—'} />
+          <SignalInfo label="Selected symbols" value={selectedSymbols} />
+          <SignalInfo label="Score" value={signalScore(signal)} />
+          <SignalInfo label="Rank" value={signalRank(signal)} />
+          <SignalInfo label="Signal bucket" value={signalBucket(signal)} />
+          <SignalInfo label="Fallback used" value={signal?.fallback_used ? 'True' : 'False'} />
+          <SignalInfo label="Target weights" value={formatTargetWeights(signal?.target_weights)} wide />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SignalInfo({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={`app-surface-soft rounded-2xl border px-3 py-2 ${wide ? 'md:col-span-2' : ''}`}>
+      <p className="app-label text-[11px] font-semibold uppercase tracking-[0.16em]">{label}</p>
+      <p className="app-title mt-1 break-words text-sm font-semibold">{value}</p>
     </div>
   );
 }
