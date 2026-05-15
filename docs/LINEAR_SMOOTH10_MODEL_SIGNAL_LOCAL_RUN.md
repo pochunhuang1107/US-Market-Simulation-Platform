@@ -11,18 +11,21 @@ Keep the artifact path in a private `.env` or shell session. Do not commit it.
 
 ```bash
 # .env
-MODEL_SIGNAL_DATA_PATH=<absolute-path-to-ml-research-repo>/artifacts/model_signals/model_version=linear_smooth10_margin002_v1/signals.parquet
+MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals/model_version=linear_smooth10_margin002_v1/signals.parquet
+MODEL_SIGNAL_CURRENT_DATA_PATH=/data/curated/model_signals_daily/model_version=linear_smooth10_margin002_v1/signals.parquet
 ```
 
-For a shell-only run, set the same value before invoking the CLI:
+`MODEL_SIGNAL_DATA_PATH` should be the full historical artifact used by
+backtests. `MODEL_SIGNAL_CURRENT_DATA_PATH` can point to a daily/latest artifact
+used by current preview and paper tracking. Daily/latest artifacts may be short
+and should not be used for long historical backtests.
+
+For a shell-only run, set safe placeholder paths before invoking the CLI:
 
 ```bash
-ML_RESEARCH_REPO="$HOME/Projects/Research/US-Market-ML-Research"
-MODEL_SIGNAL_DATA_PATH="$ML_RESEARCH_REPO/artifacts/model_signals/model_version=linear_smooth10_margin002_v1/signals.parquet"
+MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals/model_version=linear_smooth10_margin002_v1/signals.parquet
+MODEL_SIGNAL_CURRENT_DATA_PATH=/data/curated/model_signals_daily/model_version=linear_smooth10_margin002_v1/signals.parquet
 ```
-
-If your ML research checkout lives elsewhere, set `ML_RESEARCH_REPO` to that
-local path.
 
 ## Validate The Export
 
@@ -57,7 +60,8 @@ python scripts/run_simulation.py \
 ```
 
 If you are using shell variables instead of `.env`, prefix the same command with
-`MODEL_SIGNAL_DATA_PATH="$MODEL_SIGNAL_DATA_PATH"`.
+`MODEL_SIGNAL_DATA_PATH="$MODEL_SIGNAL_DATA_PATH"`. Historical backtests do not
+read `MODEL_SIGNAL_CURRENT_DATA_PATH`.
 
 The candidate uses `score` as the ranking field, selects `top_n: 1`, and filters
 to `signal_bucket_filter: ["top"]`. Generated run artifacts are written under

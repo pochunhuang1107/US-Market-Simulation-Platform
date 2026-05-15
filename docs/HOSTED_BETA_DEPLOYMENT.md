@@ -126,9 +126,10 @@ Model-signal loading is optional and disabled when the path is empty:
 
 ```bash
 MODEL_SIGNAL_DATA_PATH=
+MODEL_SIGNAL_CURRENT_DATA_PATH=
 ```
 
-Set `MODEL_SIGNAL_DATA_PATH` only when hosted beta should run model-signal strategies against validated runtime artifacts, for example a private curated S3 path matching [Model Signal Ingestion Contract](MODEL_SIGNAL_INGESTION_CONTRACT.md). This platform does not train models or run live inference.
+Set `MODEL_SIGNAL_DATA_PATH` only when hosted beta should run model-signal strategy backtests against a full historical artifact. Set `MODEL_SIGNAL_CURRENT_DATA_PATH` only when current preview or paper-tracking should read a daily/latest artifact. If the current path is empty, current preview falls back to `MODEL_SIGNAL_DATA_PATH` for compatibility. Daily/latest artifacts may be short and should not be used for long historical backtests. This platform does not train models or run live inference.
 
 ### Local-Only Dev Override Env
 
@@ -163,7 +164,8 @@ The API and worker need enough AWS access to:
 - Read ETF metadata at `ETF_METADATA_S3_URI`.
 - Read reference-series data under `REFERENCE_SERIES_DATA_PATH`.
 - Read reference-series metadata at `REFERENCE_SERIES_METADATA_S3_URI`.
-- Read model-signal artifacts under `MODEL_SIGNAL_DATA_PATH` when configured.
+- Read historical model-signal backtest artifacts under `MODEL_SIGNAL_DATA_PATH` when configured.
+- Read current preview/tracking model-signal artifacts under `MODEL_SIGNAL_CURRENT_DATA_PATH` when configured, falling back to `MODEL_SIGNAL_DATA_PATH` only for current preview compatibility.
 - Write and read simulation artifacts under `s3://$ARTIFACT_S3_BUCKET/$ARTIFACT_S3_PREFIX/`.
 - Presign artifact reads if the artifact store uses presigned URLs.
 

@@ -63,7 +63,8 @@ def test_model_strategy_lab_renders_catalog_preview_and_entitlement_states():
     assert "Signal score" in source
     assert "Signal bucket" in source
     assert "Preview source" in source
-    assert "Configured artifact (MODEL_SIGNAL_DATA_PATH)" in source
+    assert "previewState.data.source?.label" in source
+    assert "current artifact" in source
     assert "formatLatestSignalSelection" in source
     assert "formatSignalScores" in source
     assert "formatSignalBuckets" in source

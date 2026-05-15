@@ -76,7 +76,11 @@ is true, `run_simulation(...)` loads precomputed artifacts through
 `ModelSignalRepository` from `MODEL_SIGNAL_DATA_PATH`.
 
 `MODEL_SIGNAL_DATA_PATH` defaults to empty, so beta preflight does not require a
-real model-signal path unless model-signal strategies are intentionally run.
+real model-signal path unless model-signal backtests are intentionally run.
+`MODEL_SIGNAL_CURRENT_DATA_PATH` is optional and points current preview/tracking
+at a daily/latest artifact; when empty, current preview falls back to
+`MODEL_SIGNAL_DATA_PATH` for compatibility. Backtests never use
+`MODEL_SIGNAL_CURRENT_DATA_PATH`.
 Supported local shapes include:
 
 ```text
@@ -84,6 +88,7 @@ Supported local shapes include:
 /data/curated/model_signals/model_version=<VERSION>/signals.csv
 /data/curated/model_signals
 /data/curated/model_signals/**/*.parquet
+/data/curated/model_signals_daily
 ```
 
 The intended S3-style shape mirrors the ML research export layout:
@@ -111,7 +116,8 @@ GET /strategies/{strategy_id}/current-signal?as_of_date=2026-05-08
 
 The evaluator loads the saved strategy version owned by `current_user`,
 requires `model_signal.enabled=true`, reads the latest available model signal
-artifact through `MODEL_SIGNAL_DATA_PATH`, and returns the compact current
+artifact through `MODEL_SIGNAL_CURRENT_DATA_PATH` when configured, falls back to
+`MODEL_SIGNAL_DATA_PATH` when not configured, and returns the compact current
 selection state. It applies the saved config values for `model_version`,
 `ranking_field`, `universe`, `top_n`, `signal_bucket_filter`, `min_confidence`,
 and `fallback`. When `as_of_date` is supplied, it uses the latest signal date

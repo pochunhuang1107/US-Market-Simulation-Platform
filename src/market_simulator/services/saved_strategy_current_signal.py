@@ -21,6 +21,11 @@ from market_simulator.repositories.strategies import (
 from market_simulator.services.model_signal_catalog import (
     get_model_signal_catalog_entry,
 )
+from market_simulator.services.model_signal_preview import (
+    CURRENT_ARTIFACT_SOURCE_LABEL,
+    ModelSignalArtifactSource,
+    resolve_current_model_signal_data_path,
+)
 from market_simulator.settings import get_settings
 
 
@@ -185,7 +190,8 @@ def _load_frame_and_manifest(
     model_version: str,
     universe: list[str],
     supported_universe: tuple[str, ...],
-) -> tuple[pd.DataFrame, ModelSignalManifest | None]:
+) -> tuple[pd.DataFrame, ModelSignalManifest | None, ModelSignalArtifactSource]:
+    source = ModelSignalArtifactSource(CURRENT_ARTIFACT_SOURCE_LABEL)
     if request.frame is not None:
         try:
             return (
@@ -194,6 +200,7 @@ def _load_frame_and_manifest(
                     supported_symbols=supported_universe,
                 ),
                 request.manifest,
+                source,
             )
         except ValueError as exc:
             raise _safe_invalid_error(str(exc)) from exc
@@ -201,10 +208,8 @@ def _load_frame_and_manifest(
     repository = request.repository
     if repository is None:
         settings = get_settings()
-        data_path = (
-            request.data_path
-            if request.data_path is not None
-            else settings.model_signal_data_path
+        data_path, source = resolve_current_model_signal_data_path(
+            data_path=request.data_path,
         )
         if not data_path or not data_path.strip():
             raise _safe_missing_error()
@@ -230,7 +235,7 @@ def _load_frame_and_manifest(
         except ValueError as exc:
             raise _safe_invalid_error(str(exc)) from exc
 
-    return frame, manifest
+    return frame, manifest, source
 
 
 def evaluate_current_signal_for_saved_strategy(
@@ -262,7 +267,7 @@ def evaluate_current_signal_for_saved_strategy(
         raise _safe_invalid_error("Model signal is not registered or enabled.")
 
     as_of = _parse_as_of_date(request.as_of_date)
-    signal_frame, manifest = _load_frame_and_manifest(
+    signal_frame, manifest, source = _load_frame_and_manifest(
         request,
         model_version=model_signal.model_version,
         universe=model_signal.universe,
@@ -370,6 +375,7 @@ def evaluate_current_signal_for_saved_strategy(
         "manifest": manifest_payload,
         "source": {
             "type": "model_signal_artifact",
+            "label": source.label,
             "manifest_status": manifest.status if manifest else None,
         },
     }
