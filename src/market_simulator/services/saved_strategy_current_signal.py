@@ -13,6 +13,7 @@ from market_simulator.data.model_signals import (
     ModelSignalRepository,
     validate_model_signal_frame,
 )
+from market_simulator.auth.current_user import CurrentUser
 from market_simulator.models.strategy_v2 import StrategyV2
 from market_simulator.repositories.strategies import (
     get_strategy_for_user,
@@ -53,7 +54,7 @@ class SavedStrategyCurrentSignalInvalidError(SavedStrategyCurrentSignalError):
 class SavedStrategyCurrentSignalRequest:
     strategy_id: str | None = None
     strategy_version_id: str | None = None
-    current_user: dict[str, Any] | None = None
+    current_user: CurrentUser | dict[str, Any] | None = None
     as_of_date: str | date | pd.Timestamp | None = None
     data_path: str | None = None
     frame: pd.DataFrame | None = None
@@ -61,10 +62,19 @@ class SavedStrategyCurrentSignalRequest:
     repository: ModelSignalRepository | None = None
 
 
-def _user_id(current_user: dict[str, Any] | None) -> str:
-    if not current_user or not current_user.get("id"):
+def _user_id(current_user: CurrentUser | dict[str, Any] | None) -> str:
+    if current_user is None:
         raise SavedStrategyCurrentSignalNotFoundError("Strategy not found")
-    return str(current_user["id"])
+
+    try:
+        user_id = current_user["id"]
+    except (KeyError, TypeError):
+        user_id = getattr(current_user, "id", None)
+
+    if not user_id:
+        raise SavedStrategyCurrentSignalNotFoundError("Strategy not found")
+
+    return str(user_id)
 
 
 def _safe_missing_error() -> SavedStrategyCurrentSignalArtifactNotFoundError:

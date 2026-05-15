@@ -117,6 +117,44 @@ def test_owner_can_get_current_signal_for_saved_model_strategy(
     assert "/Users/private/model" not in serialized
 
 
+def test_current_signal_accepts_current_user_object_from_auth_dependency(
+    real_auth_client,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    create_user(user_id=current_user_ctx["id"])
+    strategy, version = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=_model_signal_config(),
+    )
+    _write_artifact(tmp_path, selected_symbol="VUG")
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            env="test",
+            auth_mode="dev",
+            model_signal_data_path=str(tmp_path),
+            model_signal_current_data_path="",
+            artifact_storage_backend="LOCAL",
+        ),
+    )
+
+    response = real_auth_client.get(
+        f"/strategies/{strategy.id}/current-signal?strategy_version_id={version.id}",
+        headers={"X-User-Id": current_user_ctx["id"]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_id"] == str(strategy.id)
+    assert body["strategy_version_id"] == str(version.id)
+    assert body["selected_symbols"] == ["VUG"]
+
+
 def test_current_signal_blocks_non_owner(
     client,
     create_user,

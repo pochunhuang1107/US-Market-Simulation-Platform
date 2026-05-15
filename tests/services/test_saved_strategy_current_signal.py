@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from market_simulator import settings as settings_module
+from market_simulator.auth.current_user import CurrentUser
 from market_simulator.services.model_signal_catalog import build_model_signal_strategy_config
 from market_simulator.services.saved_strategy_current_signal import (
     SavedStrategyCurrentSignalNotFoundError,
@@ -115,6 +116,39 @@ def test_owner_can_evaluate_current_signal_for_saved_model_strategy(
     assert result["selected_rows"][0]["score"] == 0.9
     assert result["selected_rows"][0]["rank"] == 1
     assert result["fallback_used"] is False
+
+
+def test_current_user_object_can_evaluate_current_signal_for_saved_model_strategy(
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+) -> None:
+    create_user(user_id=current_user_ctx["id"])
+    strategy, version = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=_model_signal_config(),
+    )
+    current_user = CurrentUser(
+        id=current_user_ctx["id"],
+        email="saved-signal-owner@example.com",
+        display_name="Saved Signal Owner",
+        status="ACTIVE",
+    )
+
+    result = evaluate_current_signal_for_saved_strategy(
+        db_session,
+        SavedStrategyCurrentSignalRequest(
+            strategy_id=str(strategy.id),
+            strategy_version_id=str(version.id),
+            current_user=current_user,
+            frame=_signal_frame(),
+        ),
+    )
+
+    assert result["strategy_id"] == str(strategy.id)
+    assert result["strategy_version_id"] == str(version.id)
+    assert result["selected_symbols"] == ["VUG"]
 
 
 def test_saved_strategy_current_signal_uses_current_data_path_when_configured(
