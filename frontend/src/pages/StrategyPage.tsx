@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { VersionsTable } from '../components/strategy/VersionsTable';
@@ -71,6 +71,36 @@ function formatConfigValue(value: unknown): string {
 function formatConfigPct(value: unknown): string | null {
   if (typeof value !== 'number') return null;
   return `${(value * 100).toFixed(1).replace(/\.0$/, '')}%`;
+}
+
+function getString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function getNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function getStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => item.trim())
+    : [];
+}
+
+function formatTitleValue(value: string): string {
+  return value
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatFallbackValue(fallback: Record<string, unknown> | null): string {
+  const fallbackType = getString(fallback?.type);
+  const fallbackSymbol = getString(fallback?.symbol);
+  if (!fallbackType) return '—';
+  if (fallbackType === 'asset' && fallbackSymbol) return fallbackSymbol.toUpperCase();
+  return formatTitleValue(fallbackType);
 }
 
 function formatSignalNumber(value: unknown): string {
@@ -168,8 +198,45 @@ function selectedVersionLabel(version: StrategyVersionSummary | null): string {
   return `v${version.version_number}${version.is_current ? ' · Current' : ''}${version.reference_run_id ? ' · Reference result' : ' · No reference result yet'}`;
 }
 
-function configSummaryRows(config: Record<string, unknown> | null | undefined) {
+type ConfigSummaryRow = {
+  label: string;
+  value: string;
+  symbols?: string[];
+};
+
+function modelSignalConfigSummaryRows(config: Record<string, unknown>): ConfigSummaryRow[] {
+  const modelSignal = getRecord(config.model_signal);
+  if (!modelSignal) return [];
+
+  const coreOverlay = getRecord(config.core_overlay);
+  const fallback = getRecord(modelSignal.fallback);
+  const universe = getStringList(modelSignal.universe);
+  const bucketFilter = getStringList(modelSignal.signal_bucket_filter);
+  const dateRange = [config.start_date, config.end_date].filter(Boolean).map(formatConfigValue).join(' to ');
+  const topN = getNumber(modelSignal.top_n);
+  const coreOverlayText = coreOverlay
+    ? [
+        `Core ${coreOverlay.enabled ? 'enabled' : 'disabled'}`,
+        coreOverlay.core_allocation_pct !== undefined ? formatConfigPct(coreOverlay.core_allocation_pct) : null
+      ].filter(Boolean).join(' · ')
+    : null;
+
+  return [
+    { label: 'Model version', value: formatConfigValue(modelSignal.model_version) },
+    { label: 'Date range', value: dateRange || '—' },
+    { label: 'Benchmark', value: formatConfigValue(config.benchmark_symbol ?? config.benchmark) },
+    { label: 'Model universe', value: universe.length > 0 ? `${universe.length} ETFs` : '—', symbols: universe },
+    { label: 'Ranking field', value: formatConfigValue(modelSignal.ranking_field) },
+    { label: 'Selection', value: topN !== null ? `Top ${topN}` : '—' },
+    { label: 'Signal bucket filter', value: bucketFilter.length > 0 ? bucketFilter.join(', ') : 'All buckets' },
+    { label: 'Fallback', value: formatFallbackValue(fallback) },
+    { label: 'Core / overlay', value: coreOverlayText ?? '—' }
+  ];
+}
+
+function configSummaryRows(config: Record<string, unknown> | null | undefined): ConfigSummaryRow[] {
   if (!config) return [];
+  if (isModelSignalStrategyConfig(config)) return modelSignalConfigSummaryRows(config);
 
   const risk = getRecord(config.risk);
   const allocation = getRecord(config.allocation);
@@ -220,6 +287,7 @@ export function StrategyPage() {
   const [currentSignal, setCurrentSignal] = useState<StrategyCurrentSignalResponse | null>(null);
   const [currentSignalLoading, setCurrentSignalLoading] = useState(false);
   const [currentSignalError, setCurrentSignalError] = useState<CurrentSignalErrorState | null>(null);
+  const [isModelUniverseExpanded, setIsModelUniverseExpanded] = useState(false);
   const [notice, setNotice] = useState<PageNotice | null>(
     (location.state as { notice?: PageNotice } | null)?.notice ?? null
   );
@@ -354,6 +422,10 @@ export function StrategyPage() {
         : 'app-alert-success';
   const referenceIsSavedSweepVariant = referencePerformance ? isSavedSweepVariantResult(referencePerformance) : false;
   const latestSelectedVersionRunId = selectedVersionRuns[0]?.run_id ?? null;
+
+  useEffect(() => {
+    setIsModelUniverseExpanded(false);
+  }, [selectedVersion?.id]);
 
   useEffect(() => {
     if (!strategyId || !selectedVersion || !isSelectedModelSignalStrategy) {
@@ -633,7 +705,10 @@ export function StrategyPage() {
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <SectionCard title="Saved Strategy" subtitle="Core metadata and saved-strategy status.">
           <dl className="space-y-4 text-sm">
-            <Row label="Type" value={formatStrategyType(data.strategy.strategy_type)} />
+            <Row
+              label="Type"
+              value={isSelectedModelSignalStrategy ? 'Model signal strategy' : formatStrategyType(data.strategy.strategy_type)}
+            />
             <Row label="Created" value={formatDateTime(data.strategy.created_at)} />
             <Row label="Updated" value={formatDateTime(data.strategy.updated_at)} />
             <Row label="Total results" value={String(data.total_runs)} />
@@ -691,7 +766,18 @@ export function StrategyPage() {
       >
         <div className="grid gap-3 md:grid-cols-2">
           {selectedConfigRows.map((row) => (
-            <Row key={row.label} label={row.label} value={row.value} />
+            row.symbols ? (
+              <UniverseRow
+                key={row.label}
+                label={row.label}
+                summary={row.value}
+                symbols={row.symbols}
+                expanded={isModelUniverseExpanded}
+                onToggle={() => setIsModelUniverseExpanded((expanded) => !expanded)}
+              />
+            ) : (
+              <Row key={row.label} label={row.label} value={row.value} />
+            )
           ))}
         </div>
       </SectionCard>
@@ -717,11 +803,60 @@ export function StrategyPage() {
   );
 }
 
-function Row({ label, value, mono = false }: { label: string; value: string | null | undefined; mono?: boolean }) {
+function Row({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
     <div className="app-surface-soft flex flex-col gap-1 rounded-2xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <dt className="app-label text-xs font-semibold uppercase tracking-[0.18em]">{label}</dt>
       <dd className={`${mono ? 'font-mono text-xs break-all' : 'text-sm font-medium'} app-title sm:text-right`}>{value || '—'}</dd>
+    </div>
+  );
+}
+
+function UniverseRow({
+  label,
+  summary,
+  symbols,
+  expanded,
+  onToggle
+}: {
+  label: string;
+  summary: string;
+  symbols: string[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const visibleSymbols = expanded ? symbols : symbols.slice(0, 6);
+  const hiddenCount = Math.max(symbols.length - visibleSymbols.length, 0);
+
+  return (
+    <div className="app-surface-soft flex flex-col gap-2 rounded-2xl border px-4 py-3">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <dt className="app-label text-xs font-semibold uppercase tracking-[0.18em]">{label}</dt>
+        <dd className="app-title text-sm font-medium sm:text-right">{summary || '—'}</dd>
+      </div>
+      {symbols.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {visibleSymbols.map((symbol) => (
+            <span key={symbol} className="app-surface-soft rounded-full border px-2 py-0.5 text-xs font-semibold app-title">
+              {symbol}
+            </span>
+          ))}
+          {hiddenCount > 0 ? (
+            <span className="app-surface-soft rounded-full border px-2 py-0.5 text-xs font-semibold app-text-muted">
+              +{hiddenCount}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {symbols.length > 6 ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="self-start text-xs font-semibold app-text-muted transition hover:opacity-80"
+        >
+          {expanded ? 'Show less' : 'Show all'}
+        </button>
+      ) : null}
     </div>
   );
 }
