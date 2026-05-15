@@ -29,7 +29,7 @@ For a faster product-loop confidence check during feature work, run the focused 
 bash scripts/beta_smoke_core_loop.sh
 ```
 
-The smoke suite uses synthetic local data to cover Builder, Gallery, rotation run review, run detail/chart/dashboard APIs, and compare. It is not a replacement for `scripts/beta_release_gate.sh`, which remains the full local release gate before tester handoff.
+The smoke suite uses synthetic local data to cover Builder, Gallery, rotation run review, run detail/chart/dashboard APIs, compare, and the model-signal historical-vs-current artifact path. It is not a replacement for `scripts/beta_release_gate.sh`, which remains the full local release gate before tester handoff.
 
 - [ ] Review [Ownership And Authorization Checklist](OWNERSHIP_AUTHORIZATION.md) when adding or changing any user-scoped API route.
 - [ ] Review [Reference-Series And Regime Filters](REFERENCE_SERIES_REGIME_FILTERS.md) when changing reference-series data, regime rules, Gallery templates, or builder parsing.
