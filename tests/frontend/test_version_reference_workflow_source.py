@@ -88,6 +88,45 @@ def test_strategy_behavior_summary_includes_model_signal_fields():
     assert "label: 'Fallback'" in source
 
 
+def test_strategy_detail_model_signal_metadata_and_summary_are_model_aware():
+    source = (ROOT / "frontend/src/pages/StrategyPage.tsx").read_text()
+
+    assert "isModelSignalStrategyConfig(selectedConfig)" in source
+    assert "value={isSelectedModelSignalStrategy ? 'Model signal strategy' : formatStrategyType(data.strategy.strategy_type)}" in source
+    assert "function modelSignalConfigSummaryRows" in source
+    assert "if (isModelSignalStrategyConfig(config)) return modelSignalConfigSummaryRows(config);" in source
+    assert "label: 'Model version'" in source
+    assert "label: 'Date range'" in source
+    assert "label: 'Benchmark'" in source
+    assert "label: 'Model universe'" in source
+    assert "label: 'Ranking field'" in source
+    assert "label: 'Selection'" in source
+    assert "label: 'Signal bucket filter'" in source
+    assert "label: 'Fallback'" in source
+    assert "label: 'Core / overlay'" in source
+
+    model_summary_source = source.split("function modelSignalConfigSummaryRows")[1].split("function configSummaryRows")[0]
+    assert "Entry rule" not in model_summary_source
+    assert "Exit rule" not in model_summary_source
+    assert "summarizeStrategyRule" not in model_summary_source
+    assert "artifact_path" not in model_summary_source
+    assert "data_path" not in model_summary_source
+    assert "/data/" not in model_summary_source
+
+
+def test_strategy_detail_model_universe_renders_as_compact_expandable_chips():
+    source = (ROOT / "frontend/src/pages/StrategyPage.tsx").read_text()
+
+    assert "function UniverseRow" in source
+    assert "row.symbols ? (" in source
+    assert "symbols.slice(0, 6)" in source
+    assert "+{hiddenCount}" in source
+    assert "Show all" in source
+    assert "Show less" in source
+    assert "setIsModelUniverseExpanded((expanded) => !expanded)" in source
+    assert "setIsModelUniverseExpanded(false)" in source
+
+
 def test_run_detail_uses_rotation_rebalance_inspector_for_rotation_runs():
     page_source = (ROOT / "frontend/src/pages/RunDetailPage.tsx").read_text()
     inspector_source = (
@@ -243,6 +282,8 @@ def test_strategy_detail_shows_selected_version_config_and_run_history():
     assert "Version Config Summary" in source
     assert "summarizeStrategyRule(config.entry_rule" in source
     assert "summarizeStrategyRule(config.exit_rule" in source
+    assert "label: 'Entry rule'" in source
+    assert "label: 'Exit rule'" in source
     assert "`Results for v${selectedVersion.version_number}`" in source
     assert "`No results recorded for v${selectedVersion.version_number}.`" in source
     assert "Reference Total Return" in source
