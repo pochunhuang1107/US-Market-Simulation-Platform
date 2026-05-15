@@ -124,6 +124,13 @@ Use `MODEL_SIGNAL_DATA_PATH` for full historical/backtest artifacts. Use
 preview and paper tracking. Daily/latest artifacts may contain only recent rows
 and should not be used for long historical backtests.
 
+The focused smoke test at `tests/e2e/test_model_signal_platform_smoke.py` guards
+this separation with synthetic local artifacts: historical backtests must read
+`MODEL_SIGNAL_DATA_PATH`, while current preview and saved strategy current signal
+must read `MODEL_SIGNAL_CURRENT_DATA_PATH`. This catches regressions where a
+daily/latest artifact is accidentally used for a long backtest and collapses the
+run to mostly cash or a single trade.
+
 Safe placeholder example:
 
 ```bash
