@@ -14,6 +14,7 @@ def test_saved_strategy_current_signal_api_client_is_typed_and_safe():
     assert "StrategyCurrentSignalResponse" in types_source
     assert "target_weights: Record<string, number>" in types_source
     assert "fallback_used: boolean" in types_source
+    assert "label: string" in types_source.split("export interface StrategyCurrentSignalSourceResponse")[1].split("}")[0]
     assert "artifact_dir" not in types_source.split("export interface StrategyCurrentSignalResponse")[1].split("}")[0]
 
 
@@ -43,6 +44,7 @@ def test_current_signal_card_renders_compact_signal_fields_and_states():
     assert 'label="Score"' in source
     assert 'label="Rank"' in source
     assert 'label="Signal bucket"' in source
+    assert 'label="Signal source"' in source
     assert 'label="Fallback used"' in source
     assert 'label="Target weights"' in source
     assert "formatTargetWeights" in source

@@ -88,6 +88,10 @@ class Settings(BaseModel):
         "s3://your-market-data-bucket/curated/reference_series",
     )
     model_signal_data_path: str = os.getenv("MODEL_SIGNAL_DATA_PATH", "")
+    model_signal_current_data_path: str = os.getenv(
+        "MODEL_SIGNAL_CURRENT_DATA_PATH",
+        "",
+    )
     reference_series_metadata_s3_uri: str = os.getenv(
         "REFERENCE_SERIES_METADATA_S3_URI",
         "s3://your-market-data-bucket/curated/reference/reference_series_metadata/data.parquet",

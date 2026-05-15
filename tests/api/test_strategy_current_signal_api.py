@@ -25,19 +25,30 @@ def _model_signal_config() -> dict:
     )
 
 
-def _write_artifact(base_path) -> None:
+def _write_artifact(base_path, *, selected_symbol: str = "SLV") -> None:
     version_dir = base_path / f"model_version={MODEL_VERSION}"
     version_dir.mkdir(parents=True)
+    scores = {
+        "QQQ": 0.95,
+        "VUG": 0.4,
+        "SLV": 0.7,
+        selected_symbol: 0.99,
+    }
     pd.DataFrame(
         {
             "date": ["2026-05-01", "2026-05-08", "2026-05-08", "2026-05-08"],
             "symbol": ["QQQ", "QQQ", "VUG", "SLV"],
             "model_version": [MODEL_VERSION] * 4,
-            "score": [0.2, 0.95, 0.4, 0.7],
-            "rank": [1, 1, 3, 2],
+            "score": [0.2, scores["QQQ"], scores["VUG"], scores["SLV"]],
+            "rank": [
+                1,
+                1 if selected_symbol == "QQQ" else 2,
+                1 if selected_symbol == "VUG" else 3,
+                1 if selected_symbol == "SLV" else 2,
+            ],
             "predicted_return": [0.01, 0.05, 0.01, 0.04],
             "confidence": [0.9, 0.6, 0.95, 0.7],
-            "signal_bucket": ["top", "unselected", "top", "top"],
+            "signal_bucket": ["top", "top", "top", "top"],
         }
     ).to_csv(version_dir / "signals.csv", index=False)
     (version_dir / "model_signal_manifest.json").write_text(
@@ -67,14 +78,18 @@ def test_owner_can_get_current_signal_for_saved_model_strategy(
         user_id=current_user_ctx["id"],
         config_json=_model_signal_config(),
     )
-    _write_artifact(tmp_path)
+    historical_path = tmp_path / "historical"
+    current_path = tmp_path / "current"
+    _write_artifact(historical_path, selected_symbol="SLV")
+    _write_artifact(current_path, selected_symbol="VUG")
     monkeypatch.setattr(
         settings_module,
         "_settings",
         Settings(
             env="test",
             auth_mode="dev",
-            model_signal_data_path=str(tmp_path),
+            model_signal_data_path=str(historical_path),
+            model_signal_current_data_path=str(current_path),
             artifact_storage_backend="LOCAL",
         ),
     )
@@ -88,15 +103,17 @@ def test_owner_can_get_current_signal_for_saved_model_strategy(
     assert body["model_version"] == MODEL_VERSION
     assert body["as_of_date"] == "2026-05-08"
     assert body["latest_signal_date"] == "2026-05-08"
-    assert body["selected_symbols"] == ["SLV"]
-    assert body["target_weights"] == {"SLV": 1.0}
-    assert body["selected_rows"][0]["score"] == 0.7
+    assert body["selected_symbols"] == ["VUG"]
+    assert body["target_weights"] == {"VUG": 1.0}
+    assert body["selected_rows"][0]["score"] == 0.99
     assert body["selected_rows"][0]["signal_bucket"] == "top"
     assert body["fallback_used"] is False
     assert body["manifest_status"] == "ready"
     assert body["manifest_warnings"] == ["synthetic current signal fixture"]
+    assert body["source"]["label"] == "current artifact"
     serialized = json.dumps(body)
-    assert str(tmp_path) not in serialized
+    assert str(historical_path) not in serialized
+    assert str(current_path) not in serialized
     assert "/Users/private/model" not in serialized
 
 
@@ -123,6 +140,7 @@ def test_current_signal_blocks_non_owner(
             env="test",
             auth_mode="dev",
             model_signal_data_path=str(tmp_path),
+            model_signal_current_data_path="",
             artifact_storage_backend="LOCAL",
         ),
     )
@@ -169,6 +187,7 @@ def test_current_signal_as_of_date_uses_latest_signal_on_or_before_date(
             env="test",
             auth_mode="dev",
             model_signal_data_path=str(tmp_path),
+            model_signal_current_data_path="",
             artifact_storage_backend="LOCAL",
         ),
     )
@@ -203,6 +222,7 @@ def test_current_signal_missing_artifact_returns_controlled_error_without_path(
             env="test",
             auth_mode="dev",
             model_signal_data_path=str(missing_path),
+            model_signal_current_data_path="",
             artifact_storage_backend="LOCAL",
         ),
     )

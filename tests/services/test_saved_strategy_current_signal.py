@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from market_simulator import settings as settings_module
 from market_simulator.services.model_signal_catalog import build_model_signal_strategy_config
 from market_simulator.services.saved_strategy_current_signal import (
     SavedStrategyCurrentSignalNotFoundError,
@@ -10,6 +11,7 @@ from market_simulator.services.saved_strategy_current_signal import (
     SavedStrategyCurrentSignalRequest,
     evaluate_current_signal_for_saved_strategy,
 )
+from market_simulator.settings import Settings
 
 
 MODEL_VERSION = "linear_smooth10_margin002_v1"
@@ -62,6 +64,28 @@ def _signal_frame() -> pd.DataFrame:
     )
 
 
+def _write_signal_artifact(base_path, *, selected_symbol: str) -> None:
+    version_dir = base_path / f"model_version={MODEL_VERSION}"
+    version_dir.mkdir(parents=True)
+    symbols = ["QQQ", "VUG", "SLV"]
+    scores = {
+        "QQQ": 0.2,
+        "VUG": 0.4,
+        "SLV": 0.6,
+        selected_symbol: 0.95,
+    }
+    pd.DataFrame(
+        {
+            "date": ["2026-05-15"] * len(symbols),
+            "symbol": symbols,
+            "model_version": [MODEL_VERSION] * len(symbols),
+            "score": [scores[symbol] for symbol in symbols],
+            "rank": [1 if symbol == selected_symbol else 2 for symbol in symbols],
+            "signal_bucket": ["top"] * len(symbols),
+        }
+    ).to_csv(version_dir / "signals.csv", index=False)
+
+
 def test_owner_can_evaluate_current_signal_for_saved_model_strategy(
     db_session,
     create_user,
@@ -91,6 +115,44 @@ def test_owner_can_evaluate_current_signal_for_saved_model_strategy(
     assert result["selected_rows"][0]["score"] == 0.9
     assert result["selected_rows"][0]["rank"] == 1
     assert result["fallback_used"] is False
+
+
+def test_saved_strategy_current_signal_uses_current_data_path_when_configured(
+    db_session,
+    create_user,
+    create_strategy_bundle,
+    current_user_ctx,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    create_user(user_id=current_user_ctx["id"])
+    strategy, _ = create_strategy_bundle(
+        user_id=current_user_ctx["id"],
+        config_json=_model_signal_config(),
+    )
+    historical_path = tmp_path / "historical"
+    current_path = tmp_path / "current"
+    _write_signal_artifact(historical_path, selected_symbol="SLV")
+    _write_signal_artifact(current_path, selected_symbol="VUG")
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            model_signal_data_path=str(historical_path),
+            model_signal_current_data_path=str(current_path),
+        ),
+    )
+
+    result = evaluate_current_signal_for_saved_strategy(
+        db_session,
+        SavedStrategyCurrentSignalRequest(
+            strategy_id=str(strategy.id),
+            current_user=current_user_ctx,
+        ),
+    )
+
+    assert result["selected_symbols"] == ["VUG"]
+    assert result["source"]["label"] == "current artifact"
 
 
 def test_non_owner_is_blocked(

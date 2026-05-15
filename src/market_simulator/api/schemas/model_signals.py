@@ -71,6 +71,12 @@ class ModelSignalManifestResponse(BaseModel):
     warnings: list[str]
 
 
+class ModelSignalCurrentPreviewSourceResponse(BaseModel):
+    type: str
+    label: str
+    manifest_status: str | None = None
+
+
 class ModelSignalCurrentPreviewResponse(BaseModel):
     model_version: str
     latest_signal_date: str
@@ -86,3 +92,4 @@ class ModelSignalCurrentPreviewResponse(BaseModel):
     export_created_at: str | None = None
     generated_at: str | None = None
     manifest: ModelSignalManifestResponse | None = None
+    source: ModelSignalCurrentPreviewSourceResponse | None = None

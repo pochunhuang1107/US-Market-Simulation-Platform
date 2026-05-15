@@ -70,18 +70,29 @@ def _attach_plan(db_session: Session, *, user_id: uuid.UUID, plan: Plan) -> None
     db_session.commit()
 
 
-def _write_current_preview_artifact(base_path) -> None:
+def _write_current_preview_artifact(base_path, *, selected_symbol: str = "VUG") -> None:
     version_dir = base_path / f"model_version={MODEL_VERSION}"
-    version_dir.mkdir()
+    version_dir.mkdir(parents=True)
+    scores = {
+        "SLV": 0.01427497862217832,
+        "VUG": -0.0485,
+        "SPY": -0.2,
+        selected_symbol: 0.8,
+    }
     pd.DataFrame(
         {
             "date": ["2026-05-01", "2026-05-08", "2026-05-08", "2026-05-08"],
             "symbol": ["QQQ", "SLV", "VUG", "SPY"],
             "model_version": [MODEL_VERSION] * 4,
-            "score": [99.0, 0.01427497862217832, -0.0485, -0.2],
-            "rank": [1, 2, 1, 3],
+            "score": [99.0, scores["SLV"], scores["VUG"], scores["SPY"]],
+            "rank": [
+                1,
+                1 if selected_symbol == "SLV" else 2,
+                1 if selected_symbol == "VUG" else 3,
+                3,
+            ],
             "confidence": [0.9, 0.7, 0.88, 0.95],
-            "signal_bucket": ["top", "unselected", "top", "unselected"],
+            "signal_bucket": ["top", "top", "top", "unselected"],
         }
     ).to_csv(version_dir / "signals.csv", index=False)
     (version_dir / "model_signal_manifest.json").write_text(
@@ -214,14 +225,18 @@ def test_current_preview_returns_latest_selected_signal_for_entitled_user(
     monkeypatch,
 ) -> None:
     create_user(user_id=current_user_ctx["id"])
-    _write_current_preview_artifact(tmp_path)
+    historical_path = tmp_path / "historical"
+    current_path = tmp_path / "current"
+    _write_current_preview_artifact(historical_path, selected_symbol="SLV")
+    _write_current_preview_artifact(current_path, selected_symbol="VUG")
     monkeypatch.setattr(
         settings_module,
         "_settings",
         Settings(
             env="test",
             auth_mode="dev",
-            model_signal_data_path=str(tmp_path),
+            model_signal_data_path=str(historical_path),
+            model_signal_current_data_path=str(current_path),
             artifact_storage_backend="LOCAL",
         ),
     )
@@ -233,12 +248,14 @@ def test_current_preview_returns_latest_selected_signal_for_entitled_user(
     assert body["model_version"] == MODEL_VERSION
     assert body["latest_signal_date"] == "2026-05-08"
     assert body["selected_symbols"] == ["VUG"]
-    assert body["selected_rows"][0]["score"] == -0.0485
+    assert body["selected_rows"][0]["score"] == 0.8
     assert body["selected_rows"][0]["signal_bucket"] == "top"
     assert body["manifest_status"] == "ready"
     assert body["manifest_warnings"] == ["synthetic fixture warning"]
+    assert body["source"]["label"] == "current artifact"
     serialized = json.dumps(body)
-    assert str(tmp_path) not in serialized
+    assert str(historical_path) not in serialized
+    assert str(current_path) not in serialized
     assert "/Users/local/export" not in serialized
 
 
@@ -278,6 +295,7 @@ def test_current_preview_missing_artifact_returns_controlled_error_without_path(
             env="test",
             auth_mode="dev",
             model_signal_data_path=str(missing_path),
+            model_signal_current_data_path="",
             artifact_storage_backend="LOCAL",
         ),
     )

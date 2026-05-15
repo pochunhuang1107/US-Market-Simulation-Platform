@@ -797,6 +797,7 @@ function CurrentSignalCard({
           <SignalInfo label="Score" value={signalScore(signal)} />
           <SignalInfo label="Rank" value={signalRank(signal)} />
           <SignalInfo label="Signal bucket" value={signalBucket(signal)} />
+          <SignalInfo label="Signal source" value={signal?.source?.label ?? '—'} />
           <SignalInfo label="Fallback used" value={signal?.fallback_used ? 'True' : 'False'} />
           <SignalInfo label="Target weights" value={formatTargetWeights(signal?.target_weights)} wide />
         </div>

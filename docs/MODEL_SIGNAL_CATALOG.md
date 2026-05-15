@@ -7,9 +7,11 @@ universes, and artifact configuration hints without hardcoding model details in
 the frontend.
 
 The catalog does not train models, run live inference, or store model signal
-artifacts. Strategy execution still consumes point-in-time exported signal
-files through `MODEL_SIGNAL_DATA_PATH` and the existing model signal artifact
-loader.
+artifacts. Historical strategy execution consumes full point-in-time exported
+signal files through `MODEL_SIGNAL_DATA_PATH` and the existing model signal
+artifact loader. Current preview and paper-tracking endpoints may consume a
+daily/latest artifact through `MODEL_SIGNAL_CURRENT_DATA_PATH`; when that value
+is empty they fall back to `MODEL_SIGNAL_DATA_PATH` for compatibility.
 
 ## Registered Models
 
@@ -23,7 +25,8 @@ loader.
 - Feature set: `default_features_v1`
 - Default fallback: cash
 - Default benchmark: `SPY`
-- Artifact setting: `MODEL_SIGNAL_DATA_PATH`
+- Historical artifact setting: `MODEL_SIGNAL_DATA_PATH`
+- Current preview artifact setting: `MODEL_SIGNAL_CURRENT_DATA_PATH`
 
 Risk notes are part of the registry response. The current entry calls out that
 top-1 selection is concentrated, the model is for research and paper tracking
@@ -49,10 +52,12 @@ API responses intentionally expose only `artifact_path_setting` and a safe
 relative/template `artifact_path_hint`; they must not expose resolved local
 absolute paths, secrets, bucket credentials, or artifact contents.
 
-The current preview endpoint loads the configured signal artifact, filters to
-the requested registered `model_version`, finds the latest available signal
-date, applies the registry defaults, and returns a compact paper-tracking
-preview. For `linear_smooth10_margin002_v1`, the runtime defaults are:
+The current preview endpoint loads the configured current signal artifact from
+`MODEL_SIGNAL_CURRENT_DATA_PATH` when set, otherwise falls back to
+`MODEL_SIGNAL_DATA_PATH`. It filters to the requested registered
+`model_version`, finds the latest available signal date, applies the registry
+defaults, and returns a compact paper-tracking preview. For
+`linear_smooth10_margin002_v1`, the runtime defaults are:
 
 - `ranking_field=score`
 - `top_n=1`
@@ -62,15 +67,17 @@ The response includes the latest signal date, selected symbols, selected row
 fields such as `score`, `rank`, `predicted_return`, `confidence`, and
 `signal_bucket` when present, row/symbol counts for the latest date, and
 manifest status/warnings when a sibling `model_signal_manifest.json` exists.
-The endpoint does not run model training, does not run live inference, and does
-not expose local artifact paths.
+The source label is safe and limited to `current artifact` or
+`historical artifact fallback`. The endpoint does not run model training, does
+not run live inference, and does not expose local artifact paths.
 
-Saved strategies use the strategy-specific current signal endpoint. Unlike the
-catalog preview, it evaluates the saved `model_signal` config for the owned
-strategy version: universe, ranking field, top N, bucket filter, confidence
-floor, fallback, and optional `as_of_date`. This lets the backend answer the
-current paper holding for a saved strategy before any UI tracking, scheduler,
-notification, or channel work exists.
+Saved strategies use the strategy-specific current signal endpoint. It uses the
+same current-artifact path resolution as the catalog preview, but evaluates the
+saved `model_signal` config for the owned strategy version: universe, ranking
+field, top N, bucket filter, confidence floor, fallback, and optional
+`as_of_date`. This lets the backend answer the current paper holding for a
+saved strategy before any UI tracking, scheduler, notification, or channel work
+exists.
 
 ## Adding a Model After Research Export
 
@@ -112,12 +119,16 @@ Do not commit signal artifacts, training data, trained model binaries, local
 absolute paths, or private bucket URLs. The platform should only need the
 artifact path setting at runtime and should validate artifacts before use.
 
-Daily/latest artifacts exported by `US-Market-ML-Research` can be used locally
-by pointing `MODEL_SIGNAL_DATA_PATH` at the export root or a specific signal
-file. Example:
+Use `MODEL_SIGNAL_DATA_PATH` for full historical/backtest artifacts. Use
+`MODEL_SIGNAL_CURRENT_DATA_PATH` for daily/latest artifacts used by current
+preview and paper tracking. Daily/latest artifacts may contain only recent rows
+and should not be used for long historical backtests.
+
+Safe placeholder example:
 
 ```bash
-MODEL_SIGNAL_DATA_PATH=/path/to/US-Market-ML-Research/artifacts/model_signals_daily \
+MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals \
+MODEL_SIGNAL_CURRENT_DATA_PATH=/data/curated/model_signals_daily \
   uvicorn market_simulator.api.main:app --reload
 ```
 

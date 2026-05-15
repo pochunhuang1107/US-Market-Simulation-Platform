@@ -633,7 +633,7 @@ export function ModelStrategyLab() {
                         previewState?.loading
                           ? 'Loading...'
                           : previewState?.data
-                            ? 'Configured artifact (MODEL_SIGNAL_DATA_PATH)'
+                            ? previewState.data.source?.label ?? 'current artifact'
                             : 'Preview unavailable'
                       }
                     />

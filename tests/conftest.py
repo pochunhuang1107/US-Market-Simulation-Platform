@@ -68,6 +68,7 @@ def reset_app_settings(monkeypatch) -> Generator[None, None, None]:
             env="test",
             auth_mode="dev",
             artifact_storage_backend="LOCAL",
+            model_signal_current_data_path="",
             strategy_builder_provider="deterministic",
             openai_api_key=None,
         ),

@@ -5,11 +5,13 @@ import json
 import pandas as pd
 import pytest
 
+from market_simulator import settings as settings_module
 from market_simulator.services.model_signal_preview import (
     ModelSignalPreviewInvalidError,
     ModelSignalPreviewNotFoundError,
     preview_current_model_signal,
 )
+from market_simulator.settings import Settings
 
 
 MODEL_VERSION = "linear_smooth10_margin002_v1"
@@ -37,6 +39,28 @@ def _preview_frame() -> pd.DataFrame:
     )
 
 
+def _write_preview_artifact(base_path, *, selected_symbol: str) -> None:
+    version_dir = base_path / f"model_version={MODEL_VERSION}"
+    version_dir.mkdir(parents=True)
+    symbols = ["QQQ", "VUG", "SLV"]
+    scores = {
+        "QQQ": 0.2,
+        "VUG": 0.4,
+        "SLV": 0.6,
+        selected_symbol: 0.95,
+    }
+    pd.DataFrame(
+        {
+            "date": ["2026-05-08"] * len(symbols),
+            "symbol": symbols,
+            "model_version": [MODEL_VERSION] * len(symbols),
+            "score": [scores[symbol] for symbol in symbols],
+            "rank": [1 if symbol == selected_symbol else 2 for symbol in symbols],
+            "signal_bucket": ["top"] * len(symbols),
+        }
+    ).to_csv(version_dir / "signals.csv", index=False)
+
+
 def test_preview_selects_latest_top_bucket_and_ranks_by_score() -> None:
     preview = preview_current_model_signal(MODEL_VERSION, frame=_preview_frame())
 
@@ -52,6 +76,47 @@ def test_preview_selects_latest_top_bucket_and_ranks_by_score() -> None:
     assert selected["predicted_return"] == 0.012
     assert selected["confidence"] == 0.88
     assert selected["signal_bucket"] == "top"
+
+
+def test_preview_uses_current_data_path_when_configured(tmp_path, monkeypatch) -> None:
+    historical_path = tmp_path / "historical"
+    current_path = tmp_path / "current"
+    _write_preview_artifact(historical_path, selected_symbol="SLV")
+    _write_preview_artifact(current_path, selected_symbol="VUG")
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            model_signal_data_path=str(historical_path),
+            model_signal_current_data_path=str(current_path),
+        ),
+    )
+
+    preview = preview_current_model_signal(MODEL_VERSION)
+
+    assert preview["selected_symbols"] == ["VUG"]
+    assert preview["source"]["label"] == "current artifact"
+
+
+def test_preview_falls_back_to_historical_data_path_when_current_path_unset(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    historical_path = tmp_path / "historical"
+    _write_preview_artifact(historical_path, selected_symbol="SLV")
+    monkeypatch.setattr(
+        settings_module,
+        "_settings",
+        Settings(
+            model_signal_data_path=str(historical_path),
+            model_signal_current_data_path="",
+        ),
+    )
+
+    preview = preview_current_model_signal(MODEL_VERSION)
+
+    assert preview["selected_symbols"] == ["SLV"]
+    assert preview["source"]["label"] == "historical artifact fallback"
 
 
 def test_preview_uses_artifact_bucket_before_raw_score_sorting() -> None:

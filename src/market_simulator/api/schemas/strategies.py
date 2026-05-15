@@ -118,6 +118,7 @@ class StrategyCurrentSignalManifestResponse(BaseModel):
 
 class StrategyCurrentSignalSourceResponse(BaseModel):
     type: str
+    label: str
     manifest_status: str | None = None
 
 

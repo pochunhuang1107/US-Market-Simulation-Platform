@@ -103,9 +103,12 @@ artifacts/model_signals_daily/model_version=<VERSION>/model_signal_manifest.json
 The platform treats the signal file as an external runtime artifact. Do not
 commit exported parquet/CSV signal files into this repository.
 
-Set `MODEL_SIGNAL_DATA_PATH` only when model-signal strategies should load
-artifacts automatically. The default is empty, which keeps artifact loading
-disabled unless a test or caller injects `model_signal_frame` directly.
+Set `MODEL_SIGNAL_DATA_PATH` only when model-signal strategy backtests should
+load a full historical artifact automatically. Set
+`MODEL_SIGNAL_CURRENT_DATA_PATH` only when current preview or paper tracking
+should load a daily/latest artifact. If the current path is empty, current
+preview falls back to `MODEL_SIGNAL_DATA_PATH`; backtests do not use
+`MODEL_SIGNAL_CURRENT_DATA_PATH`.
 
 Valid local examples:
 
@@ -113,7 +116,7 @@ Valid local examples:
 MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals/model_version=etf-ranker-v1/signals.parquet
 MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals
 MODEL_SIGNAL_DATA_PATH=/data/curated/model_signals/**/*.parquet
-MODEL_SIGNAL_DATA_PATH=/path/to/US-Market-ML-Research/artifacts/model_signals_daily
+MODEL_SIGNAL_CURRENT_DATA_PATH=/data/curated/model_signals_daily
 ```
 
 Intended S3-style examples:
@@ -225,14 +228,16 @@ and parquet/CSV S3 URI patterns through DuckDB where available. Tests continue
 to inject pandas DataFrames directly when needed and do not require S3 or AWS
 credentials.
 
-For local smoke testing with the daily/latest export:
+For local smoke testing with a daily/latest export:
 
 ```bash
-MODEL_SIGNAL_DATA_PATH=/path/to/US-Market-ML-Research/artifacts/model_signals_daily \
+MODEL_SIGNAL_CURRENT_DATA_PATH=/data/curated/model_signals_daily \
   python scripts/validate_model_signal_export.py \
-  --path /path/to/US-Market-ML-Research/artifacts/model_signals_daily \
+  --path /data/curated/model_signals_daily \
   --model-version linear_smooth10_margin002_v1
 ```
 
-This validates artifact shape for paper-tracking/research usage only. It is not
-live trading infrastructure, live inference, or trading advice.
+This validates artifact shape for paper-tracking/research usage only.
+Daily/latest artifacts may be short and should not be used for long historical
+backtests. This is not live trading infrastructure, live inference, or trading
+advice.

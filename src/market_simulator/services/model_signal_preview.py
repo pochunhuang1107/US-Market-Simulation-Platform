@@ -29,6 +29,10 @@ class ModelSignalPreviewInvalidError(ModelSignalPreviewError):
     code = "MODEL_SIGNAL_ARTIFACT_INVALID"
 
 
+CURRENT_ARTIFACT_SOURCE_LABEL = "current artifact"
+HISTORICAL_ARTIFACT_FALLBACK_SOURCE_LABEL = "historical artifact fallback"
+
+
 @dataclass(frozen=True)
 class ModelSignalPreviewRequest:
     model_version: str
@@ -36,6 +40,11 @@ class ModelSignalPreviewRequest:
     frame: pd.DataFrame | None = None
     manifest: ModelSignalManifest | None = None
     repository: ModelSignalRepository | None = None
+
+
+@dataclass(frozen=True)
+class ModelSignalArtifactSource:
+    label: str
 
 
 def _safe_missing_error() -> ModelSignalPreviewNotFoundError:
@@ -48,10 +57,29 @@ def _safe_invalid_error(message: str) -> ModelSignalPreviewInvalidError:
     return ModelSignalPreviewInvalidError(f"Model signal artifact is invalid: {message}")
 
 
+def resolve_current_model_signal_data_path(
+    *,
+    data_path: str | None = None,
+) -> tuple[str, ModelSignalArtifactSource]:
+    if data_path is not None:
+        return data_path, ModelSignalArtifactSource(CURRENT_ARTIFACT_SOURCE_LABEL)
+
+    settings = get_settings()
+    current_data_path = settings.model_signal_current_data_path.strip()
+    if current_data_path:
+        return current_data_path, ModelSignalArtifactSource(CURRENT_ARTIFACT_SOURCE_LABEL)
+
+    return (
+        settings.model_signal_data_path,
+        ModelSignalArtifactSource(HISTORICAL_ARTIFACT_FALLBACK_SOURCE_LABEL),
+    )
+
+
 def _load_frame_and_manifest(
     request: ModelSignalPreviewRequest,
     entry: ModelSignalCatalogEntry,
-) -> tuple[pd.DataFrame, ModelSignalManifest | None]:
+) -> tuple[pd.DataFrame, ModelSignalManifest | None, ModelSignalArtifactSource]:
+    source = ModelSignalArtifactSource(CURRENT_ARTIFACT_SOURCE_LABEL)
     if request.frame is not None:
         try:
             frame = validate_model_signal_frame(
@@ -60,15 +88,13 @@ def _load_frame_and_manifest(
             )
         except ValueError as exc:
             raise _safe_invalid_error(str(exc)) from exc
-        return frame, request.manifest
+        return frame, request.manifest, source
 
     repository = request.repository
     if repository is None:
         settings = get_settings()
-        data_path = (
-            request.data_path
-            if request.data_path is not None
-            else settings.model_signal_data_path
+        data_path, source = resolve_current_model_signal_data_path(
+            data_path=request.data_path,
         )
         if not data_path or not data_path.strip():
             raise _safe_missing_error()
@@ -94,7 +120,7 @@ def _load_frame_and_manifest(
         except ValueError as exc:
             raise _safe_invalid_error(str(exc)) from exc
 
-    return frame, manifest
+    return frame, manifest, source
 
 
 def _normalize_bucket_filter(bucket_filter: Iterable[str]) -> set[str]:
@@ -219,7 +245,7 @@ def preview_current_model_signal(
         manifest=manifest,
         repository=repository,
     )
-    signal_frame, loaded_manifest = _load_frame_and_manifest(request, entry)
+    signal_frame, loaded_manifest, source = _load_frame_and_manifest(request, entry)
     signal_frame = signal_frame[
         signal_frame["model_version"] == entry.model_version
     ].copy()
@@ -264,4 +290,9 @@ def preview_current_model_signal(
         ),
         "generated_at": _generated_at(latest_rows, loaded_manifest),
         "manifest": manifest_payload,
+        "source": {
+            "type": "model_signal_artifact",
+            "label": source.label,
+            "manifest_status": loaded_manifest.status if loaded_manifest else None,
+        },
     }

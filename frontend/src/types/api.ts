@@ -154,6 +154,13 @@ export interface ModelSignalCurrentPreviewResponse {
   export_created_at: Nullable<string>;
   generated_at: Nullable<string>;
   manifest: Nullable<ModelSignalManifestResponse>;
+  source: Nullable<ModelSignalCurrentPreviewSourceResponse>;
+}
+
+export interface ModelSignalCurrentPreviewSourceResponse {
+  type: string;
+  label: string;
+  manifest_status: Nullable<string>;
 }
 
 export interface StrategyCurrentSignalRowResponse {
@@ -165,6 +172,7 @@ export interface StrategyCurrentSignalRowResponse {
 
 export interface StrategyCurrentSignalSourceResponse {
   type: string;
+  label: string;
   manifest_status: Nullable<string>;
 }
 
